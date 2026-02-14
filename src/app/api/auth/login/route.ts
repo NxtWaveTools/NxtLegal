@@ -8,11 +8,11 @@ import { logger } from '@/core/infra/logging/logger'
 import { rateLimiter } from '@/core/infra/rate-limiting/simple-rate-limiter'
 import { limits } from '@/core/constants/limits'
 import { getTenantIdFromHeader } from '@/core/constants/tenants'
+import { authErrorCodes, authErrorMessages } from '@/core/constants/auth-errors'
 import { sanitizeZodError } from '@/core/http/error-sanitizer'
 import { accountLockoutService } from '@/core/infra/security/account-lockout-service'
 import { sanitizeRateLimitKey, validateEmployeeId } from '@/core/http/input-validator'
 import { isAppError } from '@/core/http/errors'
-
 const handleLogin = async (request: NextRequest, correlationId: string) => {
   // Cache parsed body to avoid double-read issues
   let parsedBody: unknown

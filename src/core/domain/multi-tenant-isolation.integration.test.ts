@@ -5,12 +5,13 @@
 
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals'
 import { createClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
 import { envServer } from '@/core/config/env.server'
 import { hashPassword } from '@/lib/auth/password'
 import { DEFAULT_TENANT_ID } from '@/core/constants/tenants'
 
 describe('Multi-Tenant Isolation', () => {
-  let supabaseClient: ReturnType<typeof createClient>
+  let supabaseClient: ReturnType<typeof createClient<Database>>
   const tenant1Id = DEFAULT_TENANT_ID
   const tenant2Id = '11111111-1111-1111-1111-111111111111'
 
@@ -18,7 +19,7 @@ describe('Multi-Tenant Isolation', () => {
   const employee2Id = 'TENANT2EMP'
 
   beforeAll(async () => {
-    supabaseClient = createClient(envServer.supabaseUrl, envServer.supabaseServiceRoleKey, {
+    supabaseClient = createClient<Database>(envServer.supabaseUrl, envServer.supabaseServiceRoleKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
@@ -29,7 +30,7 @@ describe('Multi-Tenant Isolation', () => {
     await supabaseClient.from('tenants').upsert({
       id: tenant2Id,
       name: 'Test Tenant 2',
-    } as Record<string, unknown>)
+    })
 
     // Create employee in tenant1
     const passwordHash = await hashPassword('Password123!')
@@ -42,7 +43,7 @@ describe('Multi-Tenant Isolation', () => {
       is_active: true,
       role: 'viewer',
       password_hash: passwordHash,
-    } as Record<string, unknown>)
+    })
 
     // Create employee in tenant2 with SAME employee_id (different tenant)
     await supabaseClient.from('employees').insert({
@@ -54,7 +55,7 @@ describe('Multi-Tenant Isolation', () => {
       is_active: true,
       role: 'viewer',
       password_hash: passwordHash,
-    } as Record<string, unknown>)
+    })
   })
 
   afterAll(async () => {
@@ -82,12 +83,14 @@ describe('Multi-Tenant Isolation', () => {
 
       // Each tenant should only see their own employee
       expect(tenant1Employees).toHaveLength(1)
-      const t1Emp = tenant1Employees?.[0] as Record<string, unknown> | undefined
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const t1Emp = tenant1Employees?.[0] as any
       expect(t1Emp?.employee_id).toBe(employee1Id)
       expect(t1Emp?.tenant_id).toBe(tenant1Id)
 
       expect(tenant2Employees).toHaveLength(1)
-      const t2Emp = tenant2Employees?.[0] as Record<string, unknown> | undefined
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const t2Emp = tenant2Employees?.[0] as any
       expect(t2Emp?.employee_id).toBe(employee2Id)
       expect(t2Emp?.tenant_id).toBe(tenant2Id)
     })
@@ -112,7 +115,8 @@ describe('Multi-Tenant Isolation', () => {
         .in('employee_id', [employee1Id, employee2Id])
 
       // Should return both (this is why tenant_id is critical!)
-      expect((allEmployees as Record<string, unknown>[] | null)?.length).toBeGreaterThanOrEqual(2)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(((allEmployees as any) || [])?.length).toBeGreaterThanOrEqual(2)
 
       // With tenant filter, should only return one
       const { data: tenant1Only } = await supabaseClient
@@ -122,7 +126,8 @@ describe('Multi-Tenant Isolation', () => {
         .eq('tenant_id', tenant1Id)
 
       expect(tenant1Only).toHaveLength(1)
-      const t1Record = tenant1Only?.[0] as Record<string, unknown> | undefined
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const t1Record = tenant1Only?.[0] as any
       expect(t1Record?.tenant_id).toBe(tenant1Id)
     })
   })
@@ -148,7 +153,8 @@ describe('Multi-Tenant Isolation', () => {
 
       // Note: RPC function may not exist in test environment
       try {
-        await (supabaseClient as ReturnType<typeof createClient>).rpc('get_policies', {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabaseClient as any).rpc('get_policies', {
           schema_name: 'public',
           table_name: 'employees',
         })
