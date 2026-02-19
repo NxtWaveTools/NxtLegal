@@ -10,6 +10,7 @@ import {
   type ContractTimelineEvent,
 } from '@/core/client/contracts-client'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
+import { formatContractLogEvents, isContractNoteEvent } from '@/modules/contracts/ui/formatContractLogEvent'
 import styles from './contracts-workspace.module.css'
 
 type ContractsWorkspaceProps = {
@@ -226,7 +227,9 @@ export default function ContractsWorkspace({ session }: ContractsWorkspaceProps)
     applyContractView(response.data)
   }
 
-  const noteEvents = useMemo(() => timeline.filter((event) => event.eventType === 'CONTRACT_NOTE_ADDED'), [timeline])
+  const noteEvents = useMemo(() => timeline.filter((event) => isContractNoteEvent(event)), [timeline])
+
+  const formattedLogs = useMemo(() => formatContractLogEvents(timeline), [timeline])
 
   return (
     <div className={styles.layout}>
@@ -358,11 +361,15 @@ export default function ContractsWorkspace({ session }: ContractsWorkspaceProps)
             </div>
 
             <div className={styles.timeline}>
-              <div className={styles.title}>Timeline</div>
-              {timeline.map((event) => (
+              <div className={styles.title}>Logs</div>
+              {formattedLogs.map((event) => (
                 <div key={event.id} className={styles.event}>
-                  <div>{event.action}</div>
-                  <div className={styles.eventMeta}>{new Date(event.createdAt).toLocaleString()}</div>
+                  <div className={styles.eventActor}>{event.actorLabel}</div>
+                  <div>{event.message}</div>
+                  {event.remark ? <div className={styles.eventRemark}>{event.remark}</div> : null}
+                  <div className={styles.eventMeta} title={event.absoluteTimestamp}>
+                    {event.relativeTimestamp}
+                  </div>
                 </div>
               ))}
             </div>

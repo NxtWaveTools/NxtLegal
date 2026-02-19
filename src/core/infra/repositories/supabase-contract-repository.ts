@@ -34,6 +34,7 @@ class SupabaseContractRepository implements ContractRepository {
       p_title: input.title,
       p_uploaded_by_employee_id: input.uploadedByEmployeeId,
       p_uploaded_by_email: input.uploadedByEmail,
+      p_uploaded_by_role: input.uploadedByRole,
       p_file_path: input.filePath,
       p_file_name: input.fileName,
       p_file_size_bytes: input.fileSizeBytes,
@@ -47,13 +48,19 @@ class SupabaseContractRepository implements ContractRepository {
       })
     }
 
+    return this.loadCreatedContract(input.contractId, input.tenantId)
+  }
+
+  private async loadCreatedContract(contractId: string, tenantId: string): Promise<ContractRecord> {
+    const supabase = createServiceSupabase()
+
     const { data, error } = await supabase
       .from('contracts')
       .select(
         'id, tenant_id, title, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, status, file_path, file_name, file_size_bytes, file_mime_type, created_at'
       )
-      .eq('id', input.contractId)
-      .eq('tenant_id', input.tenantId)
+      .eq('id', contractId)
+      .eq('tenant_id', tenantId)
       .is('deleted_at', null)
       .single<ContractRow>()
 

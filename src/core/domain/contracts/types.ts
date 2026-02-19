@@ -22,6 +22,7 @@ export type CreateContractUploadInput = {
   title: string
   uploadedByEmployeeId: string
   uploadedByEmail: string
+  uploadedByRole: string
   filePath: string
   fileName: string
   fileSizeBytes: number

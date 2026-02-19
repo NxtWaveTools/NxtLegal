@@ -58,6 +58,7 @@ export class ContractUploadService {
         title: input.title.trim(),
         uploadedByEmployeeId: input.uploadedByEmployeeId,
         uploadedByEmail: input.uploadedByEmail,
+        uploadedByRole: input.uploadedByRole,
         filePath,
         fileName: safeFileName,
         fileSizeBytes: input.fileSizeBytes,

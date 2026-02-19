@@ -62,6 +62,20 @@ type AdditionalApproverEntity = {
 class SupabaseContractQueryRepository implements ContractQueryRepository {
   private readonly validStatuses = new Set<ContractStatus>(Object.values(contractStatuses))
 
+  private assertActorMetadata(params: { actorEmployeeId: string; actorEmail: string; actorRole: string }): void {
+    if (!params.actorEmployeeId.trim()) {
+      throw new BusinessRuleError('ACTOR_ID_REQUIRED', 'Actor employee ID is required')
+    }
+
+    if (!params.actorEmail.trim()) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    if (!params.actorRole.trim()) {
+      throw new BusinessRuleError('ACTOR_ROLE_REQUIRED', 'Actor role is required')
+    }
+  }
+
   async listByTenant(params: {
     tenantId: string
     cursor?: string
@@ -250,6 +264,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     actorEmail: string
     noteText?: string
   }): Promise<ContractDetail> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
     const contract = await this.getById(params.tenantId, params.contractId)
 
     if (!contract) {
@@ -334,7 +354,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         resource_type: 'contract',
         resource_id: params.contractId,
         target_email: assigneeEmail,
-        note_text: params.noteText ?? null,
+        note_text: params.noteText?.trim() || null,
         metadata: {
           from_status: contract.status,
           to_status: nextStatus,
@@ -365,6 +385,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     actorEmail: string
     approverEmail: string
   }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
     if (params.actorRole !== 'LEGAL_TEAM' && params.actorRole !== 'ADMIN') {
       throw new AuthorizationError('CONTRACT_APPROVER_FORBIDDEN', 'Only legal team can assign additional approvers')
     }
@@ -454,6 +480,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     actorEmail: string
     noteText: string
   }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
     const contract = await this.getById(params.tenantId, params.contractId)
     if (!contract) {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
@@ -480,7 +512,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         actor_role: params.actorRole,
         resource_type: 'contract',
         resource_id: params.contractId,
-        note_text: params.noteText,
+        note_text: params.noteText.trim(),
       },
     ])
 
@@ -498,6 +530,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     actorRole: string
     actorEmail: string
   }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
     if (params.contract.status !== contractStatuses.legalPending) {
       throw new BusinessRuleError(
         'APPROVER_ACTION_INVALID_STATUS',
