@@ -43,15 +43,17 @@ export default function ContractsWorkspace({ session }: ContractsWorkspaceProps)
       return
     }
 
-    setContracts(response.data.contracts)
+    const contractsList = response.data.contracts
+
+    setContracts(contractsList)
     setError(null)
 
     setSelectedContractId((current) => {
-      if (current || response.data.contracts.length === 0) {
+      if (current || contractsList.length === 0) {
         return current
       }
 
-      return response.data.contracts[0].id
+      return contractsList[0].id
     })
   }, [])
 
