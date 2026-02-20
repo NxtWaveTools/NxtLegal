@@ -238,7 +238,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return []
     }
 
-    const transitions = await this.getTransitionsForStatus(params.tenantId, params.contract.status, params.actorRole)
+    const actorRole = params.actorRole
+
+    const transitions = await this.getTransitionsForStatus(params.tenantId, params.contract.status, actorRole)
 
     const actionsByName = new Map<ContractActionName, ContractAllowedAction>()
     for (const transition of transitions) {
@@ -259,7 +261,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const firstPendingApprover = await this.getFirstPendingApprover(params.tenantId, params.contract.id)
 
     const actions = actionsFromGraph.filter((item) => {
-      if (item.action === 'hod.bypass' && !bypassAllowedRoles.has(params.actorRole)) {
+      if (item.action === 'hod.bypass' && !bypassAllowedRoles.has(actorRole)) {
         return false
       }
 
