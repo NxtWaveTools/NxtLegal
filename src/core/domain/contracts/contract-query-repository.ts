@@ -66,6 +66,12 @@ export interface ContractQueryRepository {
   getById(tenantId: string, contractId: string): Promise<ContractDetail | null>
   getTimeline(tenantId: string, contractId: string, limit: number): Promise<ContractTimelineEvent[]>
   getAdditionalApprovers(tenantId: string, contractId: string): Promise<ContractAdditionalApprover[]>
+  canAccessContract(params: {
+    tenantId: string
+    actorEmployeeId: string
+    actorRole?: string
+    contract: ContractDetail
+  }): Promise<boolean>
   getAvailableActions(params: {
     tenantId: string
     contract: ContractDetail

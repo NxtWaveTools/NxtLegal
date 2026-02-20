@@ -25,6 +25,7 @@ const actionLabelMap: Record<ContractActionName, string> = {
 }
 
 const remarkRequiredActions = new Set<ContractActionName>(['legal.query.reroute', 'hod.bypass'])
+const bypassAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN'])
 
 type ContractEntity = {
   id: string
@@ -101,10 +102,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       query = query.lt('created_at', decodedCursor.createdAt)
     }
 
-    if (params.role !== 'ADMIN' && params.role !== 'LEGAL_TEAM') {
-      query = query.or(
-        `uploaded_by_employee_id.eq.${params.employeeId},current_assignee_employee_id.eq.${params.employeeId}`
-      )
+    const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+    if (visibilityFilter) {
+      query = query.or(visibilityFilter)
     }
 
     const { data, error } = await query
@@ -219,6 +219,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }))
   }
 
+  async canAccessContract(params: {
+    tenantId: string
+    actorEmployeeId: string
+    actorRole?: string
+    contract: ContractDetail
+  }): Promise<boolean> {
+    return this.canActorAccessContract(params)
+  }
+
   async getAvailableActions(params: {
     tenantId: string
     contract: ContractDetail
@@ -230,14 +239,30 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     const transitions = await this.getTransitionsForStatus(params.tenantId, params.contract.status, params.actorRole)
-    const actionsFromGraph = transitions
-      .map((transition) => this.toAllowedAction(transition.trigger_action as ContractActionName))
-      .filter((value): value is ContractAllowedAction => value !== null)
+
+    const actionsByName = new Map<ContractActionName, ContractAllowedAction>()
+    for (const transition of transitions) {
+      const actionName = transition.trigger_action as ContractActionName
+      if (actionsByName.has(actionName)) {
+        continue
+      }
+
+      const allowedAction = this.toAllowedAction(actionName)
+      if (allowedAction) {
+        actionsByName.set(actionName, allowedAction)
+      }
+    }
+
+    const actionsFromGraph = Array.from(actionsByName.values())
 
     const pendingApproverCount = await this.getPendingApproverCount(params.tenantId, params.contract.id)
     const firstPendingApprover = await this.getFirstPendingApprover(params.tenantId, params.contract.id)
 
     const actions = actionsFromGraph.filter((item) => {
+      if (item.action === 'hod.bypass' && !bypassAllowedRoles.has(params.actorRole)) {
+        return false
+      }
+
       if (item.action === 'legal.approve' && pendingApproverCount > 0) {
         return false
       }
@@ -276,6 +301,17 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
+    const canAccess = await this.canActorAccessContract({
+      tenantId: params.tenantId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      contract,
+    })
+
+    if (!canAccess) {
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'You do not have access to this contract')
+    }
+
     if (params.action === 'approver.approve') {
       await this.applyAdditionalApproverApproval({
         tenantId: params.tenantId,
@@ -294,6 +330,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (remarkRequiredActions.has(params.action) && !params.noteText?.trim()) {
       throw new BusinessRuleError('REMARK_REQUIRED', 'Remarks are mandatory for this action')
+    }
+
+    if (params.action === 'hod.bypass' && !bypassAllowedRoles.has(params.actorRole)) {
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only legal team or admin can bypass HOD approval')
     }
 
     const transition = await this.resolveTransition(params.tenantId, contract.status, params.action)
@@ -491,11 +531,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    const canAccess =
-      params.actorRole === 'ADMIN' ||
-      params.actorRole === 'LEGAL_TEAM' ||
-      contract.uploadedByEmployeeId === params.actorEmployeeId ||
-      contract.currentAssigneeEmployeeId === params.actorEmployeeId
+    const canAccess = await this.canActorAccessContract({
+      tenantId: params.tenantId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      contract,
+    })
 
     if (!canAccess) {
       throw new AuthorizationError('CONTRACT_NOTE_FORBIDDEN', 'You do not have access to add notes on this contract')
@@ -630,6 +671,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   }
 
   private async resolveTransition(tenantId: string, fromStatus: ContractStatus, action: ContractActionName) {
+    if (action === 'legal.query.reroute') {
+      return this.resolveRerouteTransition(tenantId, fromStatus)
+    }
+
     const supabase = createServiceSupabase()
 
     const { data: tenantTransitions, error } = await supabase
@@ -639,19 +684,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .eq('from_status', fromStatus)
       .eq('trigger_action', action)
       .eq('is_active', true)
-      .limit(2)
+      .order('created_at', { ascending: false })
+      .limit(1)
 
     if (error) {
       throw new DatabaseError('Failed to resolve workflow transition', new Error(error.message), {
         code: error.code,
       })
-    }
-
-    if (tenantTransitions && tenantTransitions.length > 1) {
-      throw new BusinessRuleError(
-        'CONTRACT_TRANSITION_AMBIGUOUS',
-        'Multiple active workflow transitions configured for this action'
-      )
     }
 
     if (tenantTransitions && tenantTransitions.length === 1) {
@@ -665,19 +704,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .eq('from_status', fromStatus)
       .eq('trigger_action', action)
       .eq('is_active', true)
-      .limit(2)
+      .order('created_at', { ascending: false })
+      .limit(1)
 
     if (fallbackError) {
       throw new DatabaseError('Failed to resolve default workflow transition', new Error(fallbackError.message), {
         code: fallbackError.code,
       })
-    }
-
-    if (fallbackTransitions && fallbackTransitions.length > 1) {
-      throw new BusinessRuleError(
-        'CONTRACT_TRANSITION_AMBIGUOUS',
-        'Multiple active default workflow transitions configured for this action'
-      )
     }
 
     if (!fallbackTransitions || fallbackTransitions.length === 0) {
@@ -688,6 +721,133 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     return fallbackTransitions[0] as { to_status: string; allowed_roles: string[] }
+  }
+
+  private async resolveRerouteTransition(tenantId: string, fromStatus: ContractStatus) {
+    const supabase = createServiceSupabase()
+
+    const loadTransition = async (scopeTenantId: string) => {
+      const { data, error } = await supabase
+        .from('contract_transition_graph')
+        .select('to_status, allowed_roles')
+        .eq('tenant_id', scopeTenantId)
+        .eq('from_status', fromStatus)
+        .eq('trigger_action', 'legal.query.reroute')
+        .eq('to_status', contractStatuses.hodPending)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (error) {
+        throw new DatabaseError('Failed to resolve reroute transition', new Error(error.message), {
+          code: error.code,
+        })
+      }
+
+      return data
+    }
+
+    const tenantTransition = await loadTransition(tenantId)
+    if (tenantTransition && tenantTransition.length > 0) {
+      return tenantTransition[0] as { to_status: string; allowed_roles: string[] }
+    }
+
+    const fallbackTransition = await loadTransition(DEFAULT_TENANT_ID)
+    if (fallbackTransition && fallbackTransition.length > 0) {
+      return fallbackTransition[0] as { to_status: string; allowed_roles: string[] }
+    }
+
+    throw new BusinessRuleError('CONTRACT_TRANSITION_INVALID', 'No active reroute transition configured for HOD')
+  }
+
+  private async canActorAccessContract(params: {
+    tenantId: string
+    actorEmployeeId: string
+    actorRole?: string
+    contract: ContractDetail
+  }): Promise<boolean> {
+    if (params.actorRole === 'ADMIN' || params.actorRole === 'LEGAL_TEAM') {
+      return true
+    }
+
+    if (
+      params.contract.uploadedByEmployeeId === params.actorEmployeeId ||
+      params.contract.currentAssigneeEmployeeId === params.actorEmployeeId
+    ) {
+      return true
+    }
+
+    if (params.actorRole !== 'HOD') {
+      return false
+    }
+
+    const teamMemberIds = await this.getTeamMemberIds(params.tenantId, params.actorEmployeeId)
+    if (teamMemberIds.length === 0) {
+      return false
+    }
+
+    return teamMemberIds.includes(params.contract.uploadedByEmployeeId)
+  }
+
+  private async getVisibilityFilter(
+    tenantId: string,
+    role: string | undefined,
+    employeeId: string
+  ): Promise<string | null> {
+    if (role === 'ADMIN' || role === 'LEGAL_TEAM') {
+      return null
+    }
+
+    if (role !== 'HOD') {
+      return `uploaded_by_employee_id.eq.${employeeId},current_assignee_employee_id.eq.${employeeId}`
+    }
+
+    const teamMemberIds = await this.getTeamMemberIds(tenantId, employeeId)
+    if (teamMemberIds.length === 0) {
+      return `uploaded_by_employee_id.eq.${employeeId},current_assignee_employee_id.eq.${employeeId}`
+    }
+
+    const serializedIds = teamMemberIds.join(',')
+    return `uploaded_by_employee_id.in.(${serializedIds}),current_assignee_employee_id.eq.${employeeId}`
+  }
+
+  private async getTeamMemberIds(tenantId: string, employeeId: string): Promise<string[]> {
+    const supabase = createServiceSupabase()
+
+    const { data: actorUser, error: actorError } = await supabase
+      .from('users')
+      .select('team_id')
+      .eq('tenant_id', tenantId)
+      .eq('id', employeeId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .maybeSingle<{ team_id: string | null }>()
+
+    if (actorError) {
+      throw new DatabaseError('Failed to resolve actor team context', new Error(actorError.message), {
+        code: actorError.code,
+      })
+    }
+
+    if (!actorUser?.team_id) {
+      return []
+    }
+
+    const { data: members, error: membersError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('team_id', actorUser.team_id)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+
+    if (membersError) {
+      throw new DatabaseError('Failed to resolve team members for access checks', new Error(membersError.message), {
+        code: membersError.code,
+      })
+    }
+
+    return (members ?? []).map((member) => member.id)
   }
 
   private async getPendingApproverCount(tenantId: string, contractId: string): Promise<number> {

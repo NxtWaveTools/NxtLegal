@@ -34,6 +34,7 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
+  const [uploadIdempotencyKey, setUploadIdempotencyKey] = useState<string | null>(null)
 
   const requiresSupportingDocs = counterparty.trim() !== '' && counterparty.trim().toUpperCase() !== 'NA'
   const showCounterpartyModal = counterparty.trim() !== '' && !COUNTERPARTIES.includes(counterparty.trim())
@@ -49,6 +50,7 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
     setUploadError(null)
     setUploadSuccess(null)
     setIsSubmitting(false)
+    setUploadIdempotencyKey(null)
   }
 
   const handleMainFile = (file: File) => {
@@ -93,6 +95,10 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
   }
 
   const handleUpload = async () => {
+    if (isSubmitting || uploadSuccess) {
+      return
+    }
+
     if (!mainFile) {
       setUploadError('Please upload a contract file before submitting.')
       return
@@ -104,9 +110,15 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
     setUploadSuccess(null)
     setIsSubmitting(true)
 
+    const idempotencyKey = uploadIdempotencyKey ?? crypto.randomUUID()
+    if (!uploadIdempotencyKey) {
+      setUploadIdempotencyKey(idempotencyKey)
+    }
+
     const response = await contractsClient.upload({
       title: generatedTitle,
       file: mainFile,
+      idempotencyKey,
     })
 
     if (!response.ok || !response.data?.contract) {
@@ -117,11 +129,15 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
 
     setIsSubmitting(false)
     setUploadSuccess(`Uploaded ${response.data.contract.title} successfully.`)
+    setUploadIdempotencyKey(null)
 
     if (onUploaded) {
       await onUploaded()
     }
 
+    onClose()
+    resetAll()
+    router.push('/dashboard')
     router.refresh()
   }
 
@@ -222,7 +238,7 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
           <button
             type="button"
             className={`${styles.button} ${styles.buttonPrimary}`}
-            disabled={isSubmitting}
+            disabled={isSubmitting || Boolean(uploadSuccess)}
             onClick={handleUpload}
           >
             {isSubmitting ? 'Uploading...' : 'Upload'}

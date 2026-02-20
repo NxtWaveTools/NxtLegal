@@ -128,7 +128,11 @@ export const contractsClient = {
     return parseApiResponse<{ events: ContractTimelineEvent[] }>(response)
   },
 
-  async upload(params: { title: string; file: File }): Promise<ApiResponse<{ contract: ContractRecord }>> {
+  async upload(params: {
+    title: string
+    file: File
+    idempotencyKey: string
+  }): Promise<ApiResponse<{ contract: ContractRecord }>> {
     const formData = new FormData()
     formData.set('title', params.title)
     formData.set('file', params.file)
@@ -136,6 +140,9 @@ export const contractsClient = {
     const response = await fetch(routeRegistry.api.contracts.upload, {
       method: 'POST',
       credentials: 'include',
+      headers: {
+        'Idempotency-Key': params.idempotencyKey,
+      },
       body: formData,
     })
 

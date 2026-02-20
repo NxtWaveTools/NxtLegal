@@ -162,12 +162,17 @@ export default function ContractsWorkspace({ session }: ContractsWorkspaceProps)
     })
     setIsMutating(false)
 
-    if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to apply contract action')
+    if (response.ok !== true) {
+      if (response.error?.code) {
+        setError(response.error.message ?? 'Failed to apply contract action')
+      }
       return
     }
 
-    applyContractView(response.data)
+    if (response.data) {
+      applyContractView(response.data)
+    }
+
     await loadContracts()
     await loadContractContext(selectedContractId)
     router.refresh()
@@ -205,6 +210,7 @@ export default function ContractsWorkspace({ session }: ContractsWorkspaceProps)
     setNoteText('')
     applyContractView(response.data)
     await loadContractContext(selectedContractId)
+    router.refresh()
   }
 
   const handleAddApprover = async () => {

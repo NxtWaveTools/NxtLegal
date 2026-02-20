@@ -1,8 +1,10 @@
-import { createClient } from '@/lib/supabase/client'
+import 'server-only'
+
+import { createServiceSupabase } from '@/lib/supabase/service'
 import type { IIdempotencyRepository, IdempotencyRecord } from '@/core/domain/idempotency/idempotency-service'
 
 class SupabaseIdempotencyRepository implements IIdempotencyRepository {
-  private supabase = createClient()
+  private supabase = createServiceSupabase()
 
   async get(key: string, tenantId: string): Promise<IdempotencyRecord | null> {
     const { data, error } = await this.supabase

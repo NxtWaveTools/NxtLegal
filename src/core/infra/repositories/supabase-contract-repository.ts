@@ -128,6 +128,50 @@ class SupabaseContractRepository implements ContractRepository {
     }
   }
 
+  async isUploaderInActorTeam(params: {
+    tenantId: string
+    actorEmployeeId: string
+    uploaderEmployeeId: string
+  }): Promise<boolean> {
+    const supabase = createServiceSupabase()
+
+    const { data: actor, error: actorError } = await supabase
+      .from('users')
+      .select('team_id')
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.actorEmployeeId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .maybeSingle<{ team_id: string | null }>()
+
+    if (actorError) {
+      throw new DatabaseError('Failed to resolve actor team for contract access', new Error(actorError.message), {
+        code: actorError.code,
+      })
+    }
+
+    if (!actor?.team_id) {
+      return false
+    }
+
+    const { data: uploader, error: uploaderError } = await supabase
+      .from('users')
+      .select('team_id')
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.uploaderEmployeeId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .maybeSingle<{ team_id: string | null }>()
+
+    if (uploaderError) {
+      throw new DatabaseError('Failed to resolve uploader team for contract access', new Error(uploaderError.message), {
+        code: uploaderError.code,
+      })
+    }
+
+    return Boolean(uploader?.team_id) && uploader?.team_id === actor.team_id
+  }
+
   private mapContract(row: ContractRow): ContractRecord {
     if (!this.validStatuses.has(row.status as ContractStatus)) {
       throw new DatabaseError('Contract status is invalid in persistence layer', undefined, {

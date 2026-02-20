@@ -29,7 +29,7 @@ const eventTemplates: Record<CanonicalContractLogEventType, string> = {
   LEGAL_APPROVED: '{actor} approved the contract as Legal.',
   LEGAL_QUERY_RAISED: '{actor} raised a legal query.',
   HOD_BYPASSED: '{actor} bypassed HOD approval.',
-  CONTRACT_REROUTED_TO_HOD: '{actor} rerouted the contract back to HOD.',
+  CONTRACT_REROUTED_TO_HOD: '{actor} rerouted contract to HOD.',
   NOTE_ADDED: '{actor} added a note.',
   ADDITIONAL_APPROVER_ADDED: '{actor} added {target} as an additional approver.',
   ADDITIONAL_APPROVED: '{actor} approved as additional approver.',

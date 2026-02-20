@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { getContractUploadService } from '@/core/registry/service-registry'
+import { getContractUploadService, getIdempotencyService } from '@/core/registry/service-registry'
 import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { logger } from '@/core/infra/logging/logger'
@@ -15,6 +15,19 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       return NextResponse.json(errorResponse('SESSION_INVALID', 'Session is missing required user details'), {
         status: 401,
       })
+    }
+
+    const idempotencyKey = request.headers.get('Idempotency-Key')?.trim()
+    if (!idempotencyKey) {
+      return NextResponse.json(errorResponse('IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key header is required'), {
+        status: 400,
+      })
+    }
+
+    const idempotencyService = getIdempotencyService()
+    const existingResponse = await idempotencyService.getIfExists(idempotencyKey, session.tenantId)
+    if (existingResponse) {
+      return NextResponse.json(existingResponse.responseData, { status: existingResponse.statusCode })
     }
 
     const formData = await request.formData()
@@ -50,20 +63,21 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       role: session.role,
     })
 
-    return NextResponse.json(
-      okResponse({
-        contract: {
-          id: contract.id,
-          title: contract.title,
-          status: contract.status,
-          currentAssigneeEmployeeId: contract.currentAssigneeEmployeeId,
-          currentAssigneeEmail: contract.currentAssigneeEmail,
-          fileName: contract.fileName,
-          fileSizeBytes: contract.fileSizeBytes,
-        },
-      }),
-      { status: 201 }
-    )
+    const responseData = okResponse({
+      contract: {
+        id: contract.id,
+        title: contract.title,
+        status: contract.status,
+        currentAssigneeEmployeeId: contract.currentAssigneeEmployeeId,
+        currentAssigneeEmail: contract.currentAssigneeEmail,
+        fileName: contract.fileName,
+        fileSizeBytes: contract.fileSizeBytes,
+      },
+    })
+
+    await idempotencyService.store(idempotencyKey, session.tenantId, responseData, 201)
+
+    return NextResponse.json(responseData, { status: 201 })
   } catch (error) {
     logger.error('Contract upload failed', {
       error: String(error),

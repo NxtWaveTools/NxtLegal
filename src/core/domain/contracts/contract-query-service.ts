@@ -33,7 +33,14 @@ export class ContractQueryService {
       throw new NotFoundError('Contract', params.contractId)
     }
 
-    if (!this.canAccessContract(params.role, params.employeeId, contract)) {
+    if (
+      !(await this.contractRepository.canAccessContract({
+        tenantId: params.tenantId,
+        actorEmployeeId: params.employeeId,
+        actorRole: params.role,
+        contract,
+      }))
+    ) {
       throw new AuthorizationError('CONTRACT_READ_FORBIDDEN', 'You do not have access to this contract')
     }
 
@@ -67,7 +74,14 @@ export class ContractQueryService {
       throw new NotFoundError('Contract', params.contractId)
     }
 
-    if (!this.canAccessContract(params.role, params.employeeId, contract)) {
+    if (
+      !(await this.contractRepository.canAccessContract({
+        tenantId: params.tenantId,
+        actorEmployeeId: params.employeeId,
+        actorRole: params.role,
+        contract,
+      }))
+    ) {
       throw new AuthorizationError('CONTRACT_TIMELINE_FORBIDDEN', 'You do not have access to this contract timeline')
     }
 
@@ -97,7 +111,7 @@ export class ContractQueryService {
       }
     }
 
-    await this.contractRepository.applyAction({
+    const updatedContract = await this.contractRepository.applyAction({
       tenantId: params.tenantId,
       contractId: params.contractId,
       action: params.action,
@@ -107,11 +121,12 @@ export class ContractQueryService {
       noteText: params.noteText,
     })
 
-    return this.getContractDetail({
+    return this.getContractDetailAfterMutation({
       tenantId: params.tenantId,
       contractId: params.contractId,
       employeeId: params.actorEmployeeId,
       role: params.actorRole,
+      updatedContract,
     })
   }
 
@@ -140,11 +155,18 @@ export class ContractQueryService {
       noteText: params.noteText,
     })
 
-    return this.getContractDetail({
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    return this.getContractDetailAfterMutation({
       tenantId: params.tenantId,
       contractId: params.contractId,
       employeeId: params.actorEmployeeId,
       role: params.actorRole,
+      updatedContract: contract,
     })
   }
 
@@ -173,19 +195,45 @@ export class ContractQueryService {
       approverEmail: params.approverEmail,
     })
 
-    return this.getContractDetail({
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    return this.getContractDetailAfterMutation({
       tenantId: params.tenantId,
       contractId: params.contractId,
       employeeId: params.actorEmployeeId,
       role: params.actorRole,
+      updatedContract: contract,
     })
   }
 
-  private canAccessContract(role: string | undefined, employeeId: string, contract: ContractDetail): boolean {
-    if (role === 'ADMIN' || role === 'LEGAL_TEAM') {
-      return true
-    }
+  private async getContractDetailAfterMutation(params: {
+    tenantId: string
+    contractId: string
+    employeeId: string
+    role?: string
+    updatedContract: ContractDetail
+  }): Promise<ContractDetailView> {
+    try {
+      return await this.getContractDetail({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        employeeId: params.employeeId,
+        role: params.role,
+      })
+    } catch (error) {
+      if (error instanceof AuthorizationError && error.code === 'CONTRACT_READ_FORBIDDEN') {
+        return {
+          contract: params.updatedContract,
+          availableActions: [],
+          additionalApprovers: [],
+        }
+      }
 
-    return contract.uploadedByEmployeeId === employeeId || contract.currentAssigneeEmployeeId === employeeId
+      throw error
+    }
   }
 }

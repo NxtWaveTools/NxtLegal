@@ -98,7 +98,13 @@ export class ContractUploadService {
     const canRead =
       this.privilegedReadRoles.has(params.requestorRole) ||
       contract.uploadedByEmployeeId === params.requestorEmployeeId ||
-      contract.currentAssigneeEmployeeId === params.requestorEmployeeId
+      contract.currentAssigneeEmployeeId === params.requestorEmployeeId ||
+      (params.requestorRole === 'HOD' &&
+        (await this.contractRepository.isUploaderInActorTeam({
+          tenantId: params.tenantId,
+          actorEmployeeId: params.requestorEmployeeId,
+          uploaderEmployeeId: contract.uploadedByEmployeeId,
+        })))
 
     if (!canRead) {
       throw new AuthorizationError('CONTRACT_READ_FORBIDDEN', 'You do not have access to this contract')

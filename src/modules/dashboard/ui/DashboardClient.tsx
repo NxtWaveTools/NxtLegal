@@ -8,6 +8,7 @@ import ThemeToggle from '@/components/theme/ThemeToggle'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import { contractsClient, type ContractRecord } from '@/core/client/contracts-client'
+import { contractStatuses } from '@/core/constants/contracts'
 import styles from './dashboard.module.css'
 
 type DashboardClientProps = {
@@ -51,7 +52,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
   const loadContracts = useCallback(async () => {
     setIsLoadingContracts(true)
-    const response = await contractsClient.list({ limit: 6 })
+    const response = await contractsClient.list({ limit: 20 })
 
     if (!response.ok || !response.data) {
       setContracts([])
@@ -69,7 +70,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     let isCancelled = false
 
     const loadInitialContracts = async () => {
-      const response = await contractsClient.list({ limit: 6 })
+      const response = await contractsClient.list({ limit: 20 })
 
       if (isCancelled) {
         return
@@ -101,6 +102,20 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
     return session.fullName.split(' ')[0] || session.fullName
   }, [session.fullName])
+
+  const executedContracts = useMemo(
+    () =>
+      contracts.filter(
+        (contract) =>
+          contract.status === contractStatuses.hodApproved || contract.status === contractStatuses.finalApproved
+      ),
+    [contracts]
+  )
+
+  const ongoingContracts = useMemo(
+    () => contracts.filter((contract) => !executedContracts.some((executed) => executed.id === contract.id)),
+    [contracts, executedContracts]
+  )
 
   const uploadIcon = (
     <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -213,13 +228,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 className={`${styles.tab} ${styles.tabActive}`}
                 onClick={() => router.push('/dashboard/contracts')}
               >
-                Ongoing ({contracts.length})
+                Ongoing ({ongoingContracts.length})
               </button>
               <button type="button" className={styles.tab}>
                 Without Activity (0)
               </button>
               <button type="button" className={styles.tab}>
-                Executed (0)
+                Executed ({executedContracts.length})
               </button>
             </div>
             <div className={styles.contractsBody}>
