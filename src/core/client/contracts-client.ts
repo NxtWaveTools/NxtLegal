@@ -3,8 +3,10 @@ import type { ApiResponse } from '@/core/http/response'
 
 type ContractActionName =
   | 'hod.approve'
+  | 'hod.reject'
   | 'hod.bypass'
   | 'legal.approve'
+  | 'legal.reject'
   | 'legal.query'
   | 'legal.query.reroute'
   | 'approver.approve'
@@ -12,12 +14,29 @@ type ContractActionName =
 type ContractRecord = {
   id: string
   title: string
+  contractTypeId?: string
+  contractTypeName?: string
   status: string
   uploadedByEmployeeId: string
   uploadedByEmail: string
   currentAssigneeEmployeeId: string
   currentAssigneeEmail: string
   hodApprovedAt?: string | null
+  departmentId?: string
+  departmentName?: string
+  departmentHodName?: string | null
+  departmentHodEmail?: string | null
+  signatoryName?: string
+  signatoryDesignation?: string
+  signatoryEmail?: string
+  backgroundOfRequest?: string
+  budgetApproved?: boolean
+  requestCreatedAt?: string
+  tatDeadlineAt?: string | null
+  tatBreachedAt?: string | null
+  agingBusinessDays?: number | null
+  nearBreach?: boolean
+  isTatBreached?: boolean
   fileName?: string
   fileSizeBytes?: number
   fileMimeType?: string
@@ -27,7 +46,7 @@ type ContractRecord = {
 
 type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'LEGAL_PENDING' | 'FINAL_APPROVED' | 'LEGAL_QUERY'
 
-type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status'
+type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 type RepositorySortDirection = 'asc' | 'desc'
 
 type ContractTimelineEvent = {
@@ -77,6 +96,18 @@ type DashboardContractsResponse = ContractListResponse & {
   filter: DashboardContractsFilter
 }
 
+type DepartmentOption = {
+  id: string
+  name: string
+  hodName?: string | null
+  hodEmail?: string | null
+}
+
+type ContractTypeOption = {
+  id: string
+  name: string
+}
+
 async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
   try {
     return (await response.json()) as ApiResponse<T>
@@ -95,11 +126,52 @@ function resolveContractPath(template: string, contractId: string): string {
   return template.replace(':contractId', contractId)
 }
 
-function resolveProtectedContractPath(contractId: string): string {
-  return routeRegistry.protected.contractDetail.replace(':contractId', contractId)
+function resolveProtectedContractPath(
+  contractId: string,
+  options?: {
+    from?: 'dashboard' | 'repository'
+    filter?: DashboardContractsFilter
+  }
+): string {
+  const basePath = routeRegistry.protected.contractDetail.replace(':contractId', contractId)
+  const query = new URLSearchParams()
+
+  if (options?.from) {
+    query.set('from', options.from)
+  }
+
+  if (options?.filter) {
+    query.set('filter', options.filter)
+  }
+
+  if (query.size === 0) {
+    return basePath
+  }
+
+  return `${basePath}?${query.toString()}`
 }
 
 export const contractsClient = {
+  async contractTypes(): Promise<ApiResponse<{ contractTypes: ContractTypeOption[] }>> {
+    const response = await fetch(routeRegistry.api.contracts.contractTypes, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    })
+
+    return parseApiResponse<{ contractTypes: ContractTypeOption[] }>(response)
+  },
+
+  async departments(): Promise<ApiResponse<{ departments: DepartmentOption[] }>> {
+    const response = await fetch(routeRegistry.api.contracts.departments, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    })
+
+    return parseApiResponse<{ departments: DepartmentOption[] }>(response)
+  },
+
   async list(params?: { cursor?: string; limit?: number }): Promise<ApiResponse<ContractListResponse>> {
     const query = new URLSearchParams()
 
@@ -238,11 +310,37 @@ export const contractsClient = {
 
   async upload(params: {
     title: string
+    contractTypeId: string
+    signatoryName?: string
+    signatoryDesignation?: string
+    signatoryEmail?: string
+    backgroundOfRequest?: string
+    departmentId?: string
+    budgetApproved?: boolean
     file: File
     idempotencyKey: string
   }): Promise<ApiResponse<{ contract: ContractRecord }>> {
     const formData = new FormData()
     formData.set('title', params.title)
+    formData.set('contractTypeId', params.contractTypeId)
+    if (params.signatoryName) {
+      formData.set('signatoryName', params.signatoryName)
+    }
+    if (params.signatoryDesignation) {
+      formData.set('signatoryDesignation', params.signatoryDesignation)
+    }
+    if (params.signatoryEmail) {
+      formData.set('signatoryEmail', params.signatoryEmail)
+    }
+    if (params.backgroundOfRequest) {
+      formData.set('backgroundOfRequest', params.backgroundOfRequest)
+    }
+    if (params.departmentId) {
+      formData.set('departmentId', params.departmentId)
+    }
+    if (typeof params.budgetApproved === 'boolean') {
+      formData.set('budgetApproved', String(params.budgetApproved))
+    }
     formData.set('file', params.file)
 
     const response = await fetch(routeRegistry.api.contracts.upload, {
@@ -310,6 +408,8 @@ export const contractsClient = {
 
 export type {
   ContractRecord,
+  DepartmentOption,
+  ContractTypeOption,
   ContractTimelineEvent,
   ContractActionName,
   ContractAllowedAction,

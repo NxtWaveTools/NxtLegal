@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { contractsClient } from '@/core/client/contracts-client'
+import { contractsClient, type ContractTypeOption, type DepartmentOption } from '@/core/client/contracts-client'
 import WorkflowSidebar from './WorkflowSidebar'
 import ChooseFilesStep from './steps/ChooseFilesStep'
 import AdditionalDataStep from './steps/AdditionalDataStep'
@@ -16,7 +16,6 @@ type ThirdPartyUploadSidebarProps = {
   onUploaded?: () => Promise<void> | void
 }
 
-const CONTRACT_TYPES = ['NDA', 'MSA', 'SOW', 'Employment', 'Vendor Agreement']
 const COUNTERPARTIES = ['NA', 'Acme Corp', 'Orion Systems', 'Northwind Traders']
 const ORGANIZATION_ENTITY = 'NxtWave Disruptive Technologies Pvt Ltd'
 
@@ -29,6 +28,16 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
   const [isDragging, setIsDragging] = useState(false)
   const [contractType, setContractType] = useState('')
   const [counterparty, setCounterparty] = useState('')
+  const [signatoryName, setSignatoryName] = useState('')
+  const [signatoryDesignation, setSignatoryDesignation] = useState('')
+  const [signatoryEmail, setSignatoryEmail] = useState('')
+  const [backgroundOfRequest, setBackgroundOfRequest] = useState('')
+  const [departmentId, setDepartmentId] = useState('')
+  const [budgetApproved, setBudgetApproved] = useState(false)
+  const [contractTypes, setContractTypes] = useState<ContractTypeOption[]>([])
+  const [contractTypesLoaded, setContractTypesLoaded] = useState(false)
+  const [departments, setDepartments] = useState<DepartmentOption[]>([])
+  const [departmentsLoaded, setDepartmentsLoaded] = useState(false)
   const [supportingFiles, setSupportingFiles] = useState<File[]>([])
   const [stepError, setStepError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -38,6 +47,42 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
 
   const requiresSupportingDocs = counterparty.trim() !== '' && counterparty.trim().toUpperCase() !== 'NA'
   const showCounterpartyModal = counterparty.trim() !== '' && !COUNTERPARTIES.includes(counterparty.trim())
+  const selectedDepartmentName = departments.find((item) => item.id === departmentId)?.name ?? ''
+  const selectedContractTypeName = contractTypes.find((item) => item.id === contractType)?.name ?? ''
+
+  useEffect(() => {
+    if (!isOpen || (departmentsLoaded && contractTypesLoaded)) {
+      return
+    }
+
+    let isMounted = true
+
+    void (async () => {
+      const [departmentsResponse, contractTypesResponse] = await Promise.all([
+        contractsClient.departments(),
+        contractsClient.contractTypes(),
+      ])
+      if (!isMounted) {
+        return
+      }
+
+      if (departmentsResponse.ok && departmentsResponse.data?.departments) {
+        setDepartments(departmentsResponse.data.departments)
+      }
+
+      if (contractTypesResponse.ok && contractTypesResponse.data?.contractTypes) {
+        setContractTypes(contractTypesResponse.data.contractTypes)
+      }
+
+      setContractTypesLoaded(true)
+
+      setDepartmentsLoaded(true)
+    })()
+
+    return () => {
+      isMounted = false
+    }
+  }, [isOpen, contractTypesLoaded, departmentsLoaded])
 
   const resetAll = () => {
     setActiveStep(0)
@@ -45,6 +90,12 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
     setMainFileError(null)
     setContractType('')
     setCounterparty('')
+    setSignatoryName('')
+    setSignatoryDesignation('')
+    setSignatoryEmail('')
+    setBackgroundOfRequest('')
+    setDepartmentId('')
+    setBudgetApproved(false)
     setSupportingFiles([])
     setStepError(null)
     setUploadError(null)
@@ -74,8 +125,26 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
     }
 
     if (activeStep === 1) {
-      if (!contractType || !counterparty) {
+      if (
+        !contractType ||
+        !counterparty ||
+        !signatoryName.trim() ||
+        !signatoryDesignation.trim() ||
+        !signatoryEmail.trim() ||
+        !backgroundOfRequest.trim() ||
+        !departmentId
+      ) {
         setStepError('Please complete the required fields before continuing.')
+        return
+      }
+
+      if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(signatoryEmail.trim())) {
+        setStepError('Please enter a valid signatory email address.')
+        return
+      }
+
+      if (departments.length === 0) {
+        setStepError('No departments are configured for this tenant.')
         return
       }
 
@@ -104,7 +173,7 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
       return
     }
 
-    const generatedTitle = `${contractType || 'Contract'} - ${counterparty || 'Counterparty'}`
+    const generatedTitle = `${selectedContractTypeName || 'Contract'} - ${counterparty || 'Counterparty'}`
 
     setUploadError(null)
     setUploadSuccess(null)
@@ -117,6 +186,13 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
 
     const response = await contractsClient.upload({
       title: generatedTitle,
+      contractTypeId: contractType,
+      signatoryName: signatoryName.trim(),
+      signatoryDesignation: signatoryDesignation.trim(),
+      signatoryEmail: signatoryEmail.trim().toLowerCase(),
+      backgroundOfRequest: backgroundOfRequest.trim(),
+      departmentId,
+      budgetApproved,
       file: mainFile,
       idempotencyKey,
     })
@@ -177,7 +253,7 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
           <AdditionalDataStep
             mainFileName={mainFile?.name || null}
             contractType={contractType}
-            contractTypes={CONTRACT_TYPES}
+            contractTypes={contractTypes}
             counterparty={counterparty}
             counterparties={COUNTERPARTIES}
             showCounterpartyModal={showCounterpartyModal}
@@ -187,6 +263,37 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
             }}
             onCounterpartyChange={(value) => {
               setCounterparty(value)
+              setStepError(null)
+            }}
+            signatoryName={signatoryName}
+            signatoryDesignation={signatoryDesignation}
+            signatoryEmail={signatoryEmail}
+            backgroundOfRequest={backgroundOfRequest}
+            departmentId={departmentId}
+            departments={departments}
+            budgetApproved={budgetApproved}
+            onSignatoryNameChange={(value) => {
+              setSignatoryName(value)
+              setStepError(null)
+            }}
+            onSignatoryDesignationChange={(value) => {
+              setSignatoryDesignation(value)
+              setStepError(null)
+            }}
+            onSignatoryEmailChange={(value) => {
+              setSignatoryEmail(value)
+              setStepError(null)
+            }}
+            onBackgroundOfRequestChange={(value) => {
+              setBackgroundOfRequest(value)
+              setStepError(null)
+            }}
+            onDepartmentIdChange={(value) => {
+              setDepartmentId(value)
+              setStepError(null)
+            }}
+            onBudgetApprovedChange={(value) => {
+              setBudgetApproved(value)
               setStepError(null)
             }}
             supportingFiles={supportingFiles}
@@ -207,8 +314,14 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
       return (
         <ReviewStep
           mainFileName={mainFile?.name || null}
-          contractType={contractType}
+          contractType={selectedContractTypeName}
           counterparty={counterparty}
+          departmentName={selectedDepartmentName}
+          signatoryName={signatoryName}
+          signatoryDesignation={signatoryDesignation}
+          signatoryEmail={signatoryEmail}
+          backgroundOfRequest={backgroundOfRequest}
+          budgetApproved={budgetApproved}
           supportingCount={supportingFiles.length}
           organizationEntity={ORGANIZATION_ENTITY}
         />

@@ -4,8 +4,10 @@ import { contractStatuses } from '@/core/constants/contracts'
 
 export const contractActionNames = [
   'hod.approve',
+  'hod.reject',
   'hod.bypass',
   'legal.approve',
+  'legal.reject',
   'legal.query',
   'legal.query.reroute',
   'approver.approve',
@@ -34,7 +36,7 @@ export const pendingApprovalsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
 })
 
-export const repositorySortByValues = ['title', 'created_at', 'hod_approved_at', 'status'] as const
+export const repositorySortByValues = ['title', 'created_at', 'hod_approved_at', 'status', 'tat_deadline_at'] as const
 export const repositorySortDirectionValues = ['asc', 'desc'] as const
 
 export const repositoryContractsQuerySchema = z.object({

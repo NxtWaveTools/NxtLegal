@@ -69,6 +69,14 @@ npm run seed:test-employee
 npm run test:login
 ```
 
+### Migration Governance (Mandatory)
+
+- All schema changes must be committed as SQL files in [supabase/migrations](supabase/migrations).
+- Manual DDL in Supabase Studio, SQL editor, or ad-hoc scripts is forbidden for production changes.
+- If drift is detected (`supabase_migrations.schema_migrations` contains versions not in repo), first reconstruct the exact migration SQL into version-matched files, then continue feature work.
+- Every migration must be deterministic and replayable via `npx supabase db reset` followed by `npx supabase db push`.
+- PRs that introduce schema changes without corresponding migration files are invalid.
+
 ### Start Development
 
 ```bash

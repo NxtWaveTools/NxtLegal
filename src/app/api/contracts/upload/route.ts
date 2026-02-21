@@ -4,6 +4,29 @@ import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { logger } from '@/core/infra/logging/logger'
 import { isAppError } from '@/core/http/errors'
+import { z } from 'zod'
+
+const uploadContractFormSchema = z.object({
+  title: z.string().trim().min(1, 'Contract title is required').max(200, 'Contract title exceeds maximum length'),
+  contractTypeId: z.string().trim().uuid('Valid contractTypeId is required'),
+  signatoryName: z.string().trim().min(1, 'Signatory name is required').max(200, 'Signatory name is too long'),
+  signatoryDesignation: z
+    .string()
+    .trim()
+    .min(1, 'Signatory designation is required')
+    .max(200, 'Signatory designation is too long'),
+  signatoryEmail: z.string().trim().toLowerCase().email('Valid signatory email is required'),
+  backgroundOfRequest: z
+    .string()
+    .trim()
+    .min(1, 'Background of request is required')
+    .max(4000, 'Background of request exceeds maximum length'),
+  departmentId: z.string().trim().uuid('Valid departmentId is required'),
+  budgetApproved: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => value === 'true'),
+})
 
 const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
   let shouldReleaseClaim = false
@@ -27,7 +50,26 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     }
 
     const formData = await request.formData()
-    const title = String(formData.get('title') ?? '').trim()
+    const parsedForm = uploadContractFormSchema.safeParse({
+      title: String(formData.get('title') ?? ''),
+      contractTypeId: String(formData.get('contractTypeId') ?? ''),
+      signatoryName: String(formData.get('signatoryName') ?? ''),
+      signatoryDesignation: String(formData.get('signatoryDesignation') ?? ''),
+      signatoryEmail: String(formData.get('signatoryEmail') ?? ''),
+      backgroundOfRequest: String(formData.get('backgroundOfRequest') ?? ''),
+      departmentId: String(formData.get('departmentId') ?? ''),
+      budgetApproved: formData.get('budgetApproved') ? String(formData.get('budgetApproved')) : undefined,
+    })
+
+    if (!parsedForm.success) {
+      return NextResponse.json(
+        errorResponse('VALIDATION_ERROR', parsedForm.error.issues[0]?.message ?? 'Invalid input'),
+        {
+          status: 400,
+        }
+      )
+    }
+
     const uploadedFile = formData.get('file')
 
     if (!(uploadedFile instanceof File)) {
@@ -60,7 +102,14 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       uploadedByEmployeeId: session.employeeId,
       uploadedByEmail: session.email,
       uploadedByRole: session.role,
-      title,
+      title: parsedForm.data.title,
+      contractTypeId: parsedForm.data.contractTypeId,
+      signatoryName: parsedForm.data.signatoryName,
+      signatoryDesignation: parsedForm.data.signatoryDesignation,
+      signatoryEmail: parsedForm.data.signatoryEmail,
+      backgroundOfRequest: parsedForm.data.backgroundOfRequest,
+      departmentId: parsedForm.data.departmentId,
+      budgetApproved: parsedForm.data.budgetApproved,
       fileName: uploadedFile.name,
       fileSizeBytes: uploadedFile.size,
       fileMimeType: uploadedFile.type || 'application/octet-stream',

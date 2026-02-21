@@ -21,7 +21,7 @@ export class ContractQueryService {
     role?: string
     cursor?: string
     limit: number
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string }> {
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     return this.contractRepository.listByTenant(params)
   }
 
@@ -41,7 +41,7 @@ export class ContractQueryService {
     filter: DashboardContractFilter
     cursor?: string
     limit: number
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string }> {
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     return this.contractRepository.getDashboardContracts(params)
   }
 
@@ -55,7 +55,7 @@ export class ContractQueryService {
     status?: ContractStatus
     sortBy?: RepositorySortBy
     sortDirection?: RepositorySortDirection
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string }> {
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     return this.contractRepository.listRepositoryContracts(params)
   }
 

@@ -23,6 +23,12 @@
 
 .hodApproved,
 .finalApproved {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.hodApproved {
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
   color: var(--color-accent);

@@ -10,16 +10,33 @@ export type ContractListItem = {
   currentAssigneeEmployeeId: string
   currentAssigneeEmail: string
   hodApprovedAt?: string | null
+  tatDeadlineAt?: string | null
+  tatBreachedAt?: string | null
+  agingBusinessDays?: number | null
+  nearBreach?: boolean
+  isTatBreached?: boolean
   createdAt: string
   updatedAt: string
 }
 
 export type DashboardContractFilter = 'ALL' | 'HOD_PENDING' | 'LEGAL_PENDING' | 'FINAL_APPROVED' | 'LEGAL_QUERY'
 
-export type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status'
+export type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 export type RepositorySortDirection = 'asc' | 'desc'
 
 export type ContractDetail = ContractListItem & {
+  contractTypeId: string
+  contractTypeName?: string
+  departmentId: string
+  departmentName?: string
+  departmentHodName?: string | null
+  departmentHodEmail?: string | null
+  signatoryName: string
+  signatoryDesignation: string
+  signatoryEmail: string
+  backgroundOfRequest: string
+  budgetApproved: boolean
+  requestCreatedAt: string
   fileName: string
   fileSizeBytes: number
   fileMimeType: string
@@ -68,7 +85,7 @@ export interface ContractQueryRepository {
     limit: number
     role?: string
     employeeId: string
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string }>
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }>
   getPendingApprovalsForRole(params: {
     tenantId: string
     employeeId: string
@@ -82,7 +99,7 @@ export interface ContractQueryRepository {
     filter: DashboardContractFilter
     cursor?: string
     limit: number
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string }>
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }>
   listRepositoryContracts(params: {
     tenantId: string
     employeeId: string
@@ -93,7 +110,7 @@ export interface ContractQueryRepository {
     status?: ContractStatus
     sortBy?: RepositorySortBy
     sortDirection?: RepositorySortDirection
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string }>
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }>
   getById(tenantId: string, contractId: string): Promise<ContractDetail | null>
   getTimeline(tenantId: string, contractId: string, limit: number): Promise<ContractTimelineEvent[]>
   getAdditionalApprovers(tenantId: string, contractId: string): Promise<ContractAdditionalApprover[]>

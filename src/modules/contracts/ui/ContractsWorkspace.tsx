@@ -24,6 +24,8 @@ type ContractsWorkspaceProps = {
 export default function ContractsWorkspace({ session, initialContractId }: ContractsWorkspaceProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const source = searchParams.get('from')
+  const sourceFilter = searchParams.get('filter')
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [selectedContractId, setSelectedContractId] = useState<string | null>(() => {
     return searchParams.get('contractId') ?? initialContractId ?? null
@@ -36,6 +38,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [approverEmail, setApproverEmail] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isMutating, setIsMutating] = useState(false)
+  const [isViewerOpen, setIsViewerOpen] = useState(false)
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null)
+  const [viewerFileName, setViewerFileName] = useState<string>('')
+  const [isLoadingViewer, setIsLoadingViewer] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const loadContracts = useCallback(async () => {
@@ -196,6 +202,45 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
+  const handleViewDocument = async () => {
+    if (!selectedContractId) {
+      return
+    }
+
+    setIsLoadingViewer(true)
+    const response = await contractsClient.download(selectedContractId)
+    setIsLoadingViewer(false)
+
+    if (!response.ok || !response.data?.signedUrl) {
+      setError(response.error?.message ?? 'Failed to generate document view link')
+      return
+    }
+
+    setViewerUrl(response.data.signedUrl)
+    setViewerFileName(response.data.fileName ?? selectedContract?.fileName ?? 'Contract document')
+    setIsViewerOpen(true)
+  }
+
+  const closeViewer = () => {
+    setIsViewerOpen(false)
+    setViewerUrl(null)
+    setViewerFileName('')
+  }
+
+  useEffect(() => {
+    if (!isViewerOpen) return
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeViewer()
+      }
+    }
+
+    window.addEventListener('keydown', onKey)
+
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isViewerOpen])
+
   const handleAddNote = async () => {
     if (!selectedContractId || !noteText.trim()) {
       return
@@ -240,6 +285,26 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
   const formattedLogs = useMemo(() => formatContractLogEvents(timeline), [timeline])
 
+  const handleBackNavigation = () => {
+    if (source === 'dashboard') {
+      const dashboardQuery = new URLSearchParams()
+      if (sourceFilter) {
+        dashboardQuery.set('filter', sourceFilter)
+      }
+
+      const target = dashboardQuery.size > 0 ? `/dashboard?${dashboardQuery.toString()}` : '/dashboard'
+      router.push(target)
+      return
+    }
+
+    if (source === 'repository') {
+      router.push('/repository')
+      return
+    }
+
+    router.push('/repository')
+  }
+
   return (
     <div className={styles.layout}>
       <section className={styles.panel}>
@@ -266,31 +331,99 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       </section>
 
       <section className={styles.panel}>
-        <div className={styles.title}>Contract Details</div>
+        <div className={styles.headerRow}>
+          <button type="button" className={styles.backButton} onClick={handleBackNavigation}>
+            Back
+          </button>
+          <div className={styles.title}>Contract Details</div>
+        </div>
         {!selectedContract ? (
           <div className={styles.itemMeta}>Select a contract to view details</div>
         ) : (
           <>
-            <div className={styles.row}>
-              <span>Title</span>
-              <span>{selectedContract.title}</span>
+            <div className={styles.section}>
+              <div className={styles.sectionTitle}>Overview</div>
+              <div className={styles.row}>
+                <span>Title</span>
+                <span>{selectedContract.title}</span>
+              </div>
+              <div className={styles.row}>
+                <span>Status</span>
+                <span>
+                  <ContractStatusBadge status={selectedContract.status} />
+                </span>
+              </div>
+              <div className={styles.row}>
+                <span>Contract Type</span>
+                <span>{selectedContract.contractTypeName ?? '—'}</span>
+              </div>
+              <div className={styles.row}>
+                <span>Assignee</span>
+                <span>{selectedContract.currentAssigneeEmail}</span>
+              </div>
+              <div className={styles.row}>
+                <span>File</span>
+                <span>{selectedContract.fileName}</span>
+              </div>
             </div>
-            <div className={styles.row}>
-              <span>Status</span>
-              <span>
-                <ContractStatusBadge status={selectedContract.status} />
-              </span>
+
+            <div className={styles.section}>
+              <div className={styles.sectionTitle}>Department</div>
+              <div className={styles.row}>
+                <span>Name</span>
+                <span>{selectedContract.departmentName ?? '—'}</span>
+              </div>
+              <div className={styles.row}>
+                <span>HOD</span>
+                <span>{selectedContract.departmentHodName ?? '—'}</span>
+              </div>
+              <div className={styles.row}>
+                <span>HOD Email</span>
+                <span>{selectedContract.departmentHodEmail ?? '—'}</span>
+              </div>
             </div>
-            <div className={styles.row}>
-              <span>Assignee</span>
-              <span>{selectedContract.currentAssigneeEmail}</span>
-            </div>
-            <div className={styles.row}>
-              <span>File</span>
-              <span>{selectedContract.fileName}</span>
+
+            <div className={styles.section}>
+              <div className={styles.sectionTitle}>Intake Details</div>
+              <div className={styles.row}>
+                <span>Signatory Name</span>
+                <span>{selectedContract.signatoryName ?? '—'}</span>
+              </div>
+              <div className={styles.row}>
+                <span>Signatory Designation</span>
+                <span>{selectedContract.signatoryDesignation ?? '—'}</span>
+              </div>
+              <div className={styles.row}>
+                <span>Signatory Email</span>
+                <span>{selectedContract.signatoryEmail ?? '—'}</span>
+              </div>
+              <div className={styles.row}>
+                <span>Budget Approved</span>
+                <span>{selectedContract.budgetApproved ? 'Yes' : 'No'}</span>
+              </div>
+              <div className={styles.row}>
+                <span>Request Created At</span>
+                <span>
+                  {selectedContract.requestCreatedAt
+                    ? new Date(selectedContract.requestCreatedAt).toLocaleString()
+                    : '—'}
+                </span>
+              </div>
+              <div className={styles.row}>
+                <span>Background</span>
+                <span className={styles.multilineValue}>{selectedContract.backgroundOfRequest ?? '—'}</span>
+              </div>
             </div>
 
             <div className={styles.actions}>
+              <button
+                type="button"
+                className={styles.button}
+                disabled={isLoadingViewer}
+                onClick={() => void handleViewDocument()}
+              >
+                {isLoadingViewer ? 'Opening...' : 'View Document'}
+              </button>
               <button type="button" className={styles.button} onClick={handleDownload}>
                 Download
               </button>
@@ -387,6 +520,47 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
         {error && <div className={styles.error}>{error}</div>}
       </section>
+
+      {isViewerOpen && viewerUrl ? (
+        <div
+          className={styles.viewerOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Contract document preview"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              closeViewer()
+            }
+          }}
+        >
+          <div className={styles.viewerModal}>
+            <div className={styles.viewerHeader}>
+              <div className={styles.viewerTitle}>{viewerFileName}</div>
+              <button type="button" className={styles.button} onClick={closeViewer}>
+                Close
+              </button>
+            </div>
+            <div className={styles.viewerBody}>
+              <iframe
+                src={viewerUrl}
+                title={viewerFileName}
+                className={styles.viewerFrame}
+                sandbox="allow-same-origin allow-scripts allow-downloads"
+              />
+            </div>
+            <div className={styles.viewerFooter}>
+              <span className={styles.itemMeta}>If preview is not available, open in a new tab.</span>
+              <button
+                type="button"
+                className={`${styles.button} ${styles.buttonPrimary}`}
+                onClick={() => window.open(viewerUrl, '_blank', 'noopener,noreferrer')}
+              >
+                Open in New Tab
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -6,12 +6,14 @@ type ContractStatusBadgeProps = {
 }
 
 const statusClassName: Record<ContractStatus, string> = {
+  DRAFT: styles.uploaded,
   UPLOADED: styles.uploaded,
   HOD_PENDING: styles.hodPending,
   HOD_APPROVED: styles.hodApproved,
   LEGAL_PENDING: styles.legalPending,
   LEGAL_QUERY: styles.legalQuery,
   FINAL_APPROVED: styles.finalApproved,
+  REJECTED: styles.legalQuery,
 }
 
 export default function ContractStatusBadge({ status }: ContractStatusBadgeProps) {

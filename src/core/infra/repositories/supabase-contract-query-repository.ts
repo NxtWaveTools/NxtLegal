@@ -20,8 +20,10 @@ const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000000'
 
 const actionLabelMap: Record<ContractActionName, string> = {
   'hod.approve': 'Approve (HOD)',
+  'hod.reject': 'Reject (HOD)',
   'hod.bypass': 'Bypass to Legal',
   'legal.approve': 'Final Approve',
+  'legal.reject': 'Reject (Legal)',
   'legal.query': 'Mark Query',
   'legal.query.reroute': 'Reroute to HOD',
   'approver.approve': 'Approve as Additional Approver',
@@ -34,12 +36,22 @@ type ContractEntity = {
   id: string
   tenant_id: string
   title: string
+  contract_type_id: string
   status: string
   uploaded_by_employee_id: string
   uploaded_by_email: string
   current_assignee_employee_id: string
   current_assignee_email: string
+  signatory_name: string
+  signatory_designation: string
+  signatory_email: string
+  background_of_request: string
+  department_id: string
+  budget_approved: boolean
+  request_created_at: string
   hod_approved_at: string | null
+  tat_deadline_at: string | null
+  tat_breached_at: string | null
   file_name: string | null
   file_size_bytes: number | null
   file_mime_type: string | null
@@ -87,18 +99,18 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     limit: number
     role?: string
     employeeId: string
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string }> {
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     const supabase = createServiceSupabase()
     const decodedCursor = this.decodeCursor(params.cursor)
 
     let query = supabase
-      .from('contracts')
+      .from('contracts_repository_view')
       .select(
-        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, created_at, updated_at'
+        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, aging_business_days, near_breach, is_tat_breached, created_at, updated_at'
       )
       .eq('tenant_id', params.tenantId)
-      .is('deleted_at', null)
       .order('created_at', { ascending: false })
+      .order('updated_at', { ascending: false })
       .order('id', { ascending: false })
       .limit(params.limit + 1)
 
@@ -109,6 +121,23 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
     if (visibilityFilter) {
       query = query.or(visibilityFilter)
+    }
+
+    let totalQuery = supabase
+      .from('contracts_repository_view')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', params.tenantId)
+
+    if (visibilityFilter) {
+      totalQuery = totalQuery.or(visibilityFilter)
+    }
+
+    const { count: totalCount, error: totalError } = await totalQuery
+
+    if (totalError) {
+      throw new DatabaseError('Failed to count contracts', new Error(totalError.message), {
+        code: totalError.code,
+      })
     }
 
     const { data, error } = await query
@@ -129,6 +158,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       current_assignee_employee_id: string
       current_assignee_email: string
       hod_approved_at: string | null
+      tat_deadline_at: string | null
+      tat_breached_at: string | null
+      aging_business_days: number | null
+      near_breach: boolean
+      is_tat_breached: boolean
       created_at: string
       updated_at: string
     }>
@@ -138,7 +172,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const nextCursor = hasNext ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '') : undefined
 
-    return { items, nextCursor }
+    return { items, nextCursor, total: totalCount ?? 0 }
   }
 
   async getPendingApprovalsForRole(params: {
@@ -155,14 +189,14 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const supabase = createServiceSupabase()
     let query = supabase
-      .from('contracts')
+      .from('contracts_repository_view')
       .select(
-        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, created_at, updated_at'
+        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, aging_business_days, near_breach, is_tat_breached, created_at, updated_at'
       )
       .eq('tenant_id', params.tenantId)
-      .is('deleted_at', null)
       .in('status', statuses)
       .order('created_at', { ascending: false })
+      .order('updated_at', { ascending: false })
       .order('id', { ascending: false })
       .limit(params.limit)
 
@@ -187,6 +221,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       current_assignee_employee_id: string
       current_assignee_email: string
       hod_approved_at: string | null
+      tat_deadline_at: string | null
+      tat_breached_at: string | null
+      aging_business_days: number | null
+      near_breach: boolean
+      is_tat_breached: boolean
       created_at: string
       updated_at: string
     }>
@@ -201,20 +240,20 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     filter: DashboardContractFilter
     cursor?: string
     limit: number
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string }> {
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     const resolvedFilter = this.resolveDashboardFilter(params.role, params.filter)
     const statusFilter = this.resolveDashboardStatusFromFilter(resolvedFilter)
     const decodedCursor = this.decodeCursor(params.cursor)
     const supabase = createServiceSupabase()
 
     let query = supabase
-      .from('contracts')
+      .from('contracts_repository_view')
       .select(
-        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, created_at, updated_at'
+        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, aging_business_days, near_breach, is_tat_breached, created_at, updated_at'
       )
       .eq('tenant_id', params.tenantId)
-      .is('deleted_at', null)
       .order('created_at', { ascending: false })
+      .order('updated_at', { ascending: false })
       .order('id', { ascending: false })
       .limit(params.limit + 1)
 
@@ -226,18 +265,38 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       query = query.eq('status', statusFilter)
     }
 
-    if (params.role === 'POC' || !params.role) {
-      query = query.eq('uploaded_by_employee_id', params.employeeId)
+    const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+    if (visibilityFilter) {
+      query = query.or(visibilityFilter)
     }
 
-    if (params.role === 'HOD') {
-      const teamMemberIds = await this.getTeamMemberIds(params.tenantId, params.employeeId)
+    if (params.role === 'HOD' && resolvedFilter === 'HOD_PENDING') {
+      query = query.eq('current_assignee_employee_id', params.employeeId)
+    }
 
-      if (teamMemberIds.length === 0) {
-        query = query.eq('uploaded_by_employee_id', params.employeeId)
-      } else {
-        query = query.in('uploaded_by_employee_id', teamMemberIds)
-      }
+    let totalQuery = supabase
+      .from('contracts_repository_view')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', params.tenantId)
+
+    if (statusFilter) {
+      totalQuery = totalQuery.eq('status', statusFilter)
+    }
+
+    if (visibilityFilter) {
+      totalQuery = totalQuery.or(visibilityFilter)
+    }
+
+    if (params.role === 'HOD' && resolvedFilter === 'HOD_PENDING') {
+      totalQuery = totalQuery.eq('current_assignee_employee_id', params.employeeId)
+    }
+
+    const { count: totalCount, error: totalError } = await totalQuery
+
+    if (totalError) {
+      throw new DatabaseError('Failed to count dashboard contracts', new Error(totalError.message), {
+        code: totalError.code,
+      })
     }
 
     const { data, error } = await query
@@ -257,6 +316,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       current_assignee_employee_id: string
       current_assignee_email: string
       hod_approved_at: string | null
+      tat_deadline_at: string | null
+      tat_breached_at: string | null
+      aging_business_days: number | null
+      near_breach: boolean
+      is_tat_breached: boolean
       created_at: string
       updated_at: string
     }>
@@ -265,7 +329,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const items = rows.slice(0, params.limit).map((row) => this.mapListItem(row))
     const nextCursor = hasNext ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '') : undefined
 
-    return { items, nextCursor }
+    return { items, nextCursor, total: totalCount ?? 0 }
   }
 
   async listRepositoryContracts(params: {
@@ -278,28 +342,36 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     status?: ContractStatus
     sortBy?: RepositorySortBy
     sortDirection?: RepositorySortDirection
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string }> {
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     const supabase = createServiceSupabase()
     const decodedCursor = this.decodeCursor(params.cursor)
     const sortBy = params.sortBy ?? 'created_at'
     const sortDirection = params.sortDirection ?? 'desc'
 
     let query = supabase
-      .from('contracts')
+      .from('contracts_repository_view')
       .select(
-        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, created_at, updated_at'
+        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, aging_business_days, near_breach, is_tat_breached, created_at, updated_at'
       )
       .eq('tenant_id', params.tenantId)
-      .is('deleted_at', null)
       .limit(params.limit + 1)
+
+    let totalQuery = supabase
+      .from('contracts_repository_view')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', params.tenantId)
 
     if (params.status) {
       query = query.eq('status', params.status)
+      totalQuery = totalQuery.eq('status', params.status)
     }
 
     if (params.search) {
       query = query.ilike('title', `%${params.search}%`)
+      totalQuery = totalQuery.ilike('title', `%${params.search}%`)
     }
+
+    query = query.order('is_tat_breached', { ascending: false }).order('near_breach', { ascending: false })
 
     if (sortBy === 'title') {
       query = query.order('title', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
@@ -308,9 +380,18 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     } else if (sortBy === 'hod_approved_at') {
       query = query
         .order('hod_approved_at', { ascending: sortDirection === 'asc', nullsFirst: sortDirection === 'asc' })
+        .order('updated_at', { ascending: false })
+        .order('id', { ascending: false })
+    } else if (sortBy === 'tat_deadline_at') {
+      query = query
+        .order('tat_deadline_at', { ascending: sortDirection === 'asc', nullsFirst: sortDirection === 'asc' })
+        .order('updated_at', { ascending: false })
         .order('id', { ascending: false })
     } else {
-      query = query.order('created_at', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
+      query = query
+        .order('created_at', { ascending: sortDirection === 'asc' })
+        .order('updated_at', { ascending: false })
+        .order('id', { ascending: false })
     }
 
     if (decodedCursor && sortBy === 'created_at' && sortDirection === 'desc') {
@@ -320,6 +401,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
     if (visibilityFilter) {
       query = query.or(visibilityFilter)
+      totalQuery = totalQuery.or(visibilityFilter)
+    }
+
+    const { count: totalCount, error: totalError } = await totalQuery
+
+    if (totalError) {
+      throw new DatabaseError('Failed to count repository contracts', new Error(totalError.message), {
+        code: totalError.code,
+      })
     }
 
     const { data, error } = await query
@@ -339,6 +429,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       current_assignee_employee_id: string
       current_assignee_email: string
       hod_approved_at: string | null
+      tat_deadline_at: string | null
+      tat_breached_at: string | null
+      aging_business_days: number | null
+      near_breach: boolean
+      is_tat_breached: boolean
       created_at: string
       updated_at: string
     }>
@@ -350,7 +445,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '')
         : undefined
 
-    return { items, nextCursor }
+    return { items, nextCursor, total: totalCount ?? 0 }
   }
 
   async getById(tenantId: string, contractId: string): Promise<ContractDetail | null> {
@@ -359,7 +454,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const { data, error } = await supabase
       .from('contracts')
       .select(
-        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
+        'id, tenant_id, title, contract_type_id, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, hod_approved_at, tat_deadline_at, tat_breached_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
       )
       .eq('tenant_id', tenantId)
       .eq('id', contractId)
@@ -375,7 +470,73 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
     }
 
-    return this.mapDetail(data)
+    const metadata = await this.resolveContractDetailMetadata(tenantId, data.contract_type_id, data.department_id)
+
+    return this.mapDetail(data, metadata)
+  }
+
+  private async resolveContractDetailMetadata(
+    tenantId: string,
+    contractTypeId: string,
+    departmentId: string
+  ): Promise<{
+    contractTypeName?: string
+    departmentName?: string
+    departmentHodName?: string | null
+    departmentHodEmail?: string | null
+  }> {
+    const supabase = createServiceSupabase()
+
+    const [{ data: contractType }, { data: department }, { data: hodMembers }] = await Promise.all([
+      supabase
+        .from('contract_types')
+        .select('name')
+        .eq('tenant_id', tenantId)
+        .eq('id', contractTypeId)
+        .is('deleted_at', null)
+        .maybeSingle<{ name: string }>(),
+      supabase
+        .from('teams')
+        .select('name')
+        .eq('tenant_id', tenantId)
+        .eq('id', departmentId)
+        .is('deleted_at', null)
+        .maybeSingle<{ name: string }>(),
+      supabase
+        .from('team_members')
+        .select('user_id, is_primary, created_at')
+        .eq('tenant_id', tenantId)
+        .eq('team_id', departmentId)
+        .eq('role_type', 'HOD')
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: true })
+        .limit(1),
+    ])
+
+    let departmentHodName: string | null = null
+    let departmentHodEmail: string | null = null
+
+    const hodUserId = (hodMembers ?? [])[0]?.user_id
+    if (hodUserId) {
+      const { data: hodUser } = await supabase
+        .from('users')
+        .select('full_name, email')
+        .eq('tenant_id', tenantId)
+        .eq('id', hodUserId)
+        .eq('is_active', true)
+        .is('deleted_at', null)
+        .maybeSingle<{ full_name: string | null; email: string }>()
+
+      departmentHodName = hodUser?.full_name ?? null
+      departmentHodEmail = hodUser?.email ?? null
+    }
+
+    return {
+      contractTypeName: contractType?.name,
+      departmentName: department?.name,
+      departmentHodName,
+      departmentHodEmail,
+    }
   }
 
   async getTimeline(tenantId: string, contractId: string, limit: number): Promise<ContractTimelineEvent[]> {
@@ -476,8 +637,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const pendingApproverCount = await this.getPendingApproverCount(params.tenantId, params.contract.id)
     const firstPendingApprover = await this.getFirstPendingApprover(params.tenantId, params.contract.id)
+    const isAssignee = params.contract.currentAssigneeEmployeeId === params.actorEmployeeId
 
     const actions = actionsFromGraph.filter((item) => {
+      if (params.actorRole !== 'ADMIN' && item.action !== 'approver.approve' && !isAssignee) {
+        return false
+      }
+
       if (item.action === 'hod.bypass' && !bypassAllowedRoles.has(actorRole)) {
         return false
       }
@@ -531,6 +697,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'You do not have access to this contract')
     }
 
+    const isAssignee = contract.currentAssigneeEmployeeId === params.actorEmployeeId
+    if (params.action !== 'approver.approve' && params.actorRole !== 'ADMIN' && !isAssignee) {
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only the current assignee can perform this action')
+    }
+
     if (params.action === 'approver.approve') {
       await this.applyAdditionalApproverApproval({
         tenantId: params.tenantId,
@@ -571,27 +742,64 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     let nextStatus = transition.to_status as ContractStatus
     let assigneeEmployeeId = contract.currentAssigneeEmployeeId
     let assigneeEmail = contract.currentAssigneeEmail
+    let hodApprovedAt = contract.hodApprovedAt ?? null
+    let tatDeadlineAt = contract.tatDeadlineAt ?? null
 
     if (params.action === 'hod.approve' || params.action === 'hod.bypass') {
       const legalAssignee = await this.getLegalAssignee(params.tenantId)
       assigneeEmployeeId = legalAssignee.id
       assigneeEmail = legalAssignee.email
       nextStatus = contractStatuses.legalPending
+
+      if (params.action === 'hod.approve') {
+        const todayUtc = new Date().toISOString().slice(0, 10)
+        const { data: deadlineDate, error: deadlineError } = await supabase.rpc('business_day_add', {
+          start_date: todayUtc,
+          days: 7,
+        })
+
+        if (deadlineError || !deadlineDate) {
+          throw new DatabaseError(
+            'Failed to compute TAT deadline for HOD approval',
+            new Error(deadlineError?.message),
+            {
+              code: deadlineError?.code,
+            }
+          )
+        }
+
+        hodApprovedAt = new Date().toISOString()
+        tatDeadlineAt = `${deadlineDate}T23:59:59.000Z`
+      }
     } else if (params.action === 'legal.query.reroute') {
-      const hodAssignee = await this.getTeamHodAssignee(params.tenantId, contract.uploadedByEmployeeId)
+      const hodAssignee = await this.getTeamHodAssignee(params.tenantId, contract.departmentId)
       assigneeEmployeeId = hodAssignee.id
       assigneeEmail = hodAssignee.email
       nextStatus = contractStatuses.hodPending
     }
 
+    const updatePayload: {
+      status: ContractStatus
+      current_assignee_employee_id: string
+      current_assignee_email: string
+      row_version: number
+      hod_approved_at?: string | null
+      tat_deadline_at?: string | null
+    } = {
+      status: nextStatus,
+      current_assignee_employee_id: assigneeEmployeeId,
+      current_assignee_email: assigneeEmail,
+      row_version: contract.rowVersion + 1,
+    }
+
+    if (params.action === 'hod.approve') {
+      updatePayload.hod_approved_at = hodApprovedAt
+      updatePayload.tat_deadline_at = tatDeadlineAt
+    }
+
     const { data: updatedRow, error: updateError } = await supabase
       .from('contracts')
-      .update({
-        status: nextStatus,
-        current_assignee_employee_id: assigneeEmployeeId,
-        current_assignee_email: assigneeEmail,
-        row_version: contract.rowVersion + 1,
-      })
+      .update(updatePayload)
       .eq('id', contract.id)
       .eq('tenant_id', params.tenantId)
       .eq('row_version', contract.rowVersion)
@@ -1032,12 +1240,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return false
     }
 
-    const teamMemberIds = await this.getTeamMemberIds(params.tenantId, params.actorEmployeeId)
-    if (teamMemberIds.length === 0) {
+    const hodDepartmentIds = await this.getHodDepartmentIds(params.tenantId, params.actorEmployeeId)
+    if (hodDepartmentIds.length === 0) {
       return false
     }
 
-    return teamMemberIds.includes(params.contract.uploadedByEmployeeId)
+    return hodDepartmentIds.includes(params.contract.departmentId)
   }
 
   private async getVisibilityFilter(
@@ -1053,13 +1261,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return `uploaded_by_employee_id.eq.${employeeId},current_assignee_employee_id.eq.${employeeId}`
     }
 
-    const teamMemberIds = await this.getTeamMemberIds(tenantId, employeeId)
-    if (teamMemberIds.length === 0) {
+    const hodDepartmentIds = await this.getHodDepartmentIds(tenantId, employeeId)
+    if (hodDepartmentIds.length === 0) {
       return `uploaded_by_employee_id.eq.${employeeId},current_assignee_employee_id.eq.${employeeId}`
     }
 
-    const serializedIds = teamMemberIds.join(',')
-    return `uploaded_by_employee_id.in.(${serializedIds}),current_assignee_employee_id.eq.${employeeId}`
+    const serializedIds = hodDepartmentIds.join(',')
+    return `department_id.in.(${serializedIds}),current_assignee_employee_id.eq.${employeeId}`
   }
 
   private getPendingApprovalStatuses(role?: string): ContractStatus[] {
@@ -1125,43 +1333,23 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return contractStatuses.legalQuery
   }
 
-  private async getTeamMemberIds(tenantId: string, employeeId: string): Promise<string[]> {
+  private async getHodDepartmentIds(tenantId: string, employeeId: string): Promise<string[]> {
     const supabase = createServiceSupabase()
 
-    const { data: actorUser, error: actorError } = await supabase
-      .from('users')
+    const { data: hodTeams, error: hodTeamsError } = await supabase
+      .from('team_members')
       .select('team_id')
       .eq('tenant_id', tenantId)
-      .eq('id', employeeId)
-      .eq('is_active', true)
-      .is('deleted_at', null)
-      .maybeSingle<{ team_id: string | null }>()
+      .eq('user_id', employeeId)
+      .eq('role_type', 'HOD')
 
-    if (actorError) {
-      throw new DatabaseError('Failed to resolve actor team context', new Error(actorError.message), {
-        code: actorError.code,
+    if (hodTeamsError) {
+      throw new DatabaseError('Failed to resolve HOD departments for access checks', new Error(hodTeamsError.message), {
+        code: hodTeamsError.code,
       })
     }
 
-    if (!actorUser?.team_id) {
-      return []
-    }
-
-    const { data: members, error: membersError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .eq('team_id', actorUser.team_id)
-      .eq('is_active', true)
-      .is('deleted_at', null)
-
-    if (membersError) {
-      throw new DatabaseError('Failed to resolve team members for access checks', new Error(membersError.message), {
-        code: membersError.code,
-      })
-    }
-
-    return (members ?? []).map((member) => member.id)
+    return Array.from(new Set((hodTeams ?? []).map((member) => member.team_id)))
   }
 
   private async getPendingApproverCount(tenantId: string, contractId: string): Promise<number> {
@@ -1240,40 +1428,29 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return data
   }
 
-  private async getTeamHodAssignee(
-    tenantId: string,
-    uploaderEmployeeId: string
-  ): Promise<{ id: string; email: string }> {
+  private async getTeamHodAssignee(tenantId: string, departmentId: string): Promise<{ id: string; email: string }> {
     const supabase = createServiceSupabase()
 
-    const { data: uploader, error: uploaderError } = await supabase
-      .from('users')
-      .select('team_id')
-      .eq('id', uploaderEmployeeId)
+    const { data: hodMember, error: hodMemberError } = await supabase
+      .from('team_members')
+      .select('user_id')
       .eq('tenant_id', tenantId)
-      .single<{ team_id: string | null }>()
+      .eq('team_id', departmentId)
+      .eq('role_type', 'HOD')
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle<{ user_id: string }>()
 
-    if (uploaderError || !uploader?.team_id) {
-      throw new BusinessRuleError('HOD_ASSIGNEE_NOT_FOUND', 'Uploader team is not configured for HOD routing')
-    }
-
-    const { data: team, error: teamError } = await supabase
-      .from('teams')
-      .select('hod_email')
-      .eq('id', uploader.team_id)
-      .eq('tenant_id', tenantId)
-      .single<{ hod_email: string | null }>()
-
-    if (teamError || !team?.hod_email) {
-      throw new BusinessRuleError('HOD_ASSIGNEE_NOT_FOUND', 'Team HOD is not configured')
+    if (hodMemberError || !hodMember?.user_id) {
+      throw new BusinessRuleError('HOD_ASSIGNEE_NOT_FOUND', 'Department HOD is not configured for reroute')
     }
 
     const { data: hod, error: hodError } = await supabase
       .from('users')
       .select('id, email')
       .eq('tenant_id', tenantId)
-      .eq('role', 'HOD')
-      .eq('email', team.hod_email)
+      .eq('id', hodMember.user_id)
       .eq('is_active', true)
       .is('deleted_at', null)
       .single<{ id: string; email: string }>()
@@ -1302,6 +1479,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return 'CONTRACT_TRANSITIONED'
     }
 
+    if (action === 'hod.reject' || action === 'legal.reject') {
+      return 'CONTRACT_TRANSITIONED'
+    }
+
     if (action === 'hod.bypass') {
       return 'CONTRACT_BYPASSED'
     }
@@ -1318,6 +1499,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     current_assignee_employee_id: string
     current_assignee_email: string
     hod_approved_at?: string | null
+    tat_deadline_at?: string | null
+    tat_breached_at?: string | null
+    aging_business_days?: number | null
+    near_breach?: boolean
+    is_tat_breached?: boolean
     created_at: string
     updated_at: string
   }): ContractListItem {
@@ -1332,23 +1518,50 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       currentAssigneeEmployeeId: row.current_assignee_employee_id,
       currentAssigneeEmail: row.current_assignee_email,
       hodApprovedAt: row.hod_approved_at ?? null,
+      tatDeadlineAt: row.tat_deadline_at ?? null,
+      tatBreachedAt: row.tat_breached_at ?? null,
+      agingBusinessDays: row.aging_business_days ?? null,
+      nearBreach: Boolean(row.near_breach),
+      isTatBreached: Boolean(row.is_tat_breached),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
   }
 
-  private mapDetail(row: ContractEntity): ContractDetail {
+  private mapDetail(
+    row: ContractEntity,
+    metadata?: {
+      contractTypeName?: string
+      departmentName?: string
+      departmentHodName?: string | null
+      departmentHodEmail?: string | null
+    }
+  ): ContractDetail {
     this.assertStatus(row.status)
 
     return {
       id: row.id,
       title: row.title,
+      contractTypeId: row.contract_type_id,
+      contractTypeName: metadata?.contractTypeName,
       status: row.status as ContractStatus,
       uploadedByEmployeeId: row.uploaded_by_employee_id,
       uploadedByEmail: row.uploaded_by_email,
       currentAssigneeEmployeeId: row.current_assignee_employee_id,
       currentAssigneeEmail: row.current_assignee_email,
+      departmentId: row.department_id,
+      departmentName: metadata?.departmentName,
+      departmentHodName: metadata?.departmentHodName,
+      departmentHodEmail: metadata?.departmentHodEmail,
+      signatoryName: row.signatory_name,
+      signatoryDesignation: row.signatory_designation,
+      signatoryEmail: row.signatory_email,
+      backgroundOfRequest: row.background_of_request,
+      budgetApproved: row.budget_approved,
+      requestCreatedAt: row.request_created_at,
       hodApprovedAt: row.hod_approved_at,
+      tatDeadlineAt: row.tat_deadline_at,
+      tatBreachedAt: row.tat_breached_at,
       fileName: row.file_name ?? '',
       fileSizeBytes: row.file_size_bytes ?? 0,
       fileMimeType: row.file_mime_type ?? '',

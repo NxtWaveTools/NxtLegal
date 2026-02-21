@@ -199,7 +199,13 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                     <tr
                       key={row.id}
                       className={styles.row}
-                      onClick={() => router.push(contractsClient.resolveProtectedContractPath(row.original.id))}
+                      onClick={() =>
+                        router.push(
+                          contractsClient.resolveProtectedContractPath(row.original.id, {
+                            from: 'repository',
+                          })
+                        )
+                      }
                     >
                       {row.getVisibleCells().map((cell) => (
                         <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>

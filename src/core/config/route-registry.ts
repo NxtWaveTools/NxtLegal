@@ -17,6 +17,8 @@ export const routeRegistry = {
     },
     contracts: {
       list: '/api/contracts',
+      contractTypes: '/api/contracts/contract-types',
+      departments: '/api/contracts/departments',
       pendingApprovals: '/api/contracts/pending-approvals',
       dashboard: '/api/contracts/dashboard',
       repository: '/api/contracts/repository',

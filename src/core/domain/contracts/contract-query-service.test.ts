@@ -5,11 +5,23 @@ import { AuthorizationError } from '@/core/http/errors'
 const baseContract: ContractDetail = {
   id: 'contract-1',
   title: 'Master Service Agreement',
+  contractTypeId: 'contract-type-1',
+  contractTypeName: 'MSA',
   status: 'HOD_PENDING',
   uploadedByEmployeeId: 'uploader-1',
   uploadedByEmail: 'poc@nxtwave.co.in',
   currentAssigneeEmployeeId: 'hod-1',
   currentAssigneeEmail: 'hod@nxtwave.co.in',
+  departmentId: 'department-1',
+  departmentName: 'Facilities',
+  departmentHodName: 'Bala Bhaskar',
+  departmentHodEmail: 'balabhaskar@nxtwave.co.in',
+  signatoryName: 'John Doe',
+  signatoryDesignation: 'Manager',
+  signatoryEmail: 'john.doe@nxtwave.co.in',
+  backgroundOfRequest: 'Office fitout contract',
+  budgetApproved: true,
+  requestCreatedAt: new Date().toISOString(),
   fileName: 'msa.docx',
   fileSizeBytes: 1024,
   fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -146,6 +158,7 @@ describe('ContractQueryService', () => {
     repository.getDashboardContracts.mockResolvedValue({
       items: [baseContract],
       nextCursor: undefined,
+      total: 1,
     })
 
     const result = await service.getDashboardContracts({
@@ -164,5 +177,68 @@ describe('ContractQueryService', () => {
       filter: 'HOD_PENDING',
       limit: 20,
     })
+  })
+
+  it('preserves repository total count for list contracts', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    repository.listByTenant.mockResolvedValue({
+      items: [baseContract],
+      nextCursor: undefined,
+      total: 37,
+    })
+
+    const result = await service.listContracts({
+      tenantId: 'tenant-1',
+      employeeId: 'poc-1',
+      role: 'POC',
+      limit: 20,
+    })
+
+    expect(result.total).toBe(37)
+  })
+
+  it('preserves repository total count for dashboard contracts', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    repository.getDashboardContracts.mockResolvedValue({
+      items: [baseContract],
+      nextCursor: undefined,
+      total: 11,
+    })
+
+    const result = await service.getDashboardContracts({
+      tenantId: 'tenant-1',
+      employeeId: 'poc-1',
+      role: 'POC',
+      filter: 'HOD_PENDING',
+      limit: 20,
+    })
+
+    expect(result.total).toBe(11)
+  })
+
+  it('preserves repository total count for repository listing', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    repository.listRepositoryContracts.mockResolvedValue({
+      items: [baseContract],
+      nextCursor: undefined,
+      total: 24,
+    })
+
+    const result = await service.listRepositoryContracts({
+      tenantId: 'tenant-1',
+      employeeId: 'legal-1',
+      role: 'LEGAL_TEAM',
+      limit: 20,
+      sortBy: 'created_at',
+      sortDirection: 'desc',
+    })
+
+    expect(result.total).toBe(24)
   })
 })

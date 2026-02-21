@@ -4,6 +4,15 @@ export type ContractRecord = {
   id: string
   tenantId: string
   title: string
+  contractTypeId: string
+  contractTypeName?: string
+  signatoryName: string
+  signatoryDesignation: string
+  signatoryEmail: string
+  backgroundOfRequest: string
+  departmentId: string
+  budgetApproved: boolean
+  requestCreatedAt: string
   uploadedByEmployeeId: string
   uploadedByEmail: string
   currentAssigneeEmployeeId: string
@@ -20,6 +29,13 @@ export type CreateContractUploadInput = {
   contractId: string
   tenantId: string
   title: string
+  contractTypeId: string
+  signatoryName: string
+  signatoryDesignation: string
+  signatoryEmail: string
+  backgroundOfRequest: string
+  departmentId: string
+  budgetApproved: boolean
   uploadedByEmployeeId: string
   uploadedByEmail: string
   uploadedByRole: string

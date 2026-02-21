@@ -32,7 +32,7 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
         pagination: {
           cursor: result.nextCursor ?? null,
           limit,
-          total: result.items.length,
+          total: result.total,
         },
       })
     )

@@ -18,6 +18,13 @@ export type UploadContractInput = {
   uploadedByEmail: string
   uploadedByRole: string
   title: string
+  contractTypeId: string
+  signatoryName: string
+  signatoryDesignation: string
+  signatoryEmail: string
+  backgroundOfRequest: string
+  departmentId: string
+  budgetApproved: boolean
   fileName: string
   fileSizeBytes: number
   fileMimeType: string
@@ -25,7 +32,7 @@ export type UploadContractInput = {
 }
 
 export class ContractUploadService {
-  private readonly allowedUploadRoles = new Set(['POC', 'LEGAL_TEAM'])
+  private readonly allowedUploadRoles = new Set(['POC', 'LEGAL_TEAM', 'USER'])
   private readonly privilegedReadRoles = new Set(['ADMIN', 'LEGAL_TEAM'])
 
   constructor(
@@ -38,7 +45,7 @@ export class ContractUploadService {
     this.validateUploadInput(input)
 
     if (!this.allowedUploadRoles.has(input.uploadedByRole)) {
-      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only POC and LEGAL_TEAM can upload contracts')
+      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only POC, LEGAL_TEAM, and USER can upload contracts')
     }
 
     const contractId = randomUUID()
@@ -56,6 +63,13 @@ export class ContractUploadService {
         contractId,
         tenantId: input.tenantId,
         title: input.title.trim(),
+        contractTypeId: input.contractTypeId,
+        signatoryName: input.signatoryName.trim(),
+        signatoryDesignation: input.signatoryDesignation.trim(),
+        signatoryEmail: input.signatoryEmail.trim().toLowerCase(),
+        backgroundOfRequest: input.backgroundOfRequest.trim(),
+        departmentId: input.departmentId,
+        budgetApproved: input.budgetApproved,
         uploadedByEmployeeId: input.uploadedByEmployeeId,
         uploadedByEmail: input.uploadedByEmail,
         uploadedByRole: input.uploadedByRole,
@@ -141,6 +155,34 @@ export class ContractUploadService {
 
     if (!input.fileMimeType.trim()) {
       throw new BusinessRuleError('CONTRACT_FILE_MIME_REQUIRED', 'File MIME type is required')
+    }
+
+    if (!input.signatoryName.trim()) {
+      throw new BusinessRuleError('SIGNATORY_NAME_REQUIRED', 'Signatory name is required')
+    }
+
+    if (!input.signatoryDesignation.trim()) {
+      throw new BusinessRuleError('SIGNATORY_DESIGNATION_REQUIRED', 'Signatory designation is required')
+    }
+
+    if (!input.signatoryEmail.trim()) {
+      throw new BusinessRuleError('SIGNATORY_EMAIL_REQUIRED', 'Signatory email is required')
+    }
+
+    if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(input.signatoryEmail.trim())) {
+      throw new BusinessRuleError('SIGNATORY_EMAIL_INVALID', 'Signatory email format is invalid')
+    }
+
+    if (!input.backgroundOfRequest.trim()) {
+      throw new BusinessRuleError('BACKGROUND_OF_REQUEST_REQUIRED', 'Background of request is required')
+    }
+
+    if (!input.departmentId.trim()) {
+      throw new BusinessRuleError('DEPARTMENT_ID_REQUIRED', 'Department is required')
+    }
+
+    if (!input.contractTypeId.trim()) {
+      throw new BusinessRuleError('CONTRACT_TYPE_ID_REQUIRED', 'Contract type is required')
     }
   }
 

@@ -16,6 +16,13 @@
   gap: 18px;
 }
 
+.sidebarBrand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
 .sidebarLogo {
   width: 40px;
   height: 40px;
@@ -25,7 +32,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 7px;
+}
+
+.sidebarLogoSvg {
+  width: 100%;
+  height: 100%;
+}
+
+.sidebarBrandText {
+  font-size: 10px;
   font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+  line-height: 1;
 }
 
 .navList {
@@ -64,6 +84,14 @@
 }
 
 .navIcon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.navIconSvg {
   width: 18px;
   height: 18px;
 }

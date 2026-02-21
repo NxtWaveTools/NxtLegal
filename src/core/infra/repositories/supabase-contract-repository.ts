@@ -10,6 +10,14 @@ type ContractRow = {
   id: string
   tenant_id: string
   title: string
+  contract_type_id: string
+  signatory_name: string
+  signatory_designation: string
+  signatory_email: string
+  background_of_request: string
+  department_id: string
+  budget_approved: boolean
+  request_created_at: string
   uploaded_by_employee_id: string
   uploaded_by_email: string
   current_assignee_employee_id: string
@@ -32,6 +40,13 @@ class SupabaseContractRepository implements ContractRepository {
       p_contract_id: input.contractId,
       p_tenant_id: input.tenantId,
       p_title: input.title,
+      p_contract_type_id: input.contractTypeId,
+      p_signatory_name: input.signatoryName,
+      p_signatory_designation: input.signatoryDesignation,
+      p_signatory_email: input.signatoryEmail,
+      p_background_of_request: input.backgroundOfRequest,
+      p_department_id: input.departmentId,
+      p_budget_approved: input.budgetApproved,
       p_uploaded_by_employee_id: input.uploadedByEmployeeId,
       p_uploaded_by_email: input.uploadedByEmail,
       p_uploaded_by_role: input.uploadedByRole,
@@ -57,7 +72,7 @@ class SupabaseContractRepository implements ContractRepository {
     const { data, error } = await supabase
       .from('contracts')
       .select(
-        'id, tenant_id, title, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, status, file_path, file_name, file_size_bytes, file_mime_type, created_at'
+        'id, tenant_id, title, contract_type_id, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, status, file_path, file_name, file_size_bytes, file_mime_type, created_at'
       )
       .eq('id', contractId)
       .eq('tenant_id', tenantId)
@@ -183,6 +198,14 @@ class SupabaseContractRepository implements ContractRepository {
       id: row.id,
       tenantId: row.tenant_id,
       title: row.title,
+      contractTypeId: row.contract_type_id,
+      signatoryName: row.signatory_name,
+      signatoryDesignation: row.signatory_designation,
+      signatoryEmail: row.signatory_email,
+      backgroundOfRequest: row.background_of_request,
+      departmentId: row.department_id,
+      budgetApproved: row.budget_approved,
+      requestCreatedAt: row.request_created_at,
       uploadedByEmployeeId: row.uploaded_by_employee_id,
       uploadedByEmail: row.uploaded_by_email,
       currentAssigneeEmployeeId: row.current_assignee_employee_id,

@@ -6,12 +6,25 @@ import styles from '../third-party-upload.module.css'
 type AdditionalDataStepProps = {
   mainFileName: string | null
   contractType: string
-  contractTypes: string[]
+  contractTypes: Array<{ id: string; name: string }>
   counterparty: string
   counterparties: string[]
   showCounterpartyModal: boolean
   onContractTypeChange: (value: string) => void
   onCounterpartyChange: (value: string) => void
+  signatoryName: string
+  signatoryDesignation: string
+  signatoryEmail: string
+  backgroundOfRequest: string
+  departmentId: string
+  departments: Array<{ id: string; name: string }>
+  budgetApproved: boolean
+  onSignatoryNameChange: (value: string) => void
+  onSignatoryDesignationChange: (value: string) => void
+  onSignatoryEmailChange: (value: string) => void
+  onBackgroundOfRequestChange: (value: string) => void
+  onDepartmentIdChange: (value: string) => void
+  onBudgetApprovedChange: (value: boolean) => void
   supportingFiles: File[]
   onSupportingFilesSelected: (files: File[]) => void
   onSupportingFileRemoved: (index: number) => void
@@ -27,6 +40,19 @@ export default function AdditionalDataStep({
   showCounterpartyModal,
   onContractTypeChange,
   onCounterpartyChange,
+  signatoryName,
+  signatoryDesignation,
+  signatoryEmail,
+  backgroundOfRequest,
+  departmentId,
+  departments,
+  budgetApproved,
+  onSignatoryNameChange,
+  onSignatoryDesignationChange,
+  onSignatoryEmailChange,
+  onBackgroundOfRequestChange,
+  onDepartmentIdChange,
+  onBudgetApprovedChange,
   supportingFiles,
   onSupportingFilesSelected,
   onSupportingFileRemoved,
@@ -58,10 +84,98 @@ export default function AdditionalDataStep({
             >
               <option value="">Select contract type</option>
               {contractTypes.map((option) => (
-                <option key={option} value={option}>
-                  {option}
+                <option key={option.id} value={option.id}>
+                  {option.name}
                 </option>
               ))}
+            </select>
+          </div>
+
+          <div className={styles.fieldGroup}>
+            <label className={styles.label} htmlFor="department-id">
+              Department*
+            </label>
+            <select
+              id="department-id"
+              className={styles.select}
+              value={departmentId}
+              onChange={(event) => onDepartmentIdChange(event.target.value)}
+            >
+              <option value="">Select department</option>
+              {departments.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.fieldGroup}>
+            <label className={styles.label} htmlFor="signatory-name">
+              Signatory Name*
+            </label>
+            <input
+              id="signatory-name"
+              className={styles.input}
+              value={signatoryName}
+              onChange={(event) => onSignatoryNameChange(event.target.value)}
+              placeholder="Enter signatory name"
+            />
+          </div>
+
+          <div className={styles.fieldGroup}>
+            <label className={styles.label} htmlFor="signatory-designation">
+              Signatory Designation*
+            </label>
+            <input
+              id="signatory-designation"
+              className={styles.input}
+              value={signatoryDesignation}
+              onChange={(event) => onSignatoryDesignationChange(event.target.value)}
+              placeholder="Enter designation"
+            />
+          </div>
+
+          <div className={styles.fieldGroup}>
+            <label className={styles.label} htmlFor="signatory-email">
+              Signatory Email*
+            </label>
+            <input
+              id="signatory-email"
+              className={styles.input}
+              type="email"
+              value={signatoryEmail}
+              onChange={(event) => onSignatoryEmailChange(event.target.value)}
+              placeholder="name@company.com"
+            />
+          </div>
+
+          <div className={styles.fieldGroup}>
+            <label className={styles.label} htmlFor="background-of-request">
+              Background of Request*
+            </label>
+            <textarea
+              id="background-of-request"
+              className={styles.input}
+              value={backgroundOfRequest}
+              onChange={(event) => onBackgroundOfRequestChange(event.target.value)}
+              placeholder="Describe the request context"
+              rows={4}
+            />
+          </div>
+
+          <div className={styles.fieldGroup}>
+            <label className={styles.label} htmlFor="budget-approved">
+              Budget Approved*
+            </label>
+            <select
+              id="budget-approved"
+              className={styles.select}
+              value={budgetApproved ? 'true' : 'false'}
+              onChange={(event) => onBudgetApprovedChange(event.target.value === 'true')}
+            >
+              <option value="false">No</option>
+              <option value="true">Yes</option>
             </select>
           </div>
 

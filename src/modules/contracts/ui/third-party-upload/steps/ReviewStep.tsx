@@ -6,6 +6,12 @@ type ReviewStepProps = {
   mainFileName: string | null
   contractType: string
   counterparty: string
+  departmentName: string
+  signatoryName: string
+  signatoryDesignation: string
+  signatoryEmail: string
+  backgroundOfRequest: string
+  budgetApproved: boolean
   supportingCount: number
   organizationEntity: string
 }
@@ -14,6 +20,12 @@ export default function ReviewStep({
   mainFileName,
   contractType,
   counterparty,
+  departmentName,
+  signatoryName,
+  signatoryDesignation,
+  signatoryEmail,
+  backgroundOfRequest,
+  budgetApproved,
   supportingCount,
   organizationEntity,
 }: ReviewStepProps) {
@@ -32,6 +44,30 @@ export default function ReviewStep({
       <div className={styles.summaryRow}>
         <span>Counterparty</span>
         <span>{counterparty || 'Not set'}</span>
+      </div>
+      <div className={styles.summaryRow}>
+        <span>Department</span>
+        <span>{departmentName || 'Not set'}</span>
+      </div>
+      <div className={styles.summaryRow}>
+        <span>Signatory Name</span>
+        <span>{signatoryName || 'Not set'}</span>
+      </div>
+      <div className={styles.summaryRow}>
+        <span>Signatory Designation</span>
+        <span>{signatoryDesignation || 'Not set'}</span>
+      </div>
+      <div className={styles.summaryRow}>
+        <span>Signatory Email</span>
+        <span>{signatoryEmail || 'Not set'}</span>
+      </div>
+      <div className={styles.summaryRow}>
+        <span>Budget Approved</span>
+        <span>{budgetApproved ? 'Yes' : 'No'}</span>
+      </div>
+      <div className={styles.summaryRow}>
+        <span>Background</span>
+        <span>{backgroundOfRequest || 'Not set'}</span>
       </div>
       <div className={styles.summaryRow}>
         <span>Supporting Documents</span>

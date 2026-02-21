@@ -55,6 +55,46 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
     }
   }
 
+  private async resolveEffectiveRole(params: {
+    tenantId: string
+    userId: string
+    currentRole: string
+    supabase: ReturnType<typeof createServiceSupabase>
+  }): Promise<string> {
+    if (params.currentRole !== 'USER') {
+      return params.currentRole
+    }
+
+    const { data, error } = await params.supabase
+      .from('team_members')
+      .select('role_type, is_primary, created_at')
+      .eq('tenant_id', params.tenantId)
+      .eq('user_id', params.userId)
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true })
+      .limit(1)
+
+    if (error) {
+      logger.warn('Failed to resolve effective role from team_members', {
+        tenantId: params.tenantId,
+        userId: params.userId,
+        error: error.message,
+      })
+      return params.currentRole
+    }
+
+    const roleType = (data ?? [])[0]?.role_type
+    if (roleType === 'HOD') {
+      return 'HOD'
+    }
+
+    if (roleType === 'POC') {
+      return 'POC'
+    }
+
+    return params.currentRole
+  }
+
   private resolveTeamName(
     team: { name: string | null } | Array<{ name: string | null }> | null | undefined
   ): string | null {
@@ -137,11 +177,20 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             return null
           }
 
+          const effectiveRole = await this.resolveEffectiveRole({
+            tenantId,
+            userId: fallbackData.id,
+            currentRole: fallbackData.role,
+            supabase,
+          })
+
           logger.warn('User lookup by ID used schema-drift fallback (no team relation)', {
             employeeId,
             tenantId,
+            role: effectiveRole,
           })
-          return fallbackData ? this.mapEmployeeWithoutTeam(fallbackData) : null
+
+          return fallbackData ? this.mapEmployeeWithoutTeam({ ...fallbackData, role: effectiveRole }) : null
         }
 
         if (error.code === 'PGRST116') {
@@ -157,13 +206,21 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
         return null
       }
 
+      const effectiveRole = await this.resolveEffectiveRole({
+        tenantId,
+        userId: data.id,
+        currentRole: data.role,
+        supabase,
+      })
+
       logger.debug('User found', {
         employeeId,
         tenantId,
         hasPassword: !!data.password_hash,
         isActive: data.is_active,
+        role: effectiveRole,
       })
-      return data ? this.mapEmployee(data) : null
+      return data ? this.mapEmployee({ ...data, role: effectiveRole }) : null
     } catch (error) {
       logger.error('User lookup by ID threw error', { employeeId, tenantId, error: String(error) })
       return null
@@ -203,11 +260,19 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             return null
           }
 
+          const effectiveRole = await this.resolveEffectiveRole({
+            tenantId,
+            userId: fallbackData.id,
+            currentRole: fallbackData.role,
+            supabase,
+          })
+
           logger.warn('Employee lookup by email used schema-drift fallback (no team relation)', {
             email,
             tenantId,
+            role: effectiveRole,
           })
-          return fallbackData ? this.mapEmployeeWithoutTeam(fallbackData) : null
+          return fallbackData ? this.mapEmployeeWithoutTeam({ ...fallbackData, role: effectiveRole }) : null
         }
 
         if (error.code === 'PGRST116') {
@@ -217,7 +282,14 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
         return null
       }
 
-      return data ? this.mapEmployee(data) : null
+      const effectiveRole = await this.resolveEffectiveRole({
+        tenantId,
+        userId: data.id,
+        currentRole: data.role,
+        supabase,
+      })
+
+      return data ? this.mapEmployee({ ...data, role: effectiveRole }) : null
     } catch (error) {
       logger.error('Employee lookup by email threw error', { email, tenantId, error: String(error) })
       return null

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import { contractsClient, type ContractRecord, type DashboardContractsFilter } from '@/core/client/contracts-client'
@@ -117,6 +117,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
 
 export default function DashboardClient({ session }: DashboardClientProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const roleConfig = useMemo(() => getRoleConfig(session.role), [session.role])
   const contractsSectionRef = useRef<HTMLElement | null>(null)
   const initialLoadPromiseRef = useRef<Promise<void> | null>(null)
@@ -126,8 +127,18 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [isLoadingContracts, setIsLoadingContracts] = useState(true)
   const [contractsError, setContractsError] = useState<string | null>(null)
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0)
-  const [activeFilter, setActiveFilter] = useState<DashboardContractsFilter>(roleConfig.defaultFilter)
+  const [activeFilter, setActiveFilter] = useState<DashboardContractsFilter>(() => {
+    const requestedFilter = searchParams.get('filter')
+    const isAllowedFilter = roleConfig.filters.some((item) => item.value === requestedFilter)
+
+    if (requestedFilter && isAllowedFilter) {
+      return requestedFilter as DashboardContractsFilter
+    }
+
+    return roleConfig.defaultFilter
+  })
   const [filterCounts, setFilterCounts] = useState<Partial<Record<DashboardContractsFilter, number>>>({})
+  const [activeFilterTotal, setActiveFilterTotal] = useState(0)
 
   const loadPendingApprovals = useCallback(async () => {
     if (!roleConfig.showApproveCard) {
@@ -135,15 +146,18 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       return
     }
 
-    const response = await contractsClient.pendingApprovals({ limit: 50 })
+    const response = await contractsClient.dashboardContracts({
+      filter: roleConfig.approveFilter,
+      limit: 1,
+    })
 
     if (!response.ok || !response.data) {
       setPendingApprovalsCount(0)
       return
     }
 
-    setPendingApprovalsCount(response.data.contracts.length)
-  }, [roleConfig.showApproveCard])
+    setPendingApprovalsCount(response.data.pagination.total)
+  }, [roleConfig.approveFilter, roleConfig.showApproveCard])
 
   const loadContractsForFilter = useCallback(async (filter: DashboardContractsFilter) => {
     setIsLoadingContracts(true)
@@ -156,11 +170,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     if (!response.ok || !response.data) {
       setContracts([])
       setContractsError(response.error?.message ?? 'Failed to load contracts')
+      setActiveFilterTotal(0)
       setIsLoadingContracts(false)
       return
     }
 
     setContracts(response.data.contracts)
+    setActiveFilterTotal(response.data.pagination.total)
     setContractsError(null)
     setIsLoadingContracts(false)
   }, [])
@@ -175,7 +191,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
         return {
           filter: filterOption.value,
-          count: response.ok && response.data ? response.data.contracts.length : 0,
+          count: response.ok && response.data ? response.data.pagination.total : 0,
         }
       })
     )
@@ -191,9 +207,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const applyFilter = useCallback(
     (filter: DashboardContractsFilter) => {
       setActiveFilter(filter)
+      router.replace(`/dashboard?filter=${filter}`)
       void loadContractsForFilter(filter)
     },
-    [loadContractsForFilter]
+    [loadContractsForFilter, router]
   )
 
   if (initialLoadPromiseRef.current === null) {
@@ -233,7 +250,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
             <div className={styles.taskCards}>
               <DashboardActionCard
                 title="Upload Third-Party Contract"
-                count={contracts.length}
+                count={activeFilterTotal}
                 description="Upload third-party contracts for review"
                 icon={uploadIcon}
                 onClick={() => setIsUploadOpen(true)}
@@ -325,7 +342,14 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                       <button
                         type="button"
                         className={styles.emptyAction}
-                        onClick={() => router.push(contractsClient.resolveProtectedContractPath(contract.id))}
+                        onClick={() =>
+                          router.push(
+                            contractsClient.resolveProtectedContractPath(contract.id, {
+                              from: 'dashboard',
+                              filter: activeFilter,
+                            })
+                          )
+                        }
                       >
                         Open
                       </button>
