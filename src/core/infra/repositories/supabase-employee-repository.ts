@@ -11,6 +11,50 @@ import type {
 } from '@/core/domain/users/employee-repository'
 
 class SupabaseEmployeeRepository implements EmployeeRepository {
+  private readonly selectWithTeamRelation =
+    'id, tenant_id, email, full_name, team_id, team_name:teams(name), is_active, password_hash, role, created_at, updated_at, deleted_at'
+
+  private readonly selectWithoutTeamRelation =
+    'id, tenant_id, email, full_name, is_active, password_hash, role, created_at, updated_at, deleted_at'
+
+  private isSchemaDriftError(error: { message?: string; details?: string } | null | undefined): boolean {
+    const message = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase()
+    return (
+      message.includes("could not find a relationship between 'users' and 'teams'") ||
+      message.includes('column users.team_id does not exist') ||
+      message.includes('column "team_id" does not exist')
+    )
+  }
+
+  private mapEmployeeWithoutTeam(data: {
+    id: string
+    tenant_id: string
+    email: string
+    full_name: string | null
+    is_active: boolean
+    password_hash?: string | null
+    role: string
+    created_at: string
+    updated_at: string
+    deleted_at: string | null
+  }): EmployeeRecord {
+    return {
+      id: data.id,
+      employeeId: data.id,
+      tenantId: data.tenant_id,
+      email: data.email,
+      fullName: data.full_name,
+      teamId: null,
+      teamName: null,
+      isActive: data.is_active,
+      passwordHash: data.password_hash,
+      role: data.role,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      deletedAt: data.deleted_at,
+    }
+  }
+
   private resolveTeamName(
     team: { name: string | null } | Array<{ name: string | null }> | null | undefined
   ): string | null {
@@ -63,15 +107,43 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
       const supabase = createServiceSupabase()
       const { data, error } = await supabase
         .from('users')
-        .select(
-          'id, tenant_id, password_hash, email, full_name, team_id, team_name:teams(name), is_active, role, created_at, updated_at, deleted_at'
-        )
+        .select(this.selectWithTeamRelation)
         .eq('id', employeeId)
         .eq('tenant_id', tenantId)
         .is('deleted_at', null)
         .single()
 
       if (error) {
+        if (this.isSchemaDriftError(error)) {
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('users')
+            .select(this.selectWithoutTeamRelation)
+            .eq('id', employeeId)
+            .eq('tenant_id', tenantId)
+            .is('deleted_at', null)
+            .single()
+
+          if (fallbackError) {
+            if (fallbackError.code === 'PGRST116') {
+              logger.debug('User not found in tenant', { employeeId, tenantId })
+              return null
+            }
+            logger.error('User lookup by ID failed (fallback query)', {
+              employeeId,
+              tenantId,
+              error: fallbackError.message,
+              errorCode: fallbackError.code,
+            })
+            return null
+          }
+
+          logger.warn('User lookup by ID used schema-drift fallback (no team relation)', {
+            employeeId,
+            tenantId,
+          })
+          return fallbackData ? this.mapEmployeeWithoutTeam(fallbackData) : null
+        }
+
         if (error.code === 'PGRST116') {
           logger.debug('User not found in tenant', { employeeId, tenantId })
           return null
@@ -103,15 +175,41 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
       const supabase = createServiceSupabase()
       const { data, error } = await supabase
         .from('users')
-        .select(
-          'id, tenant_id, email, full_name, team_id, team_name:teams(name), is_active, password_hash, role, created_at, updated_at, deleted_at'
-        )
+        .select(this.selectWithTeamRelation)
         .eq('email', email)
         .eq('tenant_id', tenantId)
         .is('deleted_at', null)
         .single()
 
       if (error) {
+        if (this.isSchemaDriftError(error)) {
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('users')
+            .select(this.selectWithoutTeamRelation)
+            .eq('email', email)
+            .eq('tenant_id', tenantId)
+            .is('deleted_at', null)
+            .single()
+
+          if (fallbackError) {
+            if (fallbackError.code === 'PGRST116') {
+              return null
+            }
+            logger.error('Employee lookup by email failed (fallback query)', {
+              email,
+              tenantId,
+              error: fallbackError.message,
+            })
+            return null
+          }
+
+          logger.warn('Employee lookup by email used schema-drift fallback (no team relation)', {
+            email,
+            tenantId,
+          })
+          return fallbackData ? this.mapEmployeeWithoutTeam(fallbackData) : null
+        }
+
         if (error.code === 'PGRST116') {
           return null
         }
@@ -142,12 +240,41 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
           role: employee.role,
         },
       ])
-      .select(
-        'id, tenant_id, email, full_name, team_id, team_name:teams(name), is_active, password_hash, role, created_at, updated_at, deleted_at'
-      )
+      .select(this.selectWithTeamRelation)
       .single()
 
-    if (error) throw error
+    if (error) {
+      if (this.isSchemaDriftError(error)) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('users')
+          .insert([
+            {
+              id: employee.id,
+              tenant_id: employee.tenantId,
+              email: employee.email,
+              full_name: employee.fullName,
+              is_active: employee.isActive,
+              password_hash: employee.passwordHash,
+              role: employee.role,
+            },
+          ])
+          .select(this.selectWithoutTeamRelation)
+          .single()
+
+        if (fallbackError) {
+          throw fallbackError
+        }
+
+        logger.warn('Employee create used schema-drift fallback (no team relation)', {
+          employeeId: employee.id,
+          tenantId: employee.tenantId,
+        })
+        return this.mapEmployeeWithoutTeam(fallbackData)
+      }
+
+      throw error
+    }
+
     return this.mapEmployee(data)
   }
 
@@ -175,9 +302,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
       const supabase = createServiceSupabase()
       let query = supabase
         .from('users')
-        .select(
-          'id, tenant_id, email, full_name, team_id, team_name:teams(name), is_active, password_hash, role, created_at, updated_at, deleted_at'
-        )
+        .select(this.selectWithTeamRelation)
         .eq('tenant_id', tenantId)
         .is('deleted_at', null)
 
@@ -192,6 +317,34 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
       const { data, error } = await query
 
       if (error) {
+        if (this.isSchemaDriftError(error)) {
+          let fallbackQuery = supabase
+            .from('users')
+            .select(this.selectWithoutTeamRelation)
+            .eq('tenant_id', tenantId)
+            .is('deleted_at', null)
+
+          if (filters?.role) {
+            fallbackQuery = fallbackQuery.eq('role', filters.role)
+          }
+
+          if (filters?.isActive !== undefined) {
+            fallbackQuery = fallbackQuery.eq('is_active', filters.isActive)
+          }
+
+          const { data: fallbackData, error: fallbackError } = await fallbackQuery
+          if (fallbackError) {
+            logger.error('Failed to list employees by tenant (fallback query)', {
+              tenantId,
+              error: fallbackError.message,
+            })
+            return []
+          }
+
+          logger.warn('Employee list used schema-drift fallback (no team relation)', { tenantId })
+          return (fallbackData || []).map((emp) => this.mapEmployeeWithoutTeam(emp))
+        }
+
         logger.error('Failed to list employees by tenant', { tenantId, error: error.message })
         return []
       }
