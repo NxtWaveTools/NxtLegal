@@ -58,6 +58,7 @@ describe('AuthService Integration Tests', () => {
           passwordHash: (record.password_hash as string) || null,
           isActive: record.is_active as boolean,
           role: record.role as string,
+          tokenVersion: (record.token_version as number) ?? 0,
           tenantId: record.tenant_id as string,
           createdAt: (record.created_at as string) || new Date().toISOString(),
           updatedAt: (record.updated_at as string) || new Date().toISOString(),
@@ -84,6 +85,7 @@ describe('AuthService Integration Tests', () => {
           passwordHash: (record.password_hash as string) || null,
           isActive: record.is_active as boolean,
           role: record.role as string,
+          tokenVersion: (record.token_version as number) ?? 0,
           tenantId: record.tenant_id as string,
           createdAt: (record.created_at as string) || new Date().toISOString(),
           updatedAt: (record.updated_at as string) || new Date().toISOString(),
@@ -103,6 +105,7 @@ describe('AuthService Integration Tests', () => {
             full_name: employee.fullName,
             is_active: employee.isActive,
             role: employee.role,
+            token_version: employee.tokenVersion,
             password_hash: employee.passwordHash,
             team_id: employee.teamId,
           })
@@ -118,6 +121,7 @@ describe('AuthService Integration Tests', () => {
           passwordHash: (data!.password_hash as string) || null,
           isActive: data!.is_active as boolean,
           role: data!.role as string,
+          tokenVersion: (data!.token_version as number) ?? 0,
           tenantId: data!.tenant_id as string,
           createdAt: (data!.created_at as string) || new Date().toISOString(),
           updatedAt: (data!.updated_at as string) || new Date().toISOString(),
@@ -156,6 +160,7 @@ describe('AuthService Integration Tests', () => {
         full_name: 'Test Employee',
         is_active: true,
         role: 'POC',
+        token_version: 0,
         password_hash: passwordHash,
       })
       // Act: Attempt login
@@ -184,6 +189,7 @@ describe('AuthService Integration Tests', () => {
         full_name: 'Test Employee',
         is_active: true,
         role: 'POC',
+        token_version: 0,
         password_hash: passwordHash,
       })
 
@@ -209,6 +215,7 @@ describe('AuthService Integration Tests', () => {
         full_name: 'Test Employee',
         is_active: false, // Inactive account
         role: 'POC',
+        token_version: 0,
         password_hash: passwordHash,
       })
       // Act & Assert: Should throw authorization error
@@ -232,6 +239,7 @@ describe('AuthService Integration Tests', () => {
         full_name: 'Test Employee',
         is_active: true,
         role: 'POC',
+        token_version: 0,
         password_hash: null, // No password set (OAuth only)
       })
 
@@ -265,6 +273,7 @@ describe('AuthService Integration Tests', () => {
         full_name: 'Test Employee',
         is_active: true,
         role: 'POC',
+        token_version: 0,
         password_hash: passwordHash,
       })
 
@@ -345,6 +354,7 @@ describe('AuthService Integration Tests', () => {
         full_name: 'Existing OAuth User',
         is_active: true,
         role: 'POC',
+        token_version: 0,
         password_hash: null, // OAuth user
       })
 
@@ -371,6 +381,7 @@ describe('AuthService Integration Tests', () => {
         full_name: 'Inactive OAuth User',
         is_active: false, // Inactive
         role: 'POC',
+        token_version: 0,
         password_hash: null,
       })
 

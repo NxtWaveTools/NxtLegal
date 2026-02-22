@@ -11,13 +11,15 @@ import styles from './dashboard.module.css'
 type ProtectedAppShellProps = {
   session: {
     fullName?: string | null
+    role?: string | null
   }
-  activeNav: 'home' | 'repository'
+  activeNav: 'home' | 'repository' | 'admin'
   children: ReactNode
 }
 
 export default function ProtectedAppShell({ session, activeNav, children }: ProtectedAppShellProps) {
   const router = useRouter()
+  const canAccessAdminConsole = ['ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'].includes((session.role ?? '').toUpperCase())
 
   const displayName = useMemo(() => {
     if (!session.fullName) {
@@ -68,16 +70,23 @@ export default function ProtectedAppShell({ session, activeNav, children }: Prot
               </svg>
             </span>
           </button>
-          <button type="button" className={styles.navItem} aria-label="Manage">
-            <span className={styles.navIcon}>
-              <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
-                <rect x="4" y="4" width="5" height="5" rx="1.2" fill="currentColor" />
-                <rect x="11" y="4" width="5" height="5" rx="1.2" fill="currentColor" />
-                <rect x="4" y="11" width="5" height="5" rx="1.2" fill="currentColor" />
-                <rect x="11" y="11" width="5" height="5" rx="1.2" fill="currentColor" />
-              </svg>
-            </span>
-          </button>
+          {canAccessAdminConsole ? (
+            <button
+              type="button"
+              className={`${styles.navItem} ${activeNav === 'admin' ? styles.navItemActive : ''}`}
+              aria-label="Admin Console"
+              onClick={() => router.push(routeRegistry.protected.adminConsole)}
+            >
+              <span className={styles.navIcon}>
+                <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
+                  <rect x="4" y="4" width="5" height="5" rx="1.2" fill="currentColor" />
+                  <rect x="11" y="4" width="5" height="5" rx="1.2" fill="currentColor" />
+                  <rect x="4" y="11" width="5" height="5" rx="1.2" fill="currentColor" />
+                  <rect x="11" y="11" width="5" height="5" rx="1.2" fill="currentColor" />
+                </svg>
+              </span>
+            </button>
+          ) : null}
           <button type="button" className={styles.navItem} aria-label="Analytics">
             <span className={styles.navIcon}>
               <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">

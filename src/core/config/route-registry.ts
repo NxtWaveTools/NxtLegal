@@ -6,6 +6,7 @@ export const routeRegistry = {
   protected: {
     dashboard: '/dashboard',
     repository: '/repository',
+    adminConsole: '/admin',
     contractDetail: '/contracts/:contractId',
   },
   api: {
@@ -29,6 +30,15 @@ export const routeRegistry = {
       action: '/api/contracts/:contractId/action',
       note: '/api/contracts/:contractId/note',
       approvers: '/api/contracts/:contractId/approvers',
+    },
+    admin: {
+      users: '/api/admin/users',
+      roles: '/api/admin/roles',
+      userRoles: '/api/admin/users/:userId/roles',
+      teams: '/api/admin/teams',
+      teamDetail: '/api/admin/teams/:teamId',
+      teamPrimaryRole: '/api/admin/teams/:teamId/primary-role',
+      teamLegalMatrix: '/api/admin/teams/:teamId/legal-matrix',
     },
   },
 } as const

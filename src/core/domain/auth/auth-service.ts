@@ -62,6 +62,7 @@ export class AuthService {
       fullName: employee.fullName ?? undefined,
       role: employee.role,
       tenantId,
+      tokenVersion: employee.tokenVersion,
     })
 
     return {
@@ -103,6 +104,7 @@ export class AuthService {
         fullName: profile.name || undefined,
         isActive: true,
         role: 'POC',
+        tokenVersion: 0,
         passwordHash: null, // OAuth users don't need password hash
         teamId: null,
         teamName: null,
@@ -119,6 +121,7 @@ export class AuthService {
       fullName: employee.fullName ?? undefined,
       role: employee.role,
       tenantId,
+      tokenVersion: employee.tokenVersion,
     })
 
     return {

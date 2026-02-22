@@ -23,5 +23,6 @@ export const envServer = {
   featureMicrosoftOAuth: optionalEnv('FEATURE_MICROSOFT_OAUTH') ?? 'true',
   featurePasswordLogin: optionalEnv('FEATURE_PASSWORD_LOGIN') ?? 'true',
   featureContractWorkflow: optionalEnv('FEATURE_CONTRACT_WORKFLOW') ?? 'false',
+  featureAdminGovernance: optionalEnv('FEATURE_ADMIN_GOVERNANCE') ?? 'true',
   nodeEnv: optionalEnv('NODE_ENV') ?? 'development',
 } as const

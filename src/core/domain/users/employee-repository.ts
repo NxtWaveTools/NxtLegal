@@ -9,6 +9,7 @@ export type EmployeeRecord = {
   isActive: boolean
   passwordHash?: string | null
   role: string
+  tokenVersion: number
   createdAt: string
   updatedAt: string
   deletedAt: string | null

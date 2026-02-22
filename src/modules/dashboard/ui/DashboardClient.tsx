@@ -235,7 +235,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   )
 
   return (
-    <ProtectedAppShell session={{ fullName: session.fullName }} activeNav="home">
+    <ProtectedAppShell session={{ fullName: session.fullName, role: session.role }} activeNav="home">
       <main className={styles.main}>
         <section className={styles.greeting}>
           <div>

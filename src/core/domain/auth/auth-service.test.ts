@@ -48,6 +48,7 @@ describe('AuthService', () => {
         isActive: true,
         passwordHash: '$2b$10$example.hash', // bcrypt hash
         role: 'LEGAL_TEAM',
+        tokenVersion: 0,
         createdAt: '2026-02-14T00:00:00Z',
         updatedAt: '2026-02-14T00:00:00Z',
         deletedAt: null,
@@ -93,6 +94,7 @@ describe('AuthService', () => {
         isActive: false, // Inactive
         passwordHash: '$2b$10$example.hash',
         role: 'POC',
+        tokenVersion: 0,
         createdAt: '2026-02-14T00:00:00Z',
         updatedAt: '2026-02-14T00:00:00Z',
         deletedAt: null,
@@ -118,6 +120,7 @@ describe('AuthService', () => {
               isActive: true,
               passwordHash: '$2b$10$example.hash',
               role: 'POC',
+              tokenVersion: 0,
               createdAt: '2026-02-14T00:00:00Z',
               updatedAt: '2026-02-14T00:00:00Z',
               deletedAt: null,

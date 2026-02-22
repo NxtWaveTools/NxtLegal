@@ -12,9 +12,12 @@ import type {
 
 class SupabaseEmployeeRepository implements EmployeeRepository {
   private readonly selectWithTeamRelation =
-    'id, tenant_id, email, full_name, team_id, team_name:teams(name), is_active, password_hash, role, created_at, updated_at, deleted_at'
+    'id, tenant_id, email, full_name, team_id, team_name:teams(name), is_active, password_hash, role, token_version, created_at, updated_at, deleted_at'
 
   private readonly selectWithoutTeamRelation =
+    'id, tenant_id, email, full_name, is_active, password_hash, role, token_version, created_at, updated_at, deleted_at'
+
+  private readonly selectWithoutTeamRelationLegacy =
     'id, tenant_id, email, full_name, is_active, password_hash, role, created_at, updated_at, deleted_at'
 
   private isSchemaDriftError(error: { message?: string; details?: string } | null | undefined): boolean {
@@ -26,7 +29,46 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
     )
   }
 
+  private isMissingTokenVersionError(error: { message?: string; details?: string } | null | undefined): boolean {
+    const message = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase()
+    return (
+      message.includes('column users.token_version does not exist') ||
+      message.includes('column "token_version" does not exist')
+    )
+  }
+
   private mapEmployeeWithoutTeam(data: {
+    id: string
+    tenant_id: string
+    email: string
+    full_name: string | null
+    is_active: boolean
+    password_hash?: string | null
+    role: string
+    token_version: number | null
+    created_at: string
+    updated_at: string
+    deleted_at: string | null
+  }): EmployeeRecord {
+    return {
+      id: data.id,
+      employeeId: data.id,
+      tenantId: data.tenant_id,
+      email: data.email,
+      fullName: data.full_name,
+      teamId: null,
+      teamName: null,
+      isActive: data.is_active,
+      passwordHash: data.password_hash,
+      role: data.role,
+      tokenVersion: data.token_version ?? 0,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      deletedAt: data.deleted_at,
+    }
+  }
+
+  private mapEmployeeWithoutTeamLegacy(data: {
     id: string
     tenant_id: string
     email: string
@@ -49,6 +91,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
       isActive: data.is_active,
       passwordHash: data.password_hash,
       role: data.role,
+      tokenVersion: 0,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
       deletedAt: data.deleted_at,
@@ -119,6 +162,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
     is_active: boolean
     password_hash?: string | null
     role: string
+    token_version: number | null
     created_at: string
     updated_at: string
     deleted_at: string | null
@@ -134,6 +178,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
       isActive: data.is_active,
       passwordHash: data.password_hash,
       role: data.role,
+      tokenVersion: data.token_version ?? 0,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
       deletedAt: data.deleted_at,
@@ -154,6 +199,44 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
         .single()
 
       if (error) {
+        if (this.isMissingTokenVersionError(error)) {
+          const { data: legacyData, error: legacyError } = await supabase
+            .from('users')
+            .select(this.selectWithoutTeamRelationLegacy)
+            .eq('id', employeeId)
+            .eq('tenant_id', tenantId)
+            .is('deleted_at', null)
+            .single()
+
+          if (legacyError) {
+            if (legacyError.code === 'PGRST116') {
+              logger.debug('User not found in tenant (legacy token version fallback)', { employeeId, tenantId })
+              return null
+            }
+            logger.error('User lookup by ID failed (legacy token version fallback)', {
+              employeeId,
+              tenantId,
+              error: legacyError.message,
+              errorCode: legacyError.code,
+            })
+            return null
+          }
+
+          const effectiveRole = await this.resolveEffectiveRole({
+            tenantId,
+            userId: legacyData.id,
+            currentRole: legacyData.role,
+            supabase,
+          })
+
+          logger.warn('User lookup by ID used legacy token version fallback', {
+            employeeId,
+            tenantId,
+            role: effectiveRole,
+          })
+          return legacyData ? this.mapEmployeeWithoutTeamLegacy({ ...legacyData, role: effectiveRole }) : null
+        }
+
         if (this.isSchemaDriftError(error)) {
           const { data: fallbackData, error: fallbackError } = await supabase
             .from('users')
@@ -164,6 +247,47 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             .single()
 
           if (fallbackError) {
+            if (this.isMissingTokenVersionError(fallbackError)) {
+              const { data: legacyData, error: legacyError } = await supabase
+                .from('users')
+                .select(this.selectWithoutTeamRelationLegacy)
+                .eq('id', employeeId)
+                .eq('tenant_id', tenantId)
+                .is('deleted_at', null)
+                .single()
+
+              if (legacyError) {
+                if (legacyError.code === 'PGRST116') {
+                  logger.debug('User not found in tenant (legacy token version fallback after schema drift)', {
+                    employeeId,
+                    tenantId,
+                  })
+                  return null
+                }
+                logger.error('User lookup by ID failed (legacy token version fallback after schema drift)', {
+                  employeeId,
+                  tenantId,
+                  error: legacyError.message,
+                  errorCode: legacyError.code,
+                })
+                return null
+              }
+
+              const effectiveRole = await this.resolveEffectiveRole({
+                tenantId,
+                userId: legacyData.id,
+                currentRole: legacyData.role,
+                supabase,
+              })
+
+              logger.warn('User lookup by ID used legacy token version fallback after schema drift', {
+                employeeId,
+                tenantId,
+                role: effectiveRole,
+              })
+              return legacyData ? this.mapEmployeeWithoutTeamLegacy({ ...legacyData, role: effectiveRole }) : null
+            }
+
             if (fallbackError.code === 'PGRST116') {
               logger.debug('User not found in tenant', { employeeId, tenantId })
               return null
@@ -239,6 +363,42 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
         .single()
 
       if (error) {
+        if (this.isMissingTokenVersionError(error)) {
+          const { data: legacyData, error: legacyError } = await supabase
+            .from('users')
+            .select(this.selectWithoutTeamRelationLegacy)
+            .eq('email', email)
+            .eq('tenant_id', tenantId)
+            .is('deleted_at', null)
+            .single()
+
+          if (legacyError) {
+            if (legacyError.code === 'PGRST116') {
+              return null
+            }
+            logger.error('Employee lookup by email failed (legacy token version fallback)', {
+              email,
+              tenantId,
+              error: legacyError.message,
+            })
+            return null
+          }
+
+          const effectiveRole = await this.resolveEffectiveRole({
+            tenantId,
+            userId: legacyData.id,
+            currentRole: legacyData.role,
+            supabase,
+          })
+
+          logger.warn('Employee lookup by email used legacy token version fallback', {
+            email,
+            tenantId,
+            role: effectiveRole,
+          })
+          return legacyData ? this.mapEmployeeWithoutTeamLegacy({ ...legacyData, role: effectiveRole }) : null
+        }
+
         if (this.isSchemaDriftError(error)) {
           const { data: fallbackData, error: fallbackError } = await supabase
             .from('users')
@@ -249,6 +409,42 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             .single()
 
           if (fallbackError) {
+            if (this.isMissingTokenVersionError(fallbackError)) {
+              const { data: legacyData, error: legacyError } = await supabase
+                .from('users')
+                .select(this.selectWithoutTeamRelationLegacy)
+                .eq('email', email)
+                .eq('tenant_id', tenantId)
+                .is('deleted_at', null)
+                .single()
+
+              if (legacyError) {
+                if (legacyError.code === 'PGRST116') {
+                  return null
+                }
+                logger.error('Employee lookup by email failed (legacy token version fallback after schema drift)', {
+                  email,
+                  tenantId,
+                  error: legacyError.message,
+                })
+                return null
+              }
+
+              const effectiveRole = await this.resolveEffectiveRole({
+                tenantId,
+                userId: legacyData.id,
+                currentRole: legacyData.role,
+                supabase,
+              })
+
+              logger.warn('Employee lookup by email used legacy token version fallback after schema drift', {
+                email,
+                tenantId,
+                role: effectiveRole,
+              })
+              return legacyData ? this.mapEmployeeWithoutTeamLegacy({ ...legacyData, role: effectiveRole }) : null
+            }
+
             if (fallbackError.code === 'PGRST116') {
               return null
             }
@@ -310,12 +506,42 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
           is_active: employee.isActive,
           password_hash: employee.passwordHash,
           role: employee.role,
+          token_version: employee.tokenVersion,
         },
       ])
       .select(this.selectWithTeamRelation)
       .single()
 
     if (error) {
+      if (this.isMissingTokenVersionError(error)) {
+        const { data: legacyData, error: legacyError } = await supabase
+          .from('users')
+          .insert([
+            {
+              id: employee.id,
+              tenant_id: employee.tenantId,
+              email: employee.email,
+              full_name: employee.fullName,
+              team_id: employee.teamId ?? null,
+              is_active: employee.isActive,
+              password_hash: employee.passwordHash,
+              role: employee.role,
+            },
+          ])
+          .select(this.selectWithoutTeamRelationLegacy)
+          .single()
+
+        if (legacyError) {
+          throw legacyError
+        }
+
+        logger.warn('Employee create used legacy token version fallback', {
+          employeeId: employee.id,
+          tenantId: employee.tenantId,
+        })
+        return this.mapEmployeeWithoutTeamLegacy(legacyData)
+      }
+
       if (this.isSchemaDriftError(error)) {
         const { data: fallbackData, error: fallbackError } = await supabase
           .from('users')
@@ -328,6 +554,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
               is_active: employee.isActive,
               password_hash: employee.passwordHash,
               role: employee.role,
+              token_version: employee.tokenVersion,
             },
           ])
           .select(this.selectWithoutTeamRelation)
@@ -389,6 +616,34 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
       const { data, error } = await query
 
       if (error) {
+        if (this.isMissingTokenVersionError(error)) {
+          let legacyQuery = supabase
+            .from('users')
+            .select(this.selectWithoutTeamRelationLegacy)
+            .eq('tenant_id', tenantId)
+            .is('deleted_at', null)
+
+          if (filters?.role) {
+            legacyQuery = legacyQuery.eq('role', filters.role)
+          }
+
+          if (filters?.isActive !== undefined) {
+            legacyQuery = legacyQuery.eq('is_active', filters.isActive)
+          }
+
+          const { data: legacyData, error: legacyError } = await legacyQuery
+          if (legacyError) {
+            logger.error('Failed to list employees by tenant (legacy token version fallback)', {
+              tenantId,
+              error: legacyError.message,
+            })
+            return []
+          }
+
+          logger.warn('Employee list used legacy token version fallback', { tenantId })
+          return (legacyData || []).map((emp) => this.mapEmployeeWithoutTeamLegacy(emp))
+        }
+
         if (this.isSchemaDriftError(error)) {
           let fallbackQuery = supabase
             .from('users')
