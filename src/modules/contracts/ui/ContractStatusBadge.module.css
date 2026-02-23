@@ -8,6 +8,8 @@
   border: 1px solid var(--color-border);
   background: var(--color-surface-muted);
   color: var(--color-text);
+  animation: fadeIn 0.3s ease;
+  transition: transform 0.2s ease;
 }
 
 .uploaded {
@@ -19,6 +21,9 @@
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
   color: var(--color-accent);
+  animation:
+    fadeIn 0.3s ease,
+    pulseGlow 3s ease-in-out infinite;
 }
 
 .hodApproved,

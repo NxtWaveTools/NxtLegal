@@ -345,9 +345,16 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
           <div className={styles.contractsBody}>
             {isLoadingContracts ? (
-              <div>
-                <div className={styles.emptyTitle}>...</div>
-                <div className={styles.emptySubtitle}>Loading contracts</div>
+              <div className={styles.contractList}>
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className={styles.shimmerRow}>
+                    <div className={styles.shimmerAvatar} />
+                    <div className={styles.shimmerContent}>
+                      <div className={styles.shimmerLine} style={{ width: `${60 + i * 8}%` }} />
+                      <div className={styles.shimmerLine} style={{ width: '40%', height: 10 }} />
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : contractsError ? (
               <div>

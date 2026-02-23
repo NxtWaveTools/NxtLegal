@@ -9,10 +9,16 @@
   cursor: pointer;
   transition:
     background 0.2s ease,
-    border-color 0.2s ease;
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .button:hover {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
+  border-color: var(--color-danger);
+  background: rgba(220, 38, 38, 0.06);
+  color: var(--color-danger);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.1);
 }

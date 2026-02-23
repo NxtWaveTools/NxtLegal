@@ -14,7 +14,15 @@
   transition:
     background 0.2s ease,
     border-color 0.2s ease,
-    color 0.2s ease;
+    color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.toggle:hover {
+  border-color: var(--color-accent);
+  transform: scale(1.03);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .toggle:focus-visible {
@@ -35,6 +43,7 @@
   border: 1px solid var(--color-border);
   display: inline-flex;
   align-items: center;
+  transition: background 0.3s ease;
 }
 
 .toggleThumbLight,
@@ -44,7 +53,7 @@
   height: 14px;
   border-radius: 50%;
   background: var(--color-accent);
-  transition: transform 0.2s ease;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .toggleThumbLight {

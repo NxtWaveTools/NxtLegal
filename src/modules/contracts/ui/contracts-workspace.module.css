@@ -3,6 +3,7 @@
   grid-template-columns: 340px 1fr;
   gap: 16px;
   padding: 24px;
+  animation: fadeIn 0.4s ease;
 }
 
 .panel {
@@ -37,6 +38,16 @@
   font-weight: 600;
   padding: 6px 10px;
   cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+
+.backButton:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  transform: translateX(-2px);
 }
 
 .headerActions {
@@ -63,6 +74,18 @@
   background: var(--color-surface-muted);
   text-align: left;
   cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.item:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  box-shadow: 0 4px 12px rgba(47, 109, 246, 0.08);
+  transform: translateX(3px);
 }
 
 .itemActive {
@@ -106,6 +129,12 @@
   border-radius: 12px;
   background: var(--color-surface);
   padding: 10px;
+  animation: fadeInUp 0.35s ease both;
+  transition: box-shadow 0.2s ease;
+}
+
+.card:hover {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
 }
 
 .tabColumn {
@@ -134,6 +163,16 @@
   font-weight: 600;
   padding: 8px 12px;
   cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.tabButton:hover {
+  border-color: var(--color-accent);
+  transform: translateY(-1px);
 }
 
 .tabButtonActive {
@@ -146,6 +185,7 @@
   min-height: 0;
   overflow: auto;
   padding: 10px;
+  animation: fadeIn 0.3s ease;
 }
 
 .tabSection {
@@ -186,12 +226,30 @@
   font-weight: 600;
   padding: 8px 12px;
   cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.button:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(47, 109, 246, 0.1);
 }
 
 .buttonPrimary {
   border-color: var(--color-accent);
   background: var(--color-accent);
   color: var(--color-accent-contrast);
+}
+
+.buttonPrimary:hover {
+  box-shadow: 0 4px 16px rgba(47, 109, 246, 0.25);
+  transform: translateY(-2px);
 }
 
 .timeline {
@@ -218,10 +276,19 @@
   font-weight: 700;
   padding: 8px 10px;
   cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.accordionTrigger:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
 }
 
 .accordionBody {
   margin-top: 8px;
+  animation: fadeInUp 0.3s ease;
 }
 
 .inlineForm {
@@ -237,6 +304,15 @@
   font-size: 12px;
   padding: 8px 10px;
   flex: 1;
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.1);
+  outline: none;
 }
 
 .event {
@@ -244,6 +320,12 @@
   border-radius: 10px;
   padding: 8px;
   font-size: 12px;
+  animation: fadeInUp 0.3s ease both;
+  transition: box-shadow 0.2s ease;
+}
+
+.event:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .eventActor {
@@ -268,6 +350,35 @@
   border-radius: 10px;
   background: var(--color-surface);
   padding: 10px;
+  animation: fadeInUp 0.35s ease both;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.timelineEvent:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.timelineEvent:nth-child(2) {
+  animation-delay: 0.05s;
+}
+
+.timelineEvent:nth-child(3) {
+  animation-delay: 0.1s;
+}
+
+.timelineEvent:nth-child(4) {
+  animation-delay: 0.15s;
+}
+
+.timelineEvent:nth-child(5) {
+  animation-delay: 0.2s;
+}
+
+.timelineEvent:hover {
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.06);
+  transform: translateX(2px);
 }
 
 .timelineMarker {
@@ -276,6 +387,11 @@
   border-radius: 999px;
   background: var(--color-border);
   margin-top: 4px;
+  transition: transform 0.2s ease;
+}
+
+.timelineEvent:hover .timelineMarker {
+  transform: scale(1.3);
 }
 
 .timelineContent {
@@ -305,11 +421,17 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.inlineLinkButton:hover {
+  opacity: 0.75;
 }
 
 .expandedMeta {
   border-top: 1px solid var(--color-border);
   padding-top: 6px;
+  animation: fadeIn 0.25s ease;
 }
 
 .eventRemark {
@@ -347,6 +469,15 @@
   border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 12px;
+  animation: fadeInUp 0.3s ease both;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.documentRow:hover {
+  border-color: var(--color-accent);
+  box-shadow: 0 3px 12px rgba(47, 109, 246, 0.08);
 }
 
 .documentMeta {
@@ -359,6 +490,7 @@
   font-size: 12px;
   color: var(--color-danger);
   margin-top: 10px;
+  animation: fadeIn 0.3s ease;
 }
 
 .viewerOverlay {
@@ -370,6 +502,7 @@
   justify-content: center;
   z-index: 50;
   padding: 20px;
+  animation: fadeIn 0.25s ease;
 }
 
 .viewerModal {
@@ -382,6 +515,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: scaleIn 0.3s ease;
 }
 
 .viewerHeader {
@@ -419,6 +553,56 @@
   gap: 10px;
   padding: 10px 14px;
   border-top: 1px solid var(--color-border);
+}
+
+/* ── Shimmer Skeletons ── */
+
+.shimmerLine {
+  height: 14px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-muted) 25%,
+    var(--color-border) 37%,
+    var(--color-surface-muted) 63%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.shimmerBlock {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--color-surface-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--color-text-muted);
+  animation: fadeIn 0.4s ease;
+}
+
+.emptyStateIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: 20px;
 }
 
 @media (max-width: 980px) {

@@ -33,6 +33,14 @@
   align-items: center;
   justify-content: center;
   padding: 7px;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.sidebarLogo:hover {
+  transform: scale(1.08);
+  box-shadow: 0 2px 12px rgba(47, 109, 246, 0.25);
 }
 
 .sidebarLogoSvg {
@@ -69,18 +77,23 @@
   transition:
     background 0.2s ease,
     border-color 0.2s ease,
-    color 0.2s ease;
+    color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .navItem:hover {
   background: var(--color-surface-muted);
   color: var(--color-text);
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .navItemActive {
   background: var(--color-accent-soft);
   border-color: var(--color-accent);
   color: var(--color-accent);
+  animation: pulseGlow 2.5s ease-in-out infinite;
 }
 
 .navIcon {
@@ -116,6 +129,7 @@
   padding: 18px 28px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
+  animation: fadeIn 0.4s ease;
 }
 
 .topbarLeft {
@@ -135,6 +149,15 @@
   padding: 6px 12px;
   color: var(--color-text-muted);
   font-size: 13px;
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    width 0.3s ease;
+}
+
+.searchBar:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.1);
 }
 
 .searchInput {
@@ -144,6 +167,11 @@
   color: var(--color-text);
   width: 180px;
   font-size: 13px;
+  transition: width 0.3s ease;
+}
+
+.searchInput:focus {
+  width: 240px;
 }
 
 .topbarRight {
@@ -185,6 +213,11 @@
   font-size: 12px;
   color: var(--color-text-muted);
   background: var(--color-surface);
+  transition: border-color 0.2s ease;
+}
+
+.companyBadge:hover {
+  border-color: var(--color-accent);
 }
 
 .profileBadge {
@@ -198,6 +231,16 @@
   justify-content: center;
   font-weight: 600;
   color: var(--color-text);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.profileBadge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+  border-color: var(--color-accent);
 }
 
 .main {
@@ -212,6 +255,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  animation: fadeInUp 0.5s ease both;
 }
 
 .greetingTitle {
@@ -229,6 +273,7 @@
   display: grid;
   grid-template-columns: 1fr 260px;
   gap: 16px;
+  animation: fadeInUp 0.5s ease 0.1s both;
 }
 
 .tasksCardGroup {
@@ -264,16 +309,31 @@
   min-height: 110px;
   text-align: left;
   cursor: pointer;
+  animation: fadeInUp 0.45s ease both;
   transition:
-    box-shadow 0.2s ease,
-    border-color 0.2s ease,
-    transform 0.2s ease;
+    box-shadow 0.25s ease,
+    border-color 0.25s ease,
+    transform 0.25s ease,
+    background 0.25s ease;
+}
+
+.actionCard:nth-child(1) {
+  animation-delay: 0.08s;
+}
+
+.actionCard:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.actionCard:nth-child(3) {
+  animation-delay: 0.24s;
 }
 
 .actionCard:hover {
   border-color: var(--color-accent);
-  box-shadow: var(--color-shadow-sm);
-  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(47, 109, 246, 0.12);
+  transform: translateY(-3px);
+  background: var(--color-accent-soft);
 }
 
 .actionCardTop {
@@ -301,6 +361,11 @@
   color: var(--color-accent);
   font-size: 10px;
   font-weight: 700;
+  transition: transform 0.2s ease;
+}
+
+.actionCard:hover .actionCardIcon {
+  transform: scale(1.15);
 }
 
 .actionCardIcon svg {
@@ -312,6 +377,11 @@
   font-size: 22px;
   font-weight: 700;
   color: var(--color-accent);
+  transition: transform 0.2s ease;
+}
+
+.actionCard:hover .actionCardCount {
+  transform: scale(1.1);
 }
 
 .actionCardMeta {
@@ -334,14 +404,17 @@
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
+  animation: fadeInUp 0.45s ease 0.3s both;
   transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    transform 0.25s ease;
 }
 
 .secondaryTaskCard:hover {
   border-color: var(--color-accent);
-  box-shadow: var(--color-shadow-sm);
+  box-shadow: 0 6px 18px rgba(47, 109, 246, 0.1);
+  transform: translateY(-2px);
 }
 
 .secondaryTaskTitle {
@@ -363,6 +436,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  animation: fadeInUp 0.5s ease 0.2s both;
 }
 
 .contractsHeader {
@@ -388,6 +462,17 @@
   color: var(--color-text-muted);
   cursor: pointer;
   background: var(--color-surface);
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+
+.tab:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  transform: translateY(-1px);
 }
 
 .tabActive {
@@ -434,6 +519,18 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.emptyAction:hover {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(47, 109, 246, 0.2);
 }
 
 .contractList {
@@ -453,6 +550,17 @@
   border-radius: 10px;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
+  animation: fadeIn 0.3s ease both;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.contractItem:hover {
+  border-color: var(--color-accent);
+  box-shadow: 0 4px 14px rgba(47, 109, 246, 0.08);
+  transform: translateX(2px);
 }
 
 .contractTitle {
@@ -491,11 +599,81 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.paginationButton:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(47, 109, 246, 0.1);
 }
 
 .paginationButton:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+/* ── Shimmer Skeleton Loading ── */
+
+.shimmerLine {
+  height: 14px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-muted) 25%,
+    var(--color-border) 37%,
+    var(--color-surface-muted) 63%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.shimmerCard {
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 110px;
+}
+
+.shimmerRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.shimmerAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-muted) 25%,
+    var(--color-border) 37%,
+    var(--color-surface-muted) 63%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.shimmerContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 @media (max-width: 1024px) {

@@ -438,7 +438,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       <section className={styles.panel}>
         <div className={styles.title}>Contracts</div>
         {isLoading ? (
-          <div className={styles.itemMeta}>Loading contracts...</div>
+          <div className={styles.list}>
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className={styles.shimmerBlock}>
+                <div className={styles.shimmerLine} style={{ width: `${50 + i * 10}%` }} />
+                <div className={styles.shimmerLine} style={{ width: '35%', height: 10 }} />
+              </div>
+            ))}
+          </div>
         ) : (
           <div className={styles.list}>
             {contracts.map((contract) => (
@@ -480,7 +487,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           </div>
         </div>
         {!selectedContract ? (
-          <div className={styles.itemMeta}>Select a contract to view details</div>
+          <div className={styles.emptyState}>
+            <div className={styles.emptyStateIcon}>📄</div>
+            <div style={{ fontWeight: 600 }}>Select a contract</div>
+            <div className={styles.itemMeta}>Choose a contract from the list to view its details</div>
+          </div>
         ) : (
           <div className={styles.detailsShell}>
             <aside className={styles.summaryColumn}>

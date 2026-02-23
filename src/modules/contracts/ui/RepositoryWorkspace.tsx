@@ -161,7 +161,16 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
         <section className={styles.tableWrap}>
           {isLoading ? (
-            <div className={styles.empty}>Loading contracts...</div>
+            <div>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className={styles.shimmerTableRow}>
+                  <div className={styles.shimmerCell} style={{ width: `${50 + i * 8}%` }} />
+                  <div className={styles.shimmerCell} style={{ width: '70%' }} />
+                  <div className={styles.shimmerCell} style={{ width: '65%' }} />
+                  <div className={styles.shimmerCell} style={{ width: '50%' }} />
+                </div>
+              ))}
+            </div>
           ) : error ? (
             <div className={styles.empty}>{error}</div>
           ) : (
