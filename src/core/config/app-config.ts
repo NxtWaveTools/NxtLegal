@@ -54,7 +54,7 @@ const docusignConfig = requireConfigGroup({
     DOCUSIGN_USER_ID: envServer.docusignUserId,
     DOCUSIGN_INTEGRATION_KEY: envServer.docusignIntegrationKey,
     DOCUSIGN_RSA_PRIVATE_KEY: envServer.docusignRsaPrivateKey,
-    DOCUSIGN_WEBHOOK_SECRET: envServer.docusignWebhookSecret,
+    DOCUSIGN_CONNECT_KEY: envServer.docusignConnectKey,
   },
 })
 
@@ -93,7 +93,7 @@ export const appConfig = {
     userId: docusignConfig.DOCUSIGN_USER_ID,
     integrationKey: docusignConfig.DOCUSIGN_INTEGRATION_KEY,
     rsaPrivateKey: docusignConfig.DOCUSIGN_RSA_PRIVATE_KEY,
-    webhookSecret: docusignConfig.DOCUSIGN_WEBHOOK_SECRET,
+    connectKey: docusignConfig.DOCUSIGN_CONNECT_KEY,
   },
   mail: {
     brevoApiBaseUrl: envServer.brevoApiBaseUrl ?? 'https://api.brevo.com/v3',

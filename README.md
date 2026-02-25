@@ -54,6 +54,9 @@ AUTH_ALLOWED_DOMAINS=yourcompany.com
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 NODE_ENV=development
 FEATURE_MICROSOFT_OAUTH=true
+
+# DocuSign Connect Webhook Security
+DOCUSIGN_CONNECT_KEY=your-docusign-connect-hmac-key
 ```
 
 ### Database Setup

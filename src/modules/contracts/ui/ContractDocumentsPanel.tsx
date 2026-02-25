@@ -223,6 +223,15 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
       .map(toExtendedDocument)
   }, [documents])
 
+  const completionArtifacts = useMemo(() => {
+    return documents
+      .filter(
+        (document) => document.documentKind === 'EXECUTED_CONTRACT' || document.documentKind === 'AUDIT_CERTIFICATE'
+      )
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map(toExtendedDocument)
+  }, [documents])
+
   const activeDocument = useMemo(() => {
     if (!primaryDocuments.length) {
       return null
@@ -305,6 +314,44 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
         onPreview={(document) => onPreviewDocument(document)}
         defaultUploaderEmail={defaultUploaderEmail}
       />
+
+      {completionArtifacts.length > 0 ? (
+        <div className={workspaceStyles.card}>
+          <div className={workspaceStyles.sectionTitle}>Execution Artifacts</div>
+          <div className={workspaceStyles.timeline}>
+            {completionArtifacts.map((document) => {
+              const artifactLabel =
+                document.documentKind === 'EXECUTED_CONTRACT' ? 'Executed Contract' : 'Completion Certificate'
+
+              return (
+                <div key={document.id} className={workspaceStyles.documentRow}>
+                  <div className={workspaceStyles.documentMeta}>
+                    <div className={workspaceStyles.eventActor}>{artifactLabel}</div>
+                    <div className={workspaceStyles.itemMeta}>{document.fileName}</div>
+                    <div className={workspaceStyles.itemMeta}>{formatDate(document.createdAt)}</div>
+                  </div>
+                  <div className={workspaceStyles.actions}>
+                    <button
+                      type="button"
+                      className={workspaceStyles.button}
+                      onClick={() => onPreviewDocument(document)}
+                    >
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
+                      onClick={() => onDownloadDocument(document)}
+                    >
+                      Download
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <input
         ref={fileInputRef}

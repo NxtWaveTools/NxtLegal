@@ -39,6 +39,9 @@ NODE_ENV=development
 
 # Features
 FEATURE_MICROSOFT_OAUTH=true
+
+# DocuSign Connect (Webhook HMAC Verification)
+DOCUSIGN_CONNECT_KEY=your-docusign-connect-hmac-key
 ```
 
 **⚠️ SECURITY WARNINGS:**
@@ -210,6 +213,9 @@ NEXT_PUBLIC_SITE_URL=https://yourdomain.com
 NODE_ENV=production
 
 FEATURE_MICROSOFT_OAUTH=true
+
+# DocuSign Connect (Webhook HMAC Verification)
+DOCUSIGN_CONNECT_KEY=prod-docusign-connect-hmac-key
 ```
 
 **Generate secure JWT secret:**

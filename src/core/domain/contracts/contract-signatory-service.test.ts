@@ -137,6 +137,7 @@ describe('ContractSignatoryService', () => {
       getContractDetail: jest.fn(),
       addSignatory: jest.fn(),
       markSignatoryAsSigned: jest.fn().mockResolvedValue(undefined),
+      getContractDocumentsBySystem: jest.fn().mockResolvedValue([]),
       resolveEnvelopeContext: jest.fn().mockResolvedValue({
         tenantId: 'tenant-1',
         contractId: 'contract-1',
@@ -204,6 +205,138 @@ describe('ContractSignatoryService', () => {
     expect(contractRepository.createDocument).toHaveBeenCalledTimes(2)
     expect(contractQueryService.getEnvelopeNotificationProfile).toHaveBeenCalled()
     expect(contractQueryService.recordContractNotificationDelivery).toHaveBeenCalled()
+  })
+
+  it('processes completion artifacts for duplicate webhook when artifacts are still missing', async () => {
+    const contractQueryService = {
+      getContractDetail: jest.fn(),
+      addSignatory: jest.fn(),
+      markSignatoryAsSigned: jest.fn().mockResolvedValue(undefined),
+      getContractDocumentsBySystem: jest.fn().mockResolvedValue([]),
+      resolveEnvelopeContext: jest.fn().mockResolvedValue({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        signatoryEmail: 'signatory@nxtwave.co.in',
+        recipientType: 'EXTERNAL',
+        routingOrder: 1,
+      }),
+      recordDocusignWebhookEvent: jest.fn().mockResolvedValue({ inserted: false }),
+      addSignatoryWebhookAuditEvent: jest.fn().mockResolvedValue(undefined),
+      recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
+      getEnvelopeNotificationProfile: jest.fn().mockResolvedValue({
+        contractTitle: 'Master Service Agreement',
+        recipientEmails: ['signatory@nxtwave.co.in'],
+      }),
+    }
+
+    const contractRepository = {
+      createDocument: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService as never,
+      { createSignedDownloadUrl: jest.fn() },
+      contractRepository as never,
+      contractStorageRepository as never,
+      {
+        createSigningEnvelope: jest.fn(),
+        downloadCompletedEnvelopeDocuments: jest.fn().mockResolvedValue({
+          executedPdf: new Uint8Array([1, 2]),
+          certificatePdf: new Uint8Array([3, 4]),
+        }),
+      },
+      { sendTemplateEmail: jest.fn().mockResolvedValue({ providerMessageId: 'msg-2' }) },
+      {
+        signatoryLinkTemplateId: 101,
+        signingCompletedTemplateId: 102,
+      },
+      'https://app.example.com',
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    )
+
+    await service.handleDocusignSignedWebhook({
+      envelopeId: 'env-1',
+      recipientEmail: 'signatory@nxtwave.co.in',
+      status: 'completed',
+      payload: {
+        envelopeId: 'env-1',
+        status: 'completed',
+      },
+    })
+
+    expect(contractStorageRepository.upload).toHaveBeenCalledTimes(2)
+    expect(contractRepository.createDocument).toHaveBeenCalledTimes(2)
+    expect(contractQueryService.getEnvelopeNotificationProfile).not.toHaveBeenCalled()
+  })
+
+  it('normalizes hyphenated completion status values', async () => {
+    const contractQueryService = {
+      getContractDetail: jest.fn(),
+      addSignatory: jest.fn(),
+      markSignatoryAsSigned: jest.fn().mockResolvedValue(undefined),
+      getContractDocumentsBySystem: jest.fn().mockResolvedValue([]),
+      resolveEnvelopeContext: jest.fn().mockResolvedValue({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        signatoryEmail: 'signatory@nxtwave.co.in',
+        recipientType: 'EXTERNAL',
+        routingOrder: 1,
+      }),
+      recordDocusignWebhookEvent: jest.fn().mockResolvedValue({ inserted: true }),
+      addSignatoryWebhookAuditEvent: jest.fn().mockResolvedValue(undefined),
+      recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
+      getEnvelopeNotificationProfile: jest.fn().mockResolvedValue({
+        contractTitle: 'Master Service Agreement',
+        recipientEmails: ['signatory@nxtwave.co.in'],
+      }),
+    }
+
+    const contractRepository = {
+      createDocument: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService as never,
+      { createSignedDownloadUrl: jest.fn() },
+      contractRepository as never,
+      contractStorageRepository as never,
+      {
+        createSigningEnvelope: jest.fn(),
+        downloadCompletedEnvelopeDocuments: jest.fn().mockResolvedValue({
+          executedPdf: new Uint8Array([1, 2]),
+          certificatePdf: new Uint8Array([3, 4]),
+        }),
+      },
+      { sendTemplateEmail: jest.fn().mockResolvedValue({ providerMessageId: 'msg-2' }) },
+      {
+        signatoryLinkTemplateId: 101,
+        signingCompletedTemplateId: 102,
+      },
+      'https://app.example.com',
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    )
+
+    await service.handleDocusignSignedWebhook({
+      envelopeId: 'env-1',
+      recipientEmail: 'signatory@nxtwave.co.in',
+      status: 'envelope-completed',
+      payload: {
+        envelopeId: 'env-1',
+        status: 'envelope-completed',
+      },
+    })
+
+    expect(contractQueryService.markSignatoryAsSigned).toHaveBeenCalledTimes(1)
+    expect(contractStorageRepository.upload).toHaveBeenCalledTimes(2)
+    expect(contractRepository.createDocument).toHaveBeenCalledTimes(2)
   })
 
   it('raises external service error when docusign envelope creation fails', async () => {

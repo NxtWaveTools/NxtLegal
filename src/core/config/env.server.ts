@@ -31,6 +31,7 @@ export const envServer = {
   docusignUserId: optionalEnv('DOCUSIGN_USER_ID'),
   docusignIntegrationKey: optionalEnv('DOCUSIGN_INTEGRATION_KEY'),
   docusignRsaPrivateKey: optionalEnv('DOCUSIGN_RSA_PRIVATE_KEY'),
+  docusignConnectKey: optionalEnv('DOCUSIGN_CONNECT_KEY'),
   docusignWebhookSecret: optionalEnv('DOCUSIGN_WEBHOOK_SECRET'),
   brevoApiBaseUrl: optionalEnv('BREVO_API_BASE_URL'),
   brevoApiKey: optionalEnv('BREVO_API_KEY'),

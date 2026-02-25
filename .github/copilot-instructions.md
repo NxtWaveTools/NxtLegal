@@ -29,7 +29,9 @@ No assumptions. No blind coding. No "it should work."
 Use **Supabase MCP** to inspect DB state, validate schemas, check RLS policies, and verify data before writing any DB-related code.  
 Use **Filesystem MCP** to understand project structure before creating or moving files.  
 Use **Next.js MCP** for route inspection, build analysis, and framework-specific guidance.
-Use **DocuSign MCP** to orchestrate all eSignature workflows, including creating envelopes, listing templates, and tracking status. **Never** write raw API requests without first verifying capabilities via the MCP tool.
+Use **DocuSign MCP** to orchestrate all eSignature workflows, including creating envelopes, listing templates, and tracking status.
+Use **Brevo MCP** to manage communication workflows, including sending transactional emails, syncing contacts, and tracking  delivery status.
+**Never** write raw API requests without first verifying capabilities via the MCP tool.
 > **If MCP was not used, the change is invalid.**
 
 ---

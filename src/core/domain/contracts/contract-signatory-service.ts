@@ -73,6 +73,16 @@ type Logger = {
   error: (message: string, context?: Record<string, unknown>) => void
 }
 
+type DocusignCanonicalStatus =
+  | 'SENT'
+  | 'DELIVERED'
+  | 'VIEWED'
+  | 'SIGNED'
+  | 'COMPLETED'
+  | 'DECLINED'
+  | 'EXPIRED'
+  | 'UNKNOWN'
+
 export class ContractSignatoryService {
   constructor(
     private readonly contractQueryService: ContractQueryService,
@@ -397,7 +407,7 @@ export class ContractSignatoryService {
     signerIp?: string
     payload: Record<string, unknown>
   }): Promise<void> {
-    const normalizedStatus = params.status.trim().toUpperCase()
+    const normalizedStatus = this.normalizeWebhookStatus(params.status)
     const envelopeContext = await this.contractQueryService.resolveEnvelopeContext({
       envelopeId: params.envelopeId,
       recipientEmail: params.recipientEmail,
@@ -430,11 +440,10 @@ export class ContractSignatoryService {
         recipientEmail: params.recipientEmail,
         status: normalizedStatus,
       })
-      return
     }
 
     const mappedAudit = this.mapWebhookStatusToAudit(normalizedStatus)
-    if (mappedAudit) {
+    if (mappedAudit && webhookInsert.inserted) {
       await this.contractQueryService.addSignatoryWebhookAuditEvent({
         tenantId: envelopeContext.tenantId,
         contractId: envelopeContext.contractId,
@@ -462,17 +471,48 @@ export class ContractSignatoryService {
     })
 
     if (normalizedStatus === 'COMPLETED') {
-      await this.persistCompletionArtifacts({
+      this.logger.info('DOCUSIGN_COMPLETION_EVALUATION', {
         tenantId: envelopeContext.tenantId,
         contractId: envelopeContext.contractId,
         envelopeId: params.envelopeId,
+        recipientEmail: params.recipientEmail,
+        insertedWebhookEvent: webhookInsert.inserted,
       })
 
-      await this.sendCompletionNotifications({
+      const artifactsExist = await this.hasCompletionArtifacts(
+        params.envelopeId,
+        envelopeContext.tenantId,
+        envelopeContext.contractId
+      )
+
+      this.logger.info('DOCUSIGN_COMPLETION_IDEMPOTENCY_CHECK', {
         tenantId: envelopeContext.tenantId,
         contractId: envelopeContext.contractId,
         envelopeId: params.envelopeId,
+        artifactsExist,
       })
+
+      if (artifactsExist) {
+        this.logger.info('DOCUSIGN_ARTIFACT_ALREADY_EXISTS', {
+          tenantId: envelopeContext.tenantId,
+          contractId: envelopeContext.contractId,
+          envelopeId: params.envelopeId,
+        })
+      } else {
+        await this.persistCompletionArtifacts({
+          tenantId: envelopeContext.tenantId,
+          contractId: envelopeContext.contractId,
+          envelopeId: params.envelopeId,
+        })
+      }
+
+      if (webhookInsert.inserted) {
+        await this.sendCompletionNotifications({
+          tenantId: envelopeContext.tenantId,
+          contractId: envelopeContext.contractId,
+          envelopeId: params.envelopeId,
+        })
+      }
     }
   }
 
@@ -599,7 +639,7 @@ export class ContractSignatoryService {
     }
   }
 
-  private mapWebhookStatusToAudit(status: string): {
+  private mapWebhookStatusToAudit(status: DocusignCanonicalStatus): {
     eventType: string
     action: string
   } | null {
@@ -621,6 +661,68 @@ export class ContractSignatoryService {
       default:
         return null
     }
+  }
+
+  private normalizeWebhookStatus(status: string): DocusignCanonicalStatus {
+    const normalizedToken = status
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+
+    if (
+      normalizedToken === 'COMPLETED' ||
+      normalizedToken === 'ENVELOPE_COMPLETED' ||
+      normalizedToken === 'RECIPIENT_COMPLETED' ||
+      normalizedToken === 'DOCUMENT_COMPLETED'
+    ) {
+      return 'COMPLETED'
+    }
+
+    if (normalizedToken === 'SIGNED' || normalizedToken === 'RECIPIENT_SIGNED') {
+      return 'SIGNED'
+    }
+
+    if (normalizedToken === 'SENT') {
+      return 'SENT'
+    }
+
+    if (normalizedToken === 'DELIVERED') {
+      return 'DELIVERED'
+    }
+
+    if (normalizedToken === 'VIEWED') {
+      return 'VIEWED'
+    }
+
+    if (normalizedToken === 'DECLINED') {
+      return 'DECLINED'
+    }
+
+    if (normalizedToken === 'EXPIRED') {
+      return 'EXPIRED'
+    }
+
+    return 'UNKNOWN'
+  }
+
+  private async hasCompletionArtifacts(envelopeId: string, tenantId: string, contractId: string): Promise<boolean> {
+    const documents = await this.contractQueryService.getContractDocumentsBySystem({
+      tenantId,
+      contractId,
+    })
+
+    const expectedExecutedFileName = `executed-${envelopeId}.pdf`
+    const expectedCertificateFileName = `audit-certificate-${envelopeId}.pdf`
+
+    const hasExecuted = documents.some(
+      (document) => document.documentKind === 'EXECUTED_CONTRACT' && document.fileName === expectedExecutedFileName
+    )
+    const hasCertificate = documents.some(
+      (document) => document.documentKind === 'AUDIT_CERTIFICATE' && document.fileName === expectedCertificateFileName
+    )
+
+    return hasExecuted && hasCertificate
   }
 
   private assertValidRoutingOrders(params: { email: string; routingOrder: number }[]): void {
@@ -668,49 +770,174 @@ export class ContractSignatoryService {
     contractId: string
     envelopeId: string
   }): Promise<void> {
+    this.logger.info('DOCUSIGN_ARTIFACT_PERSIST_START', {
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      envelopeId: params.envelopeId,
+    })
+
     const artifacts = await this.signatureProvider.downloadCompletedEnvelopeDocuments({
       envelopeId: params.envelopeId,
     })
 
+    const documents = await this.contractQueryService.getContractDocumentsBySystem({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+    })
+
+    const expectedExecutedFileName = `executed-${params.envelopeId}.pdf`
+    const expectedCertificateFileName = `audit-certificate-${params.envelopeId}.pdf`
+
+    const hasExecuted = documents.some(
+      (document) => document.documentKind === 'EXECUTED_CONTRACT' && document.fileName === expectedExecutedFileName
+    )
+    const hasCertificate = documents.some(
+      (document) => document.documentKind === 'AUDIT_CERTIFICATE' && document.fileName === expectedCertificateFileName
+    )
+
     const executedPath = `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/executed-contract.pdf`
     const certificatePath = `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/audit-certificate.pdf`
 
-    await this.contractStorageRepository.upload({
+    await this.uploadCompletionArtifactSafely({
       path: executedPath,
       fileBytes: artifacts.executedPdf,
       contentType: 'application/pdf',
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      envelopeId: params.envelopeId,
+      artifactKind: 'EXECUTED_CONTRACT',
     })
 
-    await this.contractStorageRepository.upload({
+    await this.uploadCompletionArtifactSafely({
       path: certificatePath,
       fileBytes: artifacts.certificatePdf,
       contentType: 'application/pdf',
-    })
-
-    await this.contractRepository.createDocument({
       tenantId: params.tenantId,
       contractId: params.contractId,
-      documentKind: 'EXECUTED_CONTRACT',
-      displayName: 'Executed Contract',
-      fileName: `executed-${params.envelopeId}.pdf`,
-      filePath: executedPath,
-      fileSizeBytes: artifacts.executedPdf.byteLength,
-      fileMimeType: 'application/pdf',
-      uploadedByEmployeeId: 'SYSTEM',
-      uploadedByEmail: 'system@internal',
+      envelopeId: params.envelopeId,
+      artifactKind: 'AUDIT_CERTIFICATE',
     })
 
-    await this.contractRepository.createDocument({
+    if (!hasExecuted) {
+      await this.insertCompletionDocumentSafely({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        documentKind: 'EXECUTED_CONTRACT',
+        displayName: 'Executed Contract',
+        fileName: expectedExecutedFileName,
+        filePath: executedPath,
+        fileSizeBytes: artifacts.executedPdf.byteLength,
+        fileMimeType: 'application/pdf',
+        envelopeId: params.envelopeId,
+      })
+    }
+
+    if (!hasCertificate) {
+      await this.insertCompletionDocumentSafely({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        documentKind: 'AUDIT_CERTIFICATE',
+        displayName: 'DocuSign Completion Certificate',
+        fileName: expectedCertificateFileName,
+        filePath: certificatePath,
+        fileSizeBytes: artifacts.certificatePdf.byteLength,
+        fileMimeType: 'application/pdf',
+        envelopeId: params.envelopeId,
+      })
+    }
+
+    this.logger.info('DOCUSIGN_ARTIFACT_PERSIST_SUCCESS', {
       tenantId: params.tenantId,
       contractId: params.contractId,
-      documentKind: 'AUDIT_CERTIFICATE',
-      displayName: 'DocuSign Completion Certificate',
-      fileName: `audit-certificate-${params.envelopeId}.pdf`,
-      filePath: certificatePath,
-      fileSizeBytes: artifacts.certificatePdf.byteLength,
-      fileMimeType: 'application/pdf',
-      uploadedByEmployeeId: 'SYSTEM',
-      uploadedByEmail: 'system@internal',
+      envelopeId: params.envelopeId,
     })
+  }
+
+  private async uploadCompletionArtifactSafely(params: {
+    path: string
+    fileBytes: Uint8Array
+    contentType: string
+    tenantId: string
+    contractId: string
+    envelopeId: string
+    artifactKind: 'EXECUTED_CONTRACT' | 'AUDIT_CERTIFICATE'
+  }): Promise<void> {
+    try {
+      await this.contractStorageRepository.upload({
+        path: params.path,
+        fileBytes: params.fileBytes,
+        contentType: params.contentType,
+      })
+    } catch (error) {
+      if (this.isStorageAlreadyExistsError(error)) {
+        this.logger.info('DOCUSIGN_ARTIFACT_ALREADY_EXISTS', {
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          envelopeId: params.envelopeId,
+          artifactKind: params.artifactKind,
+          layer: 'storage',
+          path: params.path,
+        })
+        return
+      }
+
+      throw error
+    }
+  }
+
+  private async insertCompletionDocumentSafely(params: {
+    tenantId: string
+    contractId: string
+    documentKind: 'EXECUTED_CONTRACT' | 'AUDIT_CERTIFICATE'
+    displayName: string
+    fileName: string
+    filePath: string
+    fileSizeBytes: number
+    fileMimeType: string
+    envelopeId: string
+  }): Promise<void> {
+    try {
+      await this.contractRepository.createDocument({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        documentKind: params.documentKind,
+        displayName: params.displayName,
+        fileName: params.fileName,
+        filePath: params.filePath,
+        fileSizeBytes: params.fileSizeBytes,
+        fileMimeType: params.fileMimeType,
+        uploadedByEmployeeId: 'SYSTEM',
+        uploadedByEmail: 'system@internal',
+      })
+    } catch (error) {
+      if (this.isDuplicateKeyError(error)) {
+        this.logger.info('DOCUSIGN_ARTIFACT_ALREADY_EXISTS', {
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          envelopeId: params.envelopeId,
+          artifactKind: params.documentKind,
+          layer: 'database',
+          fileName: params.fileName,
+        })
+        return
+      }
+
+      throw error
+    }
+  }
+
+  private isStorageAlreadyExistsError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
+    return message.includes('already exists') || message.includes('duplicate') || message.includes('conflict')
+  }
+
+  private isDuplicateKeyError(error: unknown): boolean {
+    const typed = error as { context?: { code?: string }; message?: string }
+    if (typed?.context?.code === '23505') {
+      return true
+    }
+
+    const message = typed?.message?.toLowerCase() ?? String(error).toLowerCase()
+    return message.includes('duplicate key') || message.includes('unique constraint')
   }
 }

@@ -14,6 +14,7 @@ import type {
   ContractSigningPreparationDraftField,
   ContractSigningPreparationDraftRecipient,
   ContractSignatoryField,
+  ContractDocument,
   DashboardContractFilter,
   ContractDetail,
   ContractDetailView,
@@ -488,6 +489,10 @@ export class ContractQueryService {
       recipientEmail: params.recipientEmail,
       signedAt: params.signedAt,
     })
+  }
+
+  async getContractDocumentsBySystem(params: { tenantId: string; contractId: string }): Promise<ContractDocument[]> {
+    return this.contractRepository.getDocuments(params.tenantId, params.contractId)
   }
 
   async listFailedNotificationDeliveries(params: {
