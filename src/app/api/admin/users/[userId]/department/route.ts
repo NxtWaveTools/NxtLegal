@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
-import { errorResponse, okResponse } from '@/core/http/response'
+import { adminErrorResponse, adminOkResponse } from '@/core/http/admin-response'
 import { isAppError } from '@/core/http/errors'
 import { appConfig } from '@/core/config/app-config'
 import { getAdminQueryService } from '@/core/registry/service-registry'
@@ -10,7 +10,7 @@ import { assignUserDepartmentRoleRequestSchema, userStatusPathSchema } from '@/c
 const PUTHandler = withAuth(async (request: NextRequest, { session, params }) => {
   try {
     if (!appConfig.features.enableAdminGovernance) {
-      return NextResponse.json(errorResponse('FEATURE_DISABLED', 'Admin governance module is disabled'), {
+      return NextResponse.json(adminErrorResponse('FEATURE_DISABLED', 'Admin governance module is disabled'), {
         status: 404,
       })
     }
@@ -28,17 +28,19 @@ const PUTHandler = withAuth(async (request: NextRequest, { session, params }) =>
       departmentRole: payload.departmentRole,
     })
 
-    return NextResponse.json(okResponse({ success: true }))
+    return NextResponse.json(adminOkResponse({ success: true }))
   } catch (error) {
     if (error instanceof ZodError) {
-      return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Invalid user department payload'), { status: 400 })
+      return NextResponse.json(adminErrorResponse('VALIDATION_ERROR', 'Invalid user department payload'), {
+        status: 400,
+      })
     }
 
     const status = isAppError(error) ? error.statusCode : 500
     const code = isAppError(error) ? error.code : 'INTERNAL_ERROR'
     const message = isAppError(error) ? error.message : 'Failed to assign user department role'
 
-    return NextResponse.json(errorResponse(code, message), { status })
+    return NextResponse.json(adminErrorResponse(code, message), { status })
   }
 })
 

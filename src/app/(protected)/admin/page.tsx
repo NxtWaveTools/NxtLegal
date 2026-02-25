@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import AdminConsoleClient from '@/modules/admin/ui/AdminConsoleClient'
 import { getAuthenticatedEmployeeViewWithApproverHistoryAccess } from '@/core/presenters/auth-presenter'
 import { routeRegistry } from '@/core/config/route-registry'
 
@@ -12,16 +11,5 @@ export default async function AdminConsolePage() {
     redirect(routeRegistry.protected.dashboard)
   }
 
-  return (
-    <AdminConsoleClient
-      session={{
-        employeeId: session.employeeId,
-        fullName: session.fullName,
-        email: session.email,
-        team: session.team,
-        role: session.role,
-        canAccessApproverHistory: session.canAccessApproverHistory,
-      }}
-    />
-  )
+  redirect(routeRegistry.protected.adminConsole)
 }

@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals
 import { AuthService } from './auth-service'
 import { createClient } from '@supabase/supabase-js'
 import { envServer } from '@/core/config/env.server'
+import type { Database } from '@/types/database'
 import { hashPassword } from '@/lib/auth/password'
 import { authErrorCodes } from '@/core/constants/auth-errors'
 import { DEFAULT_TENANT_ID } from '@/core/constants/tenants'
@@ -24,13 +25,13 @@ const mockLogger: Logger = {
 
 describe('AuthService Integration Tests', () => {
   let authService: AuthService
-  let supabaseClient: ReturnType<typeof createClient>
+  let supabaseClient: ReturnType<typeof createClient<Database>>
   let testUserId: string
   let testEmail: string
 
   beforeEach(async () => {
     // Initialize Supabase client with service role key
-    supabaseClient = createClient(envServer.supabaseUrl, envServer.supabaseServiceRoleKey, {
+    supabaseClient = createClient<Database>(envServer.supabaseUrl, envServer.supabaseServiceRoleKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
@@ -131,7 +132,6 @@ describe('AuthService Integration Tests', () => {
             role: employee.role,
             token_version: employee.tokenVersion,
             password_hash: employee.passwordHash,
-            team_id: employee.teamId,
           })
           .select()
           .single()

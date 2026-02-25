@@ -7,6 +7,7 @@ import { rateLimiter } from '@/core/infra/rate-limiting/simple-rate-limiter'
 import { logger } from '@/core/infra/logging/logger'
 import { getTenantIdFromHeader } from '@/core/constants/tenants'
 import { sanitizeRateLimitKey } from '@/core/http/input-validator'
+import { isAppError } from '@/core/http/errors'
 
 const handleRefresh = async (request: NextRequest, correlationId: string) => {
   try {
@@ -96,6 +97,22 @@ const handleRefresh = async (request: NextRequest, correlationId: string) => {
     return NextResponse.json(okResponse({ session }))
   } catch (error) {
     logger.error('Refresh endpoint error', { correlationId, error: String(error) })
+
+    if (isAppError(error)) {
+      return NextResponse.json(
+        errorResponse(error.code, error.message, {
+          correlationId,
+          ...(error.metadata ? { metadata: error.metadata } : {}),
+        }),
+        {
+          status: error.statusCode,
+          headers: {
+            'X-Correlation-ID': correlationId,
+          },
+        }
+      )
+    }
+
     return NextResponse.json(
       errorResponse(authErrorCodes.authFailed, authErrorMessages[authErrorCodes.authFailed], { correlationId }),
       {

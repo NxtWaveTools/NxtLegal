@@ -60,7 +60,7 @@ function normalizeRoleKeys(roles: RoleRelation): string[] {
 
 function mapRoleSet(params: { userRoleKeys: string[]; fallbackRole: string }): string[] {
   const roleSet = new Set<string>(params.userRoleKeys)
-  if (params.fallbackRole) {
+  if (roleSet.size === 0 && params.fallbackRole) {
     roleSet.add(params.fallbackRole)
   }
   return Array.from(roleSet)

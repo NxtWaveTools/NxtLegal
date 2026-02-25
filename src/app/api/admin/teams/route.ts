@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
-import { errorResponse, okResponse } from '@/core/http/response'
+import { adminErrorResponse, adminOkResponse } from '@/core/http/admin-response'
 import { isAppError } from '@/core/http/errors'
 import { appConfig } from '@/core/config/app-config'
 import { createDepartmentRequestSchema } from '@/core/domain/admin/schemas'
@@ -10,7 +10,7 @@ import { getTeamGovernanceService } from '@/core/registry/service-registry'
 const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
   try {
     if (!appConfig.features.enableAdminGovernance) {
-      return NextResponse.json(errorResponse('FEATURE_DISABLED', 'Admin governance module is disabled'), {
+      return NextResponse.json(adminErrorResponse('FEATURE_DISABLED', 'Admin governance module is disabled'), {
         status: 404,
       })
     }
@@ -18,20 +18,22 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
     const teamGovernanceService = getTeamGovernanceService()
     const departments = await teamGovernanceService.listDepartments(session)
 
-    return NextResponse.json(okResponse({ departments }))
+    return NextResponse.json(
+      adminOkResponse({ departments }, { cursor: null, limit: departments.length, total: departments.length })
+    )
   } catch (error) {
     const status = isAppError(error) ? error.statusCode : 500
     const code = isAppError(error) ? error.code : 'INTERNAL_ERROR'
     const message = isAppError(error) ? error.message : 'Failed to load departments'
 
-    return NextResponse.json(errorResponse(code, message), { status })
+    return NextResponse.json(adminErrorResponse(code, message), { status })
   }
 })
 
 const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
   try {
     if (!appConfig.features.enableAdminGovernance) {
-      return NextResponse.json(errorResponse('FEATURE_DISABLED', 'Admin governance module is disabled'), {
+      return NextResponse.json(adminErrorResponse('FEATURE_DISABLED', 'Admin governance module is disabled'), {
         status: 404,
       })
     }
@@ -47,17 +49,17 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       reason: payload.reason,
     })
 
-    return NextResponse.json(okResponse({ department }))
+    return NextResponse.json(adminOkResponse({ department }))
   } catch (error) {
     if (error instanceof ZodError) {
-      return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Invalid department payload'), { status: 400 })
+      return NextResponse.json(adminErrorResponse('VALIDATION_ERROR', 'Invalid department payload'), { status: 400 })
     }
 
     const status = isAppError(error) ? error.statusCode : 500
     const code = isAppError(error) ? error.code : 'INTERNAL_ERROR'
     const message = isAppError(error) ? error.message : 'Failed to create department'
 
-    return NextResponse.json(errorResponse(code, message), { status })
+    return NextResponse.json(adminErrorResponse(code, message), { status })
   }
 })
 

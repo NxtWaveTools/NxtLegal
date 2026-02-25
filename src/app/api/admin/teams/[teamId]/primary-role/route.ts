@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
-import { errorResponse, okResponse } from '@/core/http/response'
+import { adminErrorResponse, adminOkResponse } from '@/core/http/admin-response'
 import { isAppError } from '@/core/http/errors'
 import { appConfig } from '@/core/config/app-config'
 import { assignPrimaryRoleRequestSchema, teamPathSchema } from '@/core/domain/admin/schemas'
@@ -10,7 +10,7 @@ import { getTeamGovernanceService } from '@/core/registry/service-registry'
 const PUTHandler = withAuth(async (request: NextRequest, { session, params }) => {
   try {
     if (!appConfig.features.enableAdminGovernance) {
-      return NextResponse.json(errorResponse('FEATURE_DISABLED', 'Admin governance module is disabled'), {
+      return NextResponse.json(adminErrorResponse('FEATURE_DISABLED', 'Admin governance module is disabled'), {
         status: 404,
       })
     }
@@ -30,10 +30,10 @@ const PUTHandler = withAuth(async (request: NextRequest, { session, params }) =>
       reason: payload.reason,
     })
 
-    return NextResponse.json(okResponse({ assignment }))
+    return NextResponse.json(adminOkResponse({ assignment }))
   } catch (error) {
     if (error instanceof ZodError) {
-      return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Invalid primary role assignment payload'), {
+      return NextResponse.json(adminErrorResponse('VALIDATION_ERROR', 'Invalid primary role assignment payload'), {
         status: 400,
       })
     }
@@ -42,7 +42,7 @@ const PUTHandler = withAuth(async (request: NextRequest, { session, params }) =>
     const code = isAppError(error) ? error.code : 'INTERNAL_ERROR'
     const message = isAppError(error) ? error.message : 'Failed to assign primary team role'
 
-    return NextResponse.json(errorResponse(code, message), { status })
+    return NextResponse.json(adminErrorResponse(code, message), { status })
   }
 })
 

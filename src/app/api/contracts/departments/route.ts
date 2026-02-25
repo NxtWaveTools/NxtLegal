@@ -28,19 +28,20 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
 
     if (teamIds.length > 0) {
       const { data: hodMembers, error: hodMembersError } = await supabase
-        .from('team_members')
-        .select('team_id, user_id, is_primary, created_at')
+        .from('team_role_mappings')
+        .select('team_id, email, role_type, created_at')
         .eq('tenant_id', session.tenantId)
         .eq('role_type', 'HOD')
+        .eq('active_flag', true)
+        .is('deleted_at', null)
         .in('team_id', teamIds)
-        .order('is_primary', { ascending: false })
         .order('created_at', { ascending: true })
 
       if (hodMembersError) {
         throw hodMembersError
       }
 
-      const hodUserIds = Array.from(new Set((hodMembers ?? []).map((item) => item.user_id)))
+      const hodEmails = Array.from(new Set((hodMembers ?? []).map((item) => item.email?.toLowerCase()).filter(Boolean)))
 
       const { data: users, error: usersError } = await supabase
         .from('users')
@@ -48,20 +49,20 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
         .eq('tenant_id', session.tenantId)
         .eq('is_active', true)
         .is('deleted_at', null)
-        .in('id', hodUserIds.length > 0 ? hodUserIds : ['00000000-0000-0000-0000-000000000000'])
+        .in('email', hodEmails.length > 0 ? hodEmails : ['__no_hod_email__'])
 
       if (usersError) {
         throw usersError
       }
 
-      const userById = new Map((users ?? []).map((item) => [item.id, item]))
+      const userByEmail = new Map((users ?? []).map((item) => [item.email.toLowerCase(), item]))
 
       for (const member of hodMembers ?? []) {
         if (hodByTeamId.has(member.team_id)) {
           continue
         }
 
-        const user = userById.get(member.user_id)
+        const user = userByEmail.get(member.email.toLowerCase())
         hodByTeamId.set(member.team_id, {
           hodName: user?.full_name ?? null,
           hodEmail: user?.email ?? null,

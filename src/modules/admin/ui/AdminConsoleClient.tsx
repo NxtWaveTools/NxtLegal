@@ -1,16 +1,31 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
+  type AdminAuditLogItem,
   adminClient,
   type AdminDepartmentOption,
   type AdminDepartmentUserGroup,
+  type AdminRoleOption,
+  type SystemConfigurationPayload,
   type AdminUserOption,
 } from '@/core/client/admin-client'
+import { routeRegistry } from '@/core/config/route-registry'
+import { adminSectionRegistry } from '@/core/config/admin-section-registry'
+import type { AdminSectionKey } from '@/core/constants/admin-sections'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
+import TeamManagementSection from '@/modules/admin/ui/sections/TeamManagementSection'
+import UserManagementSection from '@/modules/admin/ui/sections/UserManagementSection'
+import RoleManagementSection from '@/modules/admin/ui/sections/RoleManagementSection'
+import HodPocAssignmentControlSection from '@/modules/admin/ui/sections/HodPocAssignmentControlSection'
+import LegalTeamAssignmentMatrixSection from '@/modules/admin/ui/sections/LegalTeamAssignmentMatrixSection'
+import SystemConfigurationSection from '@/modules/admin/ui/sections/SystemConfigurationSection'
+import AuditLogsViewerSection from '@/modules/admin/ui/sections/AuditLogsViewerSection'
 import styles from './admin-console.module.css'
 
 type AdminConsoleClientProps = {
+  activeSection?: AdminSectionKey
   session: {
     employeeId: string
     fullName?: string | null
@@ -27,24 +42,18 @@ type AdminConfirmationIntent =
   | { kind: 'assign-department-role' }
   | { kind: 'add-legal-matrix' }
 
-const sectionTitles = [
-  'Team Management',
-  'User Management',
-  'Role Management',
-  'HOD & POC Assignment Control',
-  'Legal Team Assignment Matrix',
-  'System Configuration',
-  'Audit Logs Viewer',
-] as const
-
 const emailPattern = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
 
-export default function AdminConsoleClient({ session }: AdminConsoleClientProps) {
+export default function AdminConsoleClient({ activeSection, session }: AdminConsoleClientProps) {
+  const router = useRouter()
+  const [roles, setRoles] = useState<AdminRoleOption[]>([])
   const [departments, setDepartments] = useState<AdminDepartmentOption[]>([])
   const [users, setUsers] = useState<AdminUserOption[]>([])
   const [usersByDepartment, setUsersByDepartment] = useState<AdminDepartmentUserGroup[]>([])
   const [selectedTeamId, setSelectedTeamId] = useState('')
   const [selectedUserId, setSelectedUserId] = useState('')
+  const [selectedRoleKey, setSelectedRoleKey] = useState('')
+  const [roleOperation, setRoleOperation] = useState<'grant' | 'revoke'>('grant')
 
   const [teamName, setTeamName] = useState('')
   const [pocEmail, setPocEmail] = useState('')
@@ -64,27 +73,60 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
   const [isSubmittingStatus, setIsSubmittingStatus] = useState(false)
   const [isSubmittingAssignment, setIsSubmittingAssignment] = useState(false)
   const [isSubmittingLegalMatrix, setIsSubmittingLegalMatrix] = useState(false)
+  const [isSubmittingRoleChange, setIsSubmittingRoleChange] = useState(false)
+  const [isSubmittingSystemConfig, setIsSubmittingSystemConfig] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [confirmationIntent, setConfirmationIntent] = useState<AdminConfirmationIntent | null>(null)
+  const [systemConfiguration, setSystemConfiguration] = useState<SystemConfigurationPayload | null>(null)
+  const [systemConfigurationReason, setSystemConfigurationReason] = useState('')
+  const [auditLogs, setAuditLogs] = useState<AdminAuditLogItem[]>([])
+  const [auditLogsSelectedId, setAuditLogsSelectedId] = useState<string | null>(null)
+  const [auditLogsCursor, setAuditLogsCursor] = useState<string | null>(null)
+  const [auditLogsLimit, setAuditLogsLimit] = useState<number>(25)
+  const [auditLogsTotal, setAuditLogsTotal] = useState<number>(0)
+  const [isLoadingAuditLogs, setIsLoadingAuditLogs] = useState(false)
+  const [auditFilters, setAuditFilters] = useState({
+    query: '',
+    action: '',
+    resourceType: '',
+    userId: '',
+    from: '',
+    to: '',
+  })
 
   useEffect(() => {
     const loadData = async () => {
       try {
         setToastMessage(null)
-        const [departmentsResponse, usersResponse, usersByDepartmentResponse] = await Promise.all([
+        const [rolesResponse, teamsResponse, listUsersResponse, groupedUsersResponse] = await Promise.all([
+          adminClient.roles(),
           adminClient.departments(),
           adminClient.users(),
           adminClient.usersByDepartment(),
         ])
 
-        if (!departmentsResponse.ok || !departmentsResponse.data) {
+        if (!rolesResponse.ok || !rolesResponse.data) {
+          setRoles([])
+          setSelectedRoleKey('')
+        } else {
+          const nextRoles = rolesResponse.data.roles
+          setRoles(nextRoles)
+          setSelectedRoleKey((current) => {
+            if (!current) {
+              return nextRoles[0]?.roleKey || ''
+            }
+            return nextRoles.some((role) => role.roleKey === current) ? current : nextRoles[0]?.roleKey || ''
+          })
+        }
+
+        if (!teamsResponse.ok || !teamsResponse.data) {
           setDepartments([])
           setSelectedTeamId('')
           setAssignmentDepartmentId('')
-          setToastMessage(departmentsResponse.error?.message ?? 'Failed to load departments')
+          setToastMessage(teamsResponse.error?.message ?? 'Failed to load departments')
         } else {
-          const nextDepartments = departmentsResponse.data.departments
+          const nextDepartments = teamsResponse.data.departments
           setDepartments(nextDepartments)
           setSelectedTeamId((current) => {
             if (!current) {
@@ -106,11 +148,11 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
           })
         }
 
-        if (!usersResponse.ok || !usersResponse.data) {
+        if (!listUsersResponse.ok || !listUsersResponse.data) {
           setUsers([])
           setSelectedUserId('')
         } else {
-          const nextUsers = usersResponse.data.users
+          const nextUsers = listUsersResponse.data.users
           setUsers(nextUsers)
           setSelectedUserId((current) => {
             if (!current) {
@@ -120,10 +162,10 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
           })
         }
 
-        if (!usersByDepartmentResponse.ok || !usersByDepartmentResponse.data) {
+        if (!groupedUsersResponse.ok || !groupedUsersResponse.data) {
           setUsersByDepartment([])
         } else {
-          setUsersByDepartment(usersByDepartmentResponse.data.departments)
+          setUsersByDepartment(groupedUsersResponse.data.departments)
         }
       } catch {
         setToastMessage('Failed to load admin team governance data')
@@ -190,13 +232,104 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
     Boolean(selectedDepartment) &&
     Boolean(selectedUser) &&
     (selectedUser?.roles ?? []).includes('LEGAL_TEAM')
+  const canChangeRole =
+    !isLoading && !isSubmittingRoleChange && Boolean(selectedUser) && selectedRoleKey.trim().length > 0
+
+  const currentSection = adminSectionRegistry.getSectionOrDefault(activeSection)
+
+  const loadSystemConfiguration = async () => {
+    const response = await adminClient.systemConfiguration()
+    if (!response.ok || !response.data) {
+      setToastMessage(response.error?.message ?? 'Failed to load system configuration')
+      return
+    }
+
+    setSystemConfiguration(response.data.config)
+  }
+
+  useEffect(() => {
+    if (currentSection.key !== 'system-configuration') {
+      return
+    }
+
+    if (systemConfiguration) {
+      return
+    }
+
+    void loadSystemConfiguration()
+  }, [currentSection.key, systemConfiguration])
+
+  const loadAuditLogs = useCallback(
+    async (cursor?: string) => {
+      setIsLoadingAuditLogs(true)
+      try {
+        const response = await adminClient.auditLogs({
+          query: auditFilters.query || undefined,
+          action: auditFilters.action || undefined,
+          resourceType: auditFilters.resourceType || undefined,
+          userId: auditFilters.userId || undefined,
+          from: auditFilters.from || undefined,
+          to: auditFilters.to || undefined,
+          cursor,
+          limit: auditLogsLimit,
+        })
+
+        if (!response.ok || !response.data) {
+          setToastMessage(response.error?.message ?? 'Failed to load audit logs')
+          return
+        }
+
+        setAuditLogs(response.data.logs)
+        setAuditLogsSelectedId(response.data.logs[0]?.id ?? null)
+
+        const responseMeta = (
+          response as unknown as { meta?: { cursor?: string | null; total?: number; limit?: number } }
+        ).meta
+        setAuditLogsCursor(responseMeta?.cursor ?? null)
+        setAuditLogsTotal(responseMeta?.total ?? response.data.logs.length)
+        setAuditLogsLimit(responseMeta?.limit ?? auditLogsLimit)
+      } finally {
+        setIsLoadingAuditLogs(false)
+      }
+    },
+    [auditFilters, auditLogsLimit]
+  )
+
+  useEffect(() => {
+    if (currentSection.key !== 'audit-logs-viewer') {
+      return
+    }
+
+    if (auditLogs.length > 0) {
+      return
+    }
+
+    void loadAuditLogs()
+  }, [currentSection.key, auditLogs.length, loadAuditLogs])
 
   const refreshAdminData = async () => {
-    const [departmentsResponse, usersResponse, usersByDepartmentResponse] = await Promise.all([
+    const [rolesResponse, departmentsResponse, usersResponse, usersByDepartmentResponse] = await Promise.all([
+      adminClient.roles(),
       adminClient.departments(),
       adminClient.users(),
       adminClient.usersByDepartment(),
     ])
+
+    if (!rolesResponse.ok || !rolesResponse.data) {
+      setRoles([])
+      setSelectedRoleKey('')
+    } else {
+      const refreshedRoles = rolesResponse.data.roles
+      setRoles(refreshedRoles)
+      setSelectedRoleKey((current) => {
+        if (!current) {
+          return refreshedRoles[0]?.roleKey ?? ''
+        }
+
+        const stillExists = refreshedRoles.some((role) => role.roleKey === current)
+        return stillExists ? current : (refreshedRoles[0]?.roleKey ?? '')
+      })
+    }
 
     if (!departmentsResponse.ok || !departmentsResponse.data) {
       setToastMessage(departmentsResponse.error?.message ?? 'Failed to load departments')
@@ -389,6 +522,71 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
     }
   }
 
+  const handleChangeUserRole = async () => {
+    if (!selectedUser || !selectedRoleKey || !canChangeRole) {
+      return
+    }
+
+    setIsSubmittingRoleChange(true)
+    try {
+      const response = await adminClient.changeUserRole(selectedUser.id, {
+        operation: roleOperation,
+        roleKey: selectedRoleKey,
+      })
+
+      if (!response.ok || !response.data) {
+        setToastMessage(response.error?.message ?? 'Failed to update user role')
+        return
+      }
+
+      await refreshAdminData()
+      setToastMessage(`Role ${roleOperation} operation applied successfully.`)
+    } finally {
+      setIsSubmittingRoleChange(false)
+    }
+  }
+
+  const handleSaveSystemConfiguration = async () => {
+    if (!systemConfiguration || isSubmittingSystemConfig) {
+      return
+    }
+
+    setIsSubmittingSystemConfig(true)
+    try {
+      const response = await adminClient.updateSystemConfiguration({
+        featureFlags: systemConfiguration.featureFlags,
+        securitySessionPolicies: systemConfiguration.securitySessionPolicies,
+        defaults: systemConfiguration.defaults,
+        reason: systemConfigurationReason.trim() || undefined,
+      })
+
+      if (!response.ok || !response.data) {
+        setToastMessage(response.error?.message ?? 'Failed to update system configuration')
+        return
+      }
+
+      setSystemConfiguration(response.data.config)
+      setSystemConfigurationReason('')
+      setToastMessage('System configuration updated successfully.')
+    } finally {
+      setIsSubmittingSystemConfig(false)
+    }
+  }
+
+  const handleExportAuditLogsCsv = () => {
+    const exportUrl = adminClient.buildAuditExportUrl({
+      query: auditFilters.query || undefined,
+      action: auditFilters.action || undefined,
+      resourceType: auditFilters.resourceType || undefined,
+      userId: auditFilters.userId || undefined,
+      from: auditFilters.from || undefined,
+      to: auditFilters.to || undefined,
+      limit: 1000,
+    })
+
+    window.open(exportUrl, '_blank', 'noopener,noreferrer')
+  }
+
   const openConfirmation = (intent: AdminConfirmationIntent) => {
     setConfirmationIntent(intent)
   }
@@ -482,279 +680,206 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
       <main className={styles.main}>
         <section className={styles.header}>
           <h1 className={styles.title}>Admin Console</h1>
-          <p className={styles.subtitle}>
-            Enterprise governance controls for roles, assignments, and integrity-safe access.
-          </p>
+          <p className={styles.subtitle}>{currentSection.label}</p>
         </section>
 
         <section className={styles.sections}>
-          {sectionTitles.map((title) => (
-            <div key={title} className={styles.sectionItem}>
-              {title}
-            </div>
+          {adminSectionRegistry.sections.map((section) => (
+            <button
+              key={section.key}
+              type="button"
+              className={`${styles.sectionItem} ${section.key === currentSection.key ? styles.sectionItemActive : ''}`}
+              onClick={() => router.push(routeRegistry.protected.adminSections[section.routeKey])}
+            >
+              {section.label}
+            </button>
           ))}
         </section>
 
         {toastMessage ? <div className={styles.toast}>{toastMessage}</div> : null}
 
-        <section className={styles.workspace}>
-          <div className={styles.panel}>
-            <h2 className={styles.panelTitle}>Team Management</h2>
+        <section className={styles.workspaceSingle}>
+          {currentSection.key === 'team-management' ? (
+            <TeamManagementSection
+              teamName={teamName}
+              pocEmail={pocEmail}
+              hodEmail={hodEmail}
+              reason={reason}
+              canCreate={canCreate}
+              isSubmittingCreate={isSubmittingCreate}
+              arePrimaryEmailsDifferent={arePrimaryEmailsDifferent}
+              normalizedPocEmail={normalizedPocEmail}
+              normalizedHodEmail={normalizedHodEmail}
+              onTeamNameChange={setTeamName}
+              onPocEmailChange={setPocEmail}
+              onHodEmailChange={setHodEmail}
+              onReasonChange={setReason}
+              onCreateTeam={handleCreateTeam}
+            />
+          ) : null}
 
-            <label className={styles.field}>
-              <span className={styles.label}>Team Name</span>
-              <input
-                className={styles.input}
-                value={teamName}
-                onChange={(event) => setTeamName(event.target.value)}
-                placeholder="Enter department/team name"
-              />
-            </label>
+          {currentSection.key === 'user-management' ? (
+            <UserManagementSection
+              newUserEmail={newUserEmail}
+              newUserFullName={newUserFullName}
+              users={users}
+              selectedUserId={selectedUserId}
+              selectedUser={selectedUser}
+              canCreateUser={canCreateUser}
+              isSubmittingUserCreate={isSubmittingUserCreate}
+              isSubmittingStatus={isSubmittingStatus}
+              onNewUserEmailChange={setNewUserEmail}
+              onNewUserFullNameChange={setNewUserFullName}
+              onSelectedUserChange={setSelectedUserId}
+              onCreateUser={handleCreateUser}
+              onActivateUser={() => {
+                void handleToggleUserStatus(true)
+              }}
+              onDeactivateUser={() => openConfirmation({ kind: 'deactivate-user' })}
+            />
+          ) : null}
 
-            <label className={styles.field}>
-              <span className={styles.label}>POC Microsoft Email</span>
-              <input
-                className={styles.input}
-                value={pocEmail}
-                onChange={(event) => setPocEmail(event.target.value)}
-                placeholder="poc@yourdomain.com"
-              />
-            </label>
+          {currentSection.key === 'role-management' ? (
+            <RoleManagementSection
+              users={users}
+              roles={roles}
+              selectedUserId={selectedUserId}
+              selectedRoleKey={selectedRoleKey}
+              roleOperation={roleOperation}
+              canChangeRole={canChangeRole}
+              isSubmittingRoleChange={isSubmittingRoleChange}
+              onSelectedUserChange={setSelectedUserId}
+              onSelectedRoleKeyChange={setSelectedRoleKey}
+              onRoleOperationChange={setRoleOperation}
+              onSubmitRoleChange={handleChangeUserRole}
+            />
+          ) : null}
 
-            <label className={styles.field}>
-              <span className={styles.label}>HOD Microsoft Email</span>
-              <input
-                className={styles.input}
-                value={hodEmail}
-                onChange={(event) => setHodEmail(event.target.value)}
-                placeholder="hod@yourdomain.com"
-              />
-            </label>
+          {currentSection.key === 'hod-poc-assignment-control' ? (
+            <HodPocAssignmentControlSection
+              departments={departments}
+              users={users}
+              selectedTeamId={selectedTeamId}
+              selectedUserId={selectedUserId}
+              assignmentDepartmentId={assignmentDepartmentId}
+              assignmentDepartmentRole={assignmentDepartmentRole}
+              replaceRoleType={replaceRoleType}
+              newRoleEmail={newRoleEmail}
+              normalizedNewRoleEmail={normalizedNewRoleEmail}
+              canReplace={canReplace}
+              canAssignDepartmentRole={canAssignDepartmentRole}
+              isSubmittingReplace={isSubmittingReplace}
+              isSubmittingAssignment={isSubmittingAssignment}
+              isReplacementDifferentFromOtherRole={isReplacementDifferentFromOtherRole}
+              onSelectedTeamChange={setSelectedTeamId}
+              onReplaceRoleTypeChange={setReplaceRoleType}
+              onNewRoleEmailChange={setNewRoleEmail}
+              onAssignDepartmentChange={setAssignmentDepartmentId}
+              onAssignDepartmentRoleChange={setAssignmentDepartmentRole}
+              onSelectedUserChange={setSelectedUserId}
+              onReplacePrimaryRole={() => openConfirmation({ kind: 'replace-primary-role' })}
+              onAssignDepartmentRole={() => openConfirmation({ kind: 'assign-department-role' })}
+            />
+          ) : null}
 
-            <label className={styles.field}>
-              <span className={styles.label}>Reason</span>
-              <textarea
-                className={styles.textarea}
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-                placeholder="Add optional governance reason"
-              />
-            </label>
+          {currentSection.key === 'legal-team-assignment-matrix' ? (
+            <LegalTeamAssignmentMatrixSection
+              selectedTeamId={selectedTeamId}
+              selectedUserId={selectedUserId}
+              departments={departments}
+              users={users}
+              usersByDepartment={usersByDepartment}
+              canAssignLegalMatrix={canAssignLegalMatrix}
+              isSubmittingLegalMatrix={isSubmittingLegalMatrix}
+              onSelectedTeamChange={setSelectedTeamId}
+              onSelectedUserChange={setSelectedUserId}
+              onAssignLegalMatrix={() => openConfirmation({ kind: 'add-legal-matrix' })}
+            />
+          ) : null}
 
-            {!arePrimaryEmailsDifferent && normalizedPocEmail && normalizedHodEmail ? (
-              <div className={styles.warning}>POC and HOD must use different email addresses.</div>
-            ) : null}
+          {currentSection.key === 'system-configuration' ? (
+            <SystemConfigurationSection
+              config={systemConfiguration}
+              reason={systemConfigurationReason}
+              isLoading={!systemConfiguration}
+              isSubmitting={isSubmittingSystemConfig}
+              onReasonChange={setSystemConfigurationReason}
+              onToggleFlag={(key, value) => {
+                setSystemConfiguration((current) =>
+                  current
+                    ? {
+                        ...current,
+                        featureFlags: {
+                          ...current.featureFlags,
+                          [key]: value,
+                        },
+                      }
+                    : current
+                )
+              }}
+              onSecurityPolicyChange={(key, value) => {
+                setSystemConfiguration((current) =>
+                  current
+                    ? {
+                        ...current,
+                        securitySessionPolicies: {
+                          ...current.securitySessionPolicies,
+                          [key]: Number.isFinite(value) ? value : current.securitySessionPolicies[key],
+                        },
+                      }
+                    : current
+                )
+              }}
+              onDefaultChange={(key, value) => {
+                setSystemConfiguration((current) =>
+                  current
+                    ? {
+                        ...current,
+                        defaults: {
+                          ...current.defaults,
+                          [key]: value as never,
+                        },
+                      }
+                    : current
+                )
+              }}
+              onSave={handleSaveSystemConfiguration}
+            />
+          ) : null}
+          {currentSection.key === 'audit-logs-viewer' ? (
+            <AuditLogsViewerSection
+              logs={auditLogs}
+              selectedLogId={auditLogsSelectedId}
+              isLoading={isLoadingAuditLogs}
+              cursor={auditLogsCursor}
+              total={auditLogsTotal}
+              limit={auditLogsLimit}
+              filters={auditFilters}
+              onFilterChange={(key, value) => {
+                setAuditFilters((current) => ({
+                  ...current,
+                  [key]: value,
+                }))
+              }}
+              onApplyFilters={() => {
+                setAuditLogsCursor(null)
+                void loadAuditLogs()
+              }}
+              onNextPage={() => {
+                if (!auditLogsCursor) {
+                  return
+                }
 
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className={`${styles.button} ${styles.buttonPrimary}`}
-                onClick={handleCreateTeam}
-                disabled={!canCreate}
-              >
-                {isSubmittingCreate ? 'Creating...' : 'Create Team'}
-              </button>
-            </div>
-
-            <div className={styles.preview}>Access will be granted when this email logs in via Microsoft SSO.</div>
-
-            <label className={styles.field}>
-              <span className={styles.label}>Select Team for Replacement</span>
-              <select
-                className={styles.select}
-                value={selectedTeamId}
-                onChange={(event) => setSelectedTeamId(event.target.value)}
-              >
-                {departments.map((department) => (
-                  <option key={department.id} value={department.id}>
-                    {department.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className={styles.field}>
-              <span className={styles.label}>Role To Replace</span>
-              <select
-                className={styles.select}
-                value={replaceRoleType}
-                onChange={(event) => setReplaceRoleType(event.target.value as 'POC' | 'HOD')}
-              >
-                <option value="POC">POC</option>
-                <option value="HOD">HOD</option>
-              </select>
-            </label>
-
-            <label className={styles.field}>
-              <span className={styles.label}>New Microsoft Email</span>
-              <input
-                className={styles.input}
-                value={newRoleEmail}
-                onChange={(event) => setNewRoleEmail(event.target.value)}
-                placeholder="new.owner@yourdomain.com"
-              />
-            </label>
-
-            {!isReplacementDifferentFromOtherRole && normalizedNewRoleEmail ? (
-              <div className={styles.warning}>Replacement email cannot match the other primary role email.</div>
-            ) : null}
-
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className={styles.button}
-                onClick={() => openConfirmation({ kind: 'replace-primary-role' })}
-                disabled={!canReplace}
-              >
-                {isSubmittingReplace ? 'Replacing...' : 'Replace'}
-              </button>
-            </div>
-          </div>
-
-          <div className={styles.panel}>
-            <h2 className={styles.panelTitle}>User & Department Management</h2>
-
-            <label className={styles.field}>
-              <span className={styles.label}>New User Email</span>
-              <input
-                className={styles.input}
-                value={newUserEmail}
-                onChange={(event) => setNewUserEmail(event.target.value)}
-                placeholder="user@yourdomain.com"
-              />
-            </label>
-
-            <label className={styles.field}>
-              <span className={styles.label}>Full Name</span>
-              <input
-                className={styles.input}
-                value={newUserFullName}
-                onChange={(event) => setNewUserFullName(event.target.value)}
-                placeholder="Legal Team Member"
-              />
-            </label>
-
-            <div className={styles.preview}>Creates a Legal user in the global Legal department context.</div>
-
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className={`${styles.button} ${styles.buttonPrimary}`}
-                onClick={handleCreateUser}
-                disabled={!canCreateUser}
-              >
-                {isSubmittingUserCreate ? 'Creating User...' : 'Create User'}
-              </button>
-            </div>
-
-            <label className={styles.field}>
-              <span className={styles.label}>Select Existing User</span>
-              <select
-                className={styles.select}
-                value={selectedUserId}
-                onChange={(event) => setSelectedUserId(event.target.value)}
-              >
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.email}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className={styles.button}
-                disabled={!selectedUser || isSubmittingStatus || selectedUser?.isActive}
-                onClick={() => void handleToggleUserStatus(true)}
-              >
-                Activate User
-              </button>
-              <button
-                type="button"
-                className={styles.button}
-                disabled={!selectedUser || isSubmittingStatus || !selectedUser?.isActive}
-                onClick={() => openConfirmation({ kind: 'deactivate-user' })}
-              >
-                Deactivate User
-              </button>
-            </div>
-
-            <label className={styles.field}>
-              <span className={styles.label}>Assign Department</span>
-              <select
-                className={styles.select}
-                value={assignmentDepartmentId}
-                onChange={(event) => setAssignmentDepartmentId(event.target.value)}
-              >
-                {departments.map((department) => (
-                  <option key={department.id} value={department.id}>
-                    {department.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className={styles.field}>
-              <span className={styles.label}>Assign Department Role</span>
-              <select
-                className={styles.select}
-                value={assignmentDepartmentRole}
-                onChange={(event) => setAssignmentDepartmentRole(event.target.value as 'POC' | 'HOD')}
-              >
-                <option value="POC">POC</option>
-                <option value="HOD">HOD</option>
-              </select>
-            </label>
-
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className={styles.button}
-                onClick={() => openConfirmation({ kind: 'assign-department-role' })}
-                disabled={!canAssignDepartmentRole}
-              >
-                {isSubmittingAssignment ? 'Assigning...' : 'Assign Role'}
-              </button>
-            </div>
-
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className={styles.button}
-                onClick={() => openConfirmation({ kind: 'add-legal-matrix' })}
-                disabled={!canAssignLegalMatrix}
-              >
-                {isSubmittingLegalMatrix ? 'Updating Legal Matrix...' : 'Add Selected User To Legal Matrix'}
-              </button>
-            </div>
-
-            <div className={styles.field}>
-              <span className={styles.label}>Users Grouped by Department</span>
-              <div className={styles.preview}>
-                {usersByDepartment.length === 0 ? (
-                  <div>No user department assignments found.</div>
-                ) : (
-                  usersByDepartment.map((group) => (
-                    <div key={group.departmentId}>
-                      <strong>{group.departmentName}</strong>
-                      <div>
-                        {group.users.length === 0
-                          ? 'No users assigned'
-                          : group.users
-                              .map(
-                                (user) =>
-                                  `${user.email} (${user.departmentRole}) ${user.isActive ? 'Active' : 'Inactive'}`
-                              )
-                              .join(', ')}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
+                void loadAuditLogs(auditLogsCursor)
+              }}
+              onResetPaging={() => {
+                setAuditLogsCursor(null)
+                void loadAuditLogs()
+              }}
+              onSelectLog={setAuditLogsSelectedId}
+              onExportCsv={handleExportAuditLogsCsv}
+            />
+          ) : null}
         </section>
 
         {confirmationIntent && confirmationText ? (

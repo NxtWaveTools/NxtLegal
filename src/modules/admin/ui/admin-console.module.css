@@ -34,6 +34,13 @@
   font-size: 12px;
   background: var(--color-surface);
   color: var(--color-text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sectionItemActive {
+  border-color: var(--color-accent);
+  color: var(--color-text);
 }
 
 .workspace {
@@ -43,6 +50,16 @@
   padding: 16px;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.workspaceSingle {
+  border-radius: 16px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 14px;
 }
 

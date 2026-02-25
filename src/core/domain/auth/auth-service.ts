@@ -69,6 +69,7 @@ export class AuthService {
       user: {
         id: employee.id,
         employeeId: employee.id,
+        tenantId,
         email: employee.email,
         fullName: employee.fullName ?? undefined,
         role: employee.role,
@@ -162,6 +163,7 @@ export class AuthService {
       user: {
         id: employee.id,
         employeeId: employee.id,
+        tenantId,
         email: employee.email,
         fullName: employee.fullName ?? undefined,
         role: sessionRole,

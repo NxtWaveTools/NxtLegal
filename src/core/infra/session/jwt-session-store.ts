@@ -10,6 +10,7 @@ import { logger } from '@/core/infra/logging/logger'
 import { revokedTokensCache } from '@/core/infra/cache/revoked-tokens-cache'
 import { isValidTenantId } from '@/core/constants/tenants'
 import { createServiceSupabase } from '@/lib/supabase/service'
+import { ExternalServiceError, isAppError } from '@/core/http/errors'
 
 export type SessionData = {
   employeeId: string
@@ -39,7 +40,11 @@ const getNormalizedTokenVersion = (tokenVersion: number | undefined): number => 
   return Math.trunc(tokenVersion)
 }
 
-type TokenVersionLookupResult = { state: 'ok'; tokenVersion: number } | { state: 'missing' } | { state: 'error' }
+type TokenVersionLookupResult =
+  | { state: 'ok'; tokenVersion: number }
+  | { state: 'missing' }
+  | { state: 'error' }
+  | { state: 'service_unavailable' }
 
 const getCurrentTokenVersion = async (employeeId: string, tenantId: string): Promise<TokenVersionLookupResult> => {
   const supabase = createServiceSupabase()
@@ -52,6 +57,19 @@ const getCurrentTokenVersion = async (employeeId: string, tenantId: string): Pro
     .single()
 
   if (error) {
+    const baseErrorMessage = `${error.message ?? ''}`.toLowerCase()
+    if (
+      baseErrorMessage.includes('fetch failed') ||
+      baseErrorMessage.includes('network') ||
+      baseErrorMessage.includes('timed out')
+    ) {
+      logger.warn('Token version lookup temporarily unavailable due to Supabase connectivity', {
+        employeeId,
+        tenantId,
+      })
+      return { state: 'service_unavailable' }
+    }
+
     const errorMessage = `${error.message ?? ''}`.toLowerCase()
     if (errorMessage.includes('token_version') && errorMessage.includes('does not exist')) {
       const { data: legacyData, error: legacyError } = await supabase
@@ -62,6 +80,19 @@ const getCurrentTokenVersion = async (employeeId: string, tenantId: string): Pro
         .single()
 
       if (legacyError) {
+        const legacyErrorMessage = `${legacyError.message ?? ''}`.toLowerCase()
+        if (
+          legacyErrorMessage.includes('fetch failed') ||
+          legacyErrorMessage.includes('network') ||
+          legacyErrorMessage.includes('timed out')
+        ) {
+          logger.warn('Legacy token version lookup temporarily unavailable due to Supabase connectivity', {
+            employeeId,
+            tenantId,
+          })
+          return { state: 'service_unavailable' }
+        }
+
         logger.error('Failed to fetch legacy session validation state', {
           employeeId,
           tenantId,
@@ -309,6 +340,15 @@ export const refreshSession = async (): Promise<SessionData | null> => {
 
     const jwtTokenVersion = getNormalizedTokenVersion(payload.tokenVersion)
     const tokenVersionLookup = await getCurrentTokenVersion(payload.employeeId, payload.tenantId)
+
+    if (tokenVersionLookup.state === 'service_unavailable') {
+      throw new ExternalServiceError('supabase', 'Session validation temporarily unavailable', undefined, {
+        operation: 'refreshSession',
+        employeeId: payload.employeeId,
+        tenantId: payload.tenantId,
+      })
+    }
+
     if (tokenVersionLookup.state !== 'ok' || tokenVersionLookup.tokenVersion !== jwtTokenVersion) {
       logger.warn('Refresh rejected due to token version mismatch', {
         employeeId: payload.employeeId,
@@ -342,6 +382,9 @@ export const refreshSession = async (): Promise<SessionData | null> => {
 
     return sessionData
   } catch (error) {
+    if (isAppError(error)) {
+      throw error
+    }
     logger.error('Session refresh failed', { error: String(error) })
     return null
   }

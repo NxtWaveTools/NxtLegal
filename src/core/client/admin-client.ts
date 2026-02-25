@@ -108,9 +108,66 @@ export type PrimaryRoleAssignmentResponse = {
   afterStateSnapshot: Record<string, unknown>
 }
 
+export type SystemConfigurationPayload = {
+  featureFlags: {
+    enableAdminGovernance: boolean
+    enableContractWorkflow: boolean
+  }
+  securitySessionPolicies: {
+    accessTokenDays: number
+    refreshTokenDays: number
+    maxLoginAttempts: number
+  }
+  defaults: {
+    defaultDepartmentRole: 'POC' | 'HOD'
+    defaultUserRole: 'USER' | 'LEGAL_TEAM'
+  }
+  updatedAt: string | null
+  updatedByUserId: string | null
+}
+
+export type AdminAuditLogItem = {
+  id: string
+  userId: string
+  action: string
+  resourceType: string
+  resourceId: string
+  changes: Record<string, unknown> | null
+  metadata: Record<string, unknown> | null
+  createdAt: string
+}
+
 async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
   try {
-    return (await response.json()) as ApiResponse<T>
+    const json = (await response.json()) as
+      | ApiResponse<T>
+      | {
+          ok?: boolean
+          data?: T | null
+          error?: ApiResponse<never>['error'] | null
+          meta?: Record<string, unknown>
+        }
+
+    if (typeof json === 'object' && json !== null && 'ok' in json && typeof json.ok === 'boolean') {
+      return json as ApiResponse<T>
+    }
+
+    if (typeof json === 'object' && json !== null && ('data' in json || 'error' in json)) {
+      const error = json.error ?? undefined
+      return {
+        ok: !error,
+        data: json.data ?? undefined,
+        error: error ?? undefined,
+      }
+    }
+
+    return {
+      ok: false,
+      error: {
+        code: 'invalid_api_response',
+        message: 'Unexpected response contract from server',
+      },
+    }
   } catch {
     return {
       ok: false,
@@ -123,32 +180,32 @@ async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> 
 }
 
 function resolveUserRolePath(userId: string): string {
-  return routeRegistry.api.admin.userRoles.replace(':userId', userId)
+  return routeRegistry.api.adminSections.roleManagement.userRoles.replace(':userId', userId)
 }
 
 function resolveUserStatusPath(userId: string): string {
-  return routeRegistry.api.admin.userStatus.replace(':userId', userId)
+  return routeRegistry.api.adminSections.userManagement.userStatus.replace(':userId', userId)
 }
 
 function resolveUserDepartmentPath(userId: string): string {
-  return routeRegistry.api.admin.userDepartment.replace(':userId', userId)
+  return routeRegistry.api.adminSections.userManagement.userDepartment.replace(':userId', userId)
 }
 
 function resolveTeamDetailPath(teamId: string): string {
-  return routeRegistry.api.admin.teamDetail.replace(':teamId', teamId)
+  return routeRegistry.api.adminSections.teamManagement.teamDetail.replace(':teamId', teamId)
 }
 
 function resolveTeamPrimaryRolePath(teamId: string): string {
-  return routeRegistry.api.admin.teamPrimaryRole.replace(':teamId', teamId)
+  return routeRegistry.api.adminSections.hodPocAssignmentControl.teamPrimaryRole.replace(':teamId', teamId)
 }
 
 function resolveTeamLegalMatrixPath(teamId: string): string {
-  return routeRegistry.api.admin.teamLegalMatrix.replace(':teamId', teamId)
+  return routeRegistry.api.adminSections.legalTeamAssignmentMatrix.teamLegalMatrix.replace(':teamId', teamId)
 }
 
 export const adminClient = {
   async roles(): Promise<ApiResponse<{ roles: AdminRoleOption[] }>> {
-    const response = await fetch(routeRegistry.api.admin.roles, {
+    const response = await fetch(routeRegistry.api.adminSections.roleManagement.roles, {
       method: 'GET',
       credentials: 'include',
       cache: 'no-store',
@@ -158,7 +215,7 @@ export const adminClient = {
   },
 
   async users(): Promise<ApiResponse<{ users: AdminUserOption[] }>> {
-    const response = await fetch(routeRegistry.api.admin.users, {
+    const response = await fetch(routeRegistry.api.adminSections.userManagement.users, {
       method: 'GET',
       credentials: 'include',
       cache: 'no-store',
@@ -168,7 +225,7 @@ export const adminClient = {
   },
 
   async usersByDepartment(): Promise<ApiResponse<{ departments: AdminDepartmentUserGroup[] }>> {
-    const response = await fetch(`${routeRegistry.api.admin.users}?groupBy=department`, {
+    const response = await fetch(`${routeRegistry.api.adminSections.userManagement.users}?groupBy=department`, {
       method: 'GET',
       credentials: 'include',
       cache: 'no-store',
@@ -183,7 +240,7 @@ export const adminClient = {
     role: 'USER' | 'LEGAL_TEAM'
     isActive?: boolean
   }): Promise<ApiResponse<{ user: AdminUserOption }>> {
-    const response = await fetch(routeRegistry.api.admin.users, {
+    const response = await fetch(routeRegistry.api.adminSections.userManagement.users, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -225,7 +282,7 @@ export const adminClient = {
   },
 
   async departments(): Promise<ApiResponse<{ departments: AdminDepartmentOption[] }>> {
-    const response = await fetch(routeRegistry.api.admin.teams, {
+    const response = await fetch(routeRegistry.api.adminSections.teamManagement.teams, {
       method: 'GET',
       credentials: 'include',
       cache: 'no-store',
@@ -240,7 +297,7 @@ export const adminClient = {
     hodEmail: string
     reason?: string
   }): Promise<ApiResponse<{ department: DepartmentMutationResponse }>> {
-    const response = await fetch(routeRegistry.api.admin.teams, {
+    const response = await fetch(routeRegistry.api.adminSections.teamManagement.teams, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -308,5 +365,96 @@ export const adminClient = {
     })
 
     return parseApiResponse<RoleChangeResponse>(response)
+  },
+
+  async systemConfiguration(): Promise<ApiResponse<{ config: SystemConfigurationPayload }>> {
+    const response = await fetch(routeRegistry.api.adminSections.systemConfiguration.config, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    })
+
+    return parseApiResponse<{ config: SystemConfigurationPayload }>(response)
+  },
+
+  async updateSystemConfiguration(payload: {
+    featureFlags: {
+      enableAdminGovernance: boolean
+      enableContractWorkflow: boolean
+    }
+    securitySessionPolicies: {
+      accessTokenDays: number
+      refreshTokenDays: number
+      maxLoginAttempts: number
+    }
+    defaults: {
+      defaultDepartmentRole: 'POC' | 'HOD'
+      defaultUserRole: 'USER' | 'LEGAL_TEAM'
+    }
+    reason?: string
+  }): Promise<ApiResponse<{ config: SystemConfigurationPayload }>> {
+    const response = await fetch(routeRegistry.api.adminSections.systemConfiguration.config, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    return parseApiResponse<{ config: SystemConfigurationPayload }>(response)
+  },
+
+  async auditLogs(params?: {
+    action?: string
+    resourceType?: string
+    userId?: string
+    query?: string
+    from?: string
+    to?: string
+    cursor?: string
+    limit?: number
+  }): Promise<ApiResponse<{ logs: AdminAuditLogItem[] }>> {
+    const searchParams = new URLSearchParams()
+
+    if (params?.action) searchParams.set('action', params.action)
+    if (params?.resourceType) searchParams.set('resourceType', params.resourceType)
+    if (params?.userId) searchParams.set('userId', params.userId)
+    if (params?.query) searchParams.set('query', params.query)
+    if (params?.from) searchParams.set('from', params.from)
+    if (params?.to) searchParams.set('to', params.to)
+    if (params?.cursor) searchParams.set('cursor', params.cursor)
+    if (typeof params?.limit === 'number') searchParams.set('limit', String(params.limit))
+
+    const path = `${routeRegistry.api.adminSections.auditLogsViewer.logs}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
+    const response = await fetch(path, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    })
+
+    return parseApiResponse<{ logs: AdminAuditLogItem[] }>(response)
+  },
+
+  buildAuditExportUrl(params?: {
+    action?: string
+    resourceType?: string
+    userId?: string
+    query?: string
+    from?: string
+    to?: string
+    limit?: number
+  }): string {
+    const searchParams = new URLSearchParams()
+
+    if (params?.action) searchParams.set('action', params.action)
+    if (params?.resourceType) searchParams.set('resourceType', params.resourceType)
+    if (params?.userId) searchParams.set('userId', params.userId)
+    if (params?.query) searchParams.set('query', params.query)
+    if (params?.from) searchParams.set('from', params.from)
+    if (params?.to) searchParams.set('to', params.to)
+    if (typeof params?.limit === 'number') searchParams.set('limit', String(params.limit))
+
+    return `${routeRegistry.api.adminSections.auditLogsViewer.export}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
   },
 }

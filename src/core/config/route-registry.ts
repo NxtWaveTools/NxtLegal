@@ -1,3 +1,5 @@
+import { adminSectionRegistry } from '@/core/config/admin-section-registry'
+
 export const routeRegistry = {
   public: {
     login: '/login',
@@ -6,7 +8,18 @@ export const routeRegistry = {
   protected: {
     dashboard: '/dashboard',
     repository: '/repository',
-    adminConsole: '/admin',
+    adminRoot: '/admin',
+    adminConsole: adminSectionRegistry.defaultSectionPath,
+    adminSection: '/admin/:section',
+    adminSections: {
+      teamManagement: adminSectionRegistry.sectionPaths.teamManagement,
+      userManagement: adminSectionRegistry.sectionPaths.userManagement,
+      roleManagement: adminSectionRegistry.sectionPaths.roleManagement,
+      hodPocAssignmentControl: adminSectionRegistry.sectionPaths.hodPocAssignmentControl,
+      legalTeamAssignmentMatrix: adminSectionRegistry.sectionPaths.legalTeamAssignmentMatrix,
+      systemConfiguration: adminSectionRegistry.sectionPaths.systemConfiguration,
+      auditLogsViewer: adminSectionRegistry.sectionPaths.auditLogsViewer,
+    },
     additionalApproverHistory: '/approver-history',
     contractDetail: '/contracts/:contractId',
   },
@@ -47,6 +60,34 @@ export const routeRegistry = {
       teamDetail: '/api/admin/teams/:teamId',
       teamPrimaryRole: '/api/admin/teams/:teamId/primary-role',
       teamLegalMatrix: '/api/admin/teams/:teamId/legal-matrix',
+    },
+    adminSections: {
+      teamManagement: {
+        teams: '/api/admin/team-management/teams',
+        teamDetail: '/api/admin/team-management/teams/:teamId',
+      },
+      userManagement: {
+        users: '/api/admin/user-management/users',
+        userStatus: '/api/admin/user-management/users/:userId/status',
+        userDepartment: '/api/admin/user-management/users/:userId/department',
+      },
+      roleManagement: {
+        roles: '/api/admin/role-management/roles',
+        userRoles: '/api/admin/role-management/users/:userId/roles',
+      },
+      hodPocAssignmentControl: {
+        teamPrimaryRole: '/api/admin/hod-poc-assignment-control/teams/:teamId/primary-role',
+      },
+      legalTeamAssignmentMatrix: {
+        teamLegalMatrix: '/api/admin/legal-team-assignment-matrix/teams/:teamId/legal-matrix',
+      },
+      systemConfiguration: {
+        config: '/api/admin/system-configuration',
+      },
+      auditLogsViewer: {
+        logs: '/api/admin/audit-logs-viewer',
+        export: '/api/admin/audit-logs-viewer/export',
+      },
     },
   },
 } as const
