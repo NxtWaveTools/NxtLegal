@@ -13,6 +13,7 @@ const statusClassName: Record<ContractStatus, string> = {
   HOD_APPROVED: styles.hodApproved,
   LEGAL_PENDING: styles.legalPending,
   LEGAL_QUERY: styles.legalQuery,
+  IN_SIGNATURE: styles.finalApproved,
   FINAL_APPROVED: styles.finalApproved,
   REJECTED: styles.legalQuery,
 }

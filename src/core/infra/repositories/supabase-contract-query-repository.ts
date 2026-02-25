@@ -332,7 +332,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
     }
 
-    const rows = (data ?? []) as Array<{
+    const rows = (data ?? []) as unknown as Array<{
       id: string
       title: string
       status: string
@@ -426,7 +426,165 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
     }
 
-    const rows = (data ?? []) as Array<{
+    const rows = (data ?? []) as unknown as Array<{
+      id: string
+      title: string
+      status: string
+      uploaded_by_employee_id: string
+      uploaded_by_email: string
+      current_assignee_employee_id: string
+      current_assignee_email: string
+      hod_approved_at: string | null
+      tat_deadline_at: string | null
+      tat_breached_at: string | null
+      aging_business_days: number | null
+      near_breach: boolean
+      is_tat_breached: boolean
+      created_at: string
+      updated_at: string
+    }>
+
+    const validRows = rows.filter((row) => this.validStatuses.has(row.status as ContractStatus))
+
+    const additionalApproverContext = await this.getAdditionalApproverContractContextMap(
+      params.tenantId,
+      validRows.map((row) => row.id),
+      params.employeeId
+    )
+
+    const hasNext = validRows.length > params.limit
+    const mappedItems = validRows
+      .slice(0, params.limit)
+      .map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
+    const nextCursor = hasNext ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '') : undefined
+
+    return { items, nextCursor, total: totalCount ?? 0 }
+  }
+
+  async listRepositoryContracts(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    cursor?: string
+    limit: number
+    search?: string
+    status?: ContractStatus
+    sortBy?: RepositorySortBy
+    sortDirection?: RepositorySortDirection
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
+    const supabase = createServiceSupabase()
+    const decodedCursor = this.decodeCursor(params.cursor)
+    const sortBy = params.sortBy ?? 'created_at'
+    const sortDirection = params.sortDirection ?? 'desc'
+
+    const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+
+    const buildListQuery = (source: 'contracts_repository_view' | 'contracts', selectColumns: string) => {
+      let query = supabase
+        .from(source)
+        .select(selectColumns)
+        .eq('tenant_id', params.tenantId)
+        .limit(params.limit + 1)
+
+      if (params.status) {
+        query = query.eq('status', params.status)
+      }
+
+      if (params.search) {
+        query = query.ilike('title', `%${params.search}%`)
+      }
+
+      if (source === 'contracts_repository_view') {
+        query = query.order('is_tat_breached', { ascending: false }).order('near_breach', { ascending: false })
+      }
+
+      if (sortBy === 'title') {
+        query = query.order('title', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
+      } else if (sortBy === 'status') {
+        query = query.order('status', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
+      } else if (sortBy === 'hod_approved_at') {
+        query = query
+          .order('hod_approved_at', { ascending: sortDirection === 'asc', nullsFirst: sortDirection === 'asc' })
+          .order('updated_at', { ascending: false })
+          .order('id', { ascending: false })
+      } else if (sortBy === 'tat_deadline_at') {
+        query = query
+          .order('tat_deadline_at', { ascending: sortDirection === 'asc', nullsFirst: sortDirection === 'asc' })
+          .order('updated_at', { ascending: false })
+          .order('id', { ascending: false })
+      } else {
+        query = query
+          .order('created_at', { ascending: sortDirection === 'asc' })
+          .order('updated_at', { ascending: false })
+          .order('id', { ascending: false })
+      }
+
+      if (decodedCursor && sortBy === 'created_at' && sortDirection === 'desc') {
+        query = query.lt('created_at', decodedCursor.createdAt)
+      }
+
+      if (visibilityFilter) {
+        query = query.or(visibilityFilter)
+      }
+
+      return query
+    }
+
+    const buildTotalQuery = (source: 'contracts_repository_view' | 'contracts') => {
+      let totalQuery = supabase
+        .from(source)
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', params.tenantId)
+
+      if (params.status) {
+        totalQuery = totalQuery.eq('status', params.status)
+      }
+
+      if (params.search) {
+        totalQuery = totalQuery.ilike('title', `%${params.search}%`)
+      }
+
+      if (visibilityFilter) {
+        totalQuery = totalQuery.or(visibilityFilter)
+      }
+
+      return totalQuery
+    }
+
+    let totalResult = await buildTotalQuery('contracts_repository_view')
+
+    if (totalResult.error && this.isViewQueryCompatibilityError(totalResult.error, 'contracts_repository_view')) {
+      totalResult = await buildTotalQuery('contracts')
+    }
+
+    if (totalResult.error) {
+      throw new DatabaseError('Failed to count repository contracts', new Error(totalResult.error.message), {
+        code: totalResult.error.code,
+      })
+    }
+
+    let { data, error } = await buildListQuery('contracts_repository_view', contractsListSelectWithSlaMetrics)
+
+    if (error && this.isMissingColumnError(error, 'contracts_repository_view')) {
+      const fallbackResult = await buildListQuery('contracts_repository_view', contractsListSelectLegacy)
+      data = fallbackResult.data
+      error = fallbackResult.error
+    }
+
+    if (error && this.isViewQueryCompatibilityError(error, 'contracts_repository_view')) {
+      const contractsTableResult = await buildListQuery('contracts', contractsListSelectFromContractsTable)
+      data = contractsTableResult.data
+      error = contractsTableResult.error
+    }
+
+    if (error) {
+      throw new DatabaseError('Failed to list repository contracts', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    const rows = (data ?? []) as unknown as Array<{
       id: string
       title: string
       status: string
@@ -455,134 +613,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .slice(0, params.limit)
       .map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
     const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
-    const nextCursor = hasNext ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '') : undefined
-
-    return { items, nextCursor, total: totalCount ?? 0 }
-  }
-
-  async listRepositoryContracts(params: {
-    tenantId: string
-    employeeId: string
-    role?: string
-    cursor?: string
-    limit: number
-    search?: string
-    status?: ContractStatus
-    sortBy?: RepositorySortBy
-    sortDirection?: RepositorySortDirection
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
-    const supabase = createServiceSupabase()
-    const decodedCursor = this.decodeCursor(params.cursor)
-    const sortBy = params.sortBy ?? 'created_at'
-    const sortDirection = params.sortDirection ?? 'desc'
-
-    let query = supabase
-      .from('contracts_repository_view')
-      .select(
-        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, aging_business_days, near_breach, is_tat_breached, created_at, updated_at'
-      )
-      .eq('tenant_id', params.tenantId)
-      .limit(params.limit + 1)
-
-    let totalQuery = supabase
-      .from('contracts_repository_view')
-      .select('id', { count: 'exact', head: true })
-      .eq('tenant_id', params.tenantId)
-
-    if (params.status) {
-      query = query.eq('status', params.status)
-      totalQuery = totalQuery.eq('status', params.status)
-    }
-
-    if (params.search) {
-      query = query.ilike('title', `%${params.search}%`)
-      totalQuery = totalQuery.ilike('title', `%${params.search}%`)
-    }
-
-    query = query.order('is_tat_breached', { ascending: false }).order('near_breach', { ascending: false })
-
-    if (sortBy === 'title') {
-      query = query.order('title', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
-    } else if (sortBy === 'status') {
-      query = query.order('status', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
-    } else if (sortBy === 'hod_approved_at') {
-      query = query
-        .order('hod_approved_at', { ascending: sortDirection === 'asc', nullsFirst: sortDirection === 'asc' })
-        .order('updated_at', { ascending: false })
-        .order('id', { ascending: false })
-    } else if (sortBy === 'tat_deadline_at') {
-      query = query
-        .order('tat_deadline_at', { ascending: sortDirection === 'asc', nullsFirst: sortDirection === 'asc' })
-        .order('updated_at', { ascending: false })
-        .order('id', { ascending: false })
-    } else {
-      query = query
-        .order('created_at', { ascending: sortDirection === 'asc' })
-        .order('updated_at', { ascending: false })
-        .order('id', { ascending: false })
-    }
-
-    if (decodedCursor && sortBy === 'created_at' && sortDirection === 'desc') {
-      query = query.lt('created_at', decodedCursor.createdAt)
-    }
-
-    const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
-    if (visibilityFilter) {
-      query = query.or(visibilityFilter)
-      totalQuery = totalQuery.or(visibilityFilter)
-    }
-
-    const { count: totalCount, error: totalError } = await totalQuery
-
-    if (totalError) {
-      throw new DatabaseError('Failed to count repository contracts', new Error(totalError.message), {
-        code: totalError.code,
-      })
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      throw new DatabaseError('Failed to list repository contracts', new Error(error.message), {
-        code: error.code,
-      })
-    }
-
-    const rows = (data ?? []) as Array<{
-      id: string
-      title: string
-      status: string
-      uploaded_by_employee_id: string
-      uploaded_by_email: string
-      current_assignee_employee_id: string
-      current_assignee_email: string
-      hod_approved_at: string | null
-      tat_deadline_at: string | null
-      tat_breached_at: string | null
-      aging_business_days: number | null
-      near_breach: boolean
-      is_tat_breached: boolean
-      created_at: string
-      updated_at: string
-    }>
-
-    const additionalApproverContext = await this.getAdditionalApproverContractContextMap(
-      params.tenantId,
-      rows.map((row) => row.id),
-      params.employeeId
-    )
-
-    const hasNext = rows.length > params.limit
-    const mappedItems = rows
-      .slice(0, params.limit)
-      .map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
-    const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems)
     const nextCursor =
       sortBy === 'created_at' && sortDirection === 'desc' && hasNext
         ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '')
         : undefined
 
-    return { items, nextCursor, total: totalCount ?? 0 }
+    return { items, nextCursor, total: totalResult.count ?? 0 }
   }
 
   async getById(tenantId: string, contractId: string): Promise<ContractDetail | null> {

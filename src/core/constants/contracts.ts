@@ -5,6 +5,7 @@ export const contractStatuses = {
   hodApproved: 'HOD_APPROVED',
   legalPending: 'LEGAL_PENDING',
   legalQuery: 'LEGAL_QUERY',
+  inSignature: 'IN_SIGNATURE',
   finalApproved: 'FINAL_APPROVED',
   rejected: 'REJECTED',
 } as const
@@ -89,6 +90,7 @@ export const contractStatusLabels: Record<ContractStatus, string> = {
   HOD_APPROVED: 'HOD Approved',
   LEGAL_PENDING: 'Legal Pending',
   LEGAL_QUERY: 'Legal Query',
+  IN_SIGNATURE: 'In Signature',
   FINAL_APPROVED: 'Final Approved',
   REJECTED: 'Rejected',
 }
