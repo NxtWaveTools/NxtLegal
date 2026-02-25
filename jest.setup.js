@@ -1,5 +1,7 @@
 // jest.setup.js - Jest configuration and global test setup
 
+require('@testing-library/jest-dom')
+
 // Mock Supabase client for tests
 jest.mock('@/lib/supabase/client', () => ({
   createClient: jest.fn(() => ({

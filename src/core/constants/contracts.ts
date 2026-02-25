@@ -6,6 +6,7 @@ export const contractStatuses = {
   legalPending: 'LEGAL_PENDING',
   legalQuery: 'LEGAL_QUERY',
   finalApproved: 'FINAL_APPROVED',
+  inSignature: 'IN_SIGNATURE',
   rejected: 'REJECTED',
 } as const
 
@@ -55,6 +56,30 @@ export const contractStorage = {
   signedUrlExpirySeconds: 60 * 10,
 } as const
 
+export const contractDocumentKinds = {
+  primary: 'PRIMARY',
+  counterpartySupporting: 'COUNTERPARTY_SUPPORTING',
+  executedContract: 'EXECUTED_CONTRACT',
+  auditCertificate: 'AUDIT_CERTIFICATE',
+} as const
+
+export const contractDocumentMimeTypes = {
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pdf: 'application/pdf',
+} as const
+
+export const contractDocumentVersioning = {
+  initialVersion: 1,
+  majorVersionIncrement: 1,
+} as const
+
+export const contractDocumentUploadRules = {
+  initialAllowedRoles: [contractWorkflowRoles.poc] as const,
+  replacementAllowedRoles: [contractWorkflowRoles.legalTeam] as const,
+  initialAllowedMimeTypes: [contractDocumentMimeTypes.docx] as const,
+  replacementAllowedMimeTypes: [contractDocumentMimeTypes.docx, contractDocumentMimeTypes.pdf] as const,
+} as const
+
 export const contractSignatoryStatuses = {
   pending: 'PENDING',
   signed: 'SIGNED',
@@ -62,14 +87,86 @@ export const contractSignatoryStatuses = {
 
 export type ContractSignatoryStatus = (typeof contractSignatoryStatuses)[keyof typeof contractSignatoryStatuses]
 
+export const contractSignatoryRecipientTypes = {
+  internal: 'INTERNAL',
+  external: 'EXTERNAL',
+} as const
+
+export type ContractSignatoryRecipientType =
+  (typeof contractSignatoryRecipientTypes)[keyof typeof contractSignatoryRecipientTypes]
+
+export const contractSignatoryFieldTypes = {
+  signature: 'SIGNATURE',
+  initial: 'INITIAL',
+  stamp: 'STAMP',
+  name: 'NAME',
+  date: 'DATE',
+  time: 'TIME',
+  text: 'TEXT',
+} as const
+
+export type ContractSignatoryFieldType = (typeof contractSignatoryFieldTypes)[keyof typeof contractSignatoryFieldTypes]
+
+export const contractSignatoryWebhookStatuses = {
+  sent: 'SENT',
+  delivered: 'DELIVERED',
+  viewed: 'VIEWED',
+  signed: 'SIGNED',
+  completed: 'COMPLETED',
+  declined: 'DECLINED',
+  expired: 'EXPIRED',
+} as const
+
+export type ContractSignatoryWebhookStatus =
+  (typeof contractSignatoryWebhookStatuses)[keyof typeof contractSignatoryWebhookStatuses]
+
+export const contractNotificationChannels = {
+  email: 'EMAIL',
+} as const
+
+export type ContractNotificationChannel =
+  (typeof contractNotificationChannels)[keyof typeof contractNotificationChannels]
+
+export const contractNotificationTypes = {
+  signatoryLink: 'SIGNATORY_LINK',
+  signingCompleted: 'SIGNING_COMPLETED',
+} as const
+
+export type ContractNotificationType = (typeof contractNotificationTypes)[keyof typeof contractNotificationTypes]
+
+export const contractNotificationStatuses = {
+  sent: 'SENT',
+  failed: 'FAILED',
+} as const
+
+export type ContractNotificationStatus =
+  (typeof contractNotificationStatuses)[keyof typeof contractNotificationStatuses]
+
+export const contractNotificationPolicy = {
+  maxRetries: 2,
+  retryBaseDelayMinutes: 1,
+} as const
+
 export const contractAuditEvents = {
   signatoryAdded: 'CONTRACT_SIGNATORY_ADDED',
+  signatorySent: 'CONTRACT_SIGNATORY_SENT',
+  signatoryDelivered: 'CONTRACT_SIGNATORY_DELIVERED',
+  signatoryViewed: 'CONTRACT_SIGNATORY_VIEWED',
   signatorySigned: 'CONTRACT_SIGNATORY_SIGNED',
+  signatoryCompleted: 'CONTRACT_SIGNATORY_COMPLETED',
+  signatoryDeclined: 'CONTRACT_SIGNATORY_DECLINED',
+  signatoryExpired: 'CONTRACT_SIGNATORY_EXPIRED',
 } as const
 
 export const contractAuditActions = {
   signatoryAdded: 'contract.signatory.added',
+  signatorySent: 'contract.signatory.sent',
+  signatoryDelivered: 'contract.signatory.delivered',
+  signatoryViewed: 'contract.signatory.viewed',
   signatorySigned: 'contract.signatory.signed',
+  signatoryCompleted: 'contract.signatory.completed',
+  signatoryDeclined: 'contract.signatory.declined',
+  signatoryExpired: 'contract.signatory.expired',
 } as const
 
 export const contractStatusLabels: Record<ContractStatus, string> = {
@@ -80,6 +177,7 @@ export const contractStatusLabels: Record<ContractStatus, string> = {
   LEGAL_PENDING: 'Legal Pending',
   LEGAL_QUERY: 'Legal Query',
   FINAL_APPROVED: 'Final Approved',
+  IN_SIGNATURE: 'In Signature',
   REJECTED: 'Rejected',
 }
 

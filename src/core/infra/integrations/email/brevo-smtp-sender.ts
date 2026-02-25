@@ -1,57 +1,48 @@
 import 'server-only'
 
-import nodemailer from 'nodemailer'
-
-type BrevoSmtpSenderConfig = {
-  host: string
-  port: number
-  user: string
-  pass: string
-  allowSelfSigned: boolean
+type BrevoTemplateSenderConfig = {
+  apiBaseUrl: string
+  apiKey: string
   fromName: string
   fromEmail: string
 }
 
-type SendSignatoryEmailInput = {
+type SendTemplateEmailInput = {
   recipientEmail: string
-  contractTitle: string
-  signingUrl: string
+  templateId: number
+  templateParams: Record<string, unknown>
 }
 
 export class BrevoSmtpSender {
-  private readonly transporter
+  constructor(private readonly config: BrevoTemplateSenderConfig) {}
 
-  constructor(private readonly config: BrevoSmtpSenderConfig) {
-    this.transporter = nodemailer.createTransport({
-      host: config.host,
-      port: config.port,
-      secure: false,
-      auth: {
-        user: config.user,
-        pass: config.pass,
+  async sendTemplateEmail(input: SendTemplateEmailInput): Promise<{ providerMessageId?: string }> {
+    const response = await fetch(`${this.config.apiBaseUrl}/smtp/email`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        'api-key': this.config.apiKey,
       },
-      tls: {
-        rejectUnauthorized: !config.allowSelfSigned,
-      },
+      body: JSON.stringify({
+        sender: {
+          name: this.config.fromName,
+          email: this.config.fromEmail,
+        },
+        to: [{ email: input.recipientEmail }],
+        templateId: input.templateId,
+        params: input.templateParams,
+      }),
     })
-  }
 
-  async sendSignatoryLinkEmail(input: SendSignatoryEmailInput): Promise<void> {
-    await this.transporter.sendMail({
-      from: `${this.config.fromName} <${this.config.fromEmail}>`,
-      to: input.recipientEmail,
-      subject: `Signature requested: ${input.contractTitle}`,
-      html: `<p>You have been requested to sign the contract <strong>${this.escapeHtml(input.contractTitle)}</strong>.</p><p><a href="${input.signingUrl}">Open DocuSign signing link</a></p><p>If the button does not work, copy this URL into your browser:</p><p>${this.escapeHtml(input.signingUrl)}</p>`,
-      text: `You have been requested to sign the contract "${input.contractTitle}". Use this DocuSign link: ${input.signingUrl}`,
-    })
-  }
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Brevo request failed with status ${response.status}: ${errorText}`)
+    }
 
-  private escapeHtml(value: string): string {
-    return value
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;')
+    const payload = (await response.json().catch(() => ({}))) as { messageId?: string }
+    return {
+      providerMessageId: payload.messageId,
+    }
   }
 }

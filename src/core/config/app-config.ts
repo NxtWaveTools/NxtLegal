@@ -11,12 +11,17 @@ const parseAllowedDomains = (value: string): string[] => {
     .filter((domain) => domain.length > 0)
 }
 
-const parseBoolean = (value: string | undefined, fallback = false): boolean => {
+const parseInteger = (value: string | undefined, key: string): number | undefined => {
   if (!value) {
-    return fallback
+    return undefined
   }
 
-  return value.toLowerCase() === 'true'
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${key} must be a positive integer`)
+  }
+
+  return parsed
 }
 
 const requireConfigGroup = (params: {
@@ -55,12 +60,11 @@ const docusignConfig = requireConfigGroup({
 
 const mailConfig = requireConfigGroup({
   enabled: featureFlags.enableContractWorkflow,
-  groupName: 'Brevo SMTP',
+  groupName: 'Brevo',
   values: {
-    BREVO_SMTP_HOST: envServer.brevoSmtpHost,
-    BREVO_SMTP_PORT: envServer.brevoSmtpPort,
-    BREVO_SMTP_USER: envServer.brevoSmtpUser,
-    BREVO_SMTP_PASS: envServer.brevoSmtpPass,
+    BREVO_API_KEY: envServer.brevoApiKey,
+    BREVO_TEMPLATE_SIGNATORY_LINK_ID: envServer.brevoSignatoryLinkTemplateId,
+    BREVO_TEMPLATE_SIGNING_COMPLETED_ID: envServer.brevoSigningCompletedTemplateId,
     MAIL_FROM_NAME: envServer.mailFromName,
     MAIL_FROM_EMAIL: envServer.mailFromEmail,
   },
@@ -92,11 +96,16 @@ export const appConfig = {
     webhookSecret: docusignConfig.DOCUSIGN_WEBHOOK_SECRET,
   },
   mail: {
-    brevoSmtpHost: mailConfig.BREVO_SMTP_HOST,
-    brevoSmtpPort: mailConfig.BREVO_SMTP_PORT,
-    brevoSmtpUser: mailConfig.BREVO_SMTP_USER,
-    brevoSmtpPass: mailConfig.BREVO_SMTP_PASS,
-    brevoSmtpAllowSelfSigned: parseBoolean(envServer.brevoSmtpAllowSelfSigned, false),
+    brevoApiBaseUrl: envServer.brevoApiBaseUrl ?? 'https://api.brevo.com/v3',
+    brevoApiKey: mailConfig.BREVO_API_KEY,
+    brevoTemplateSignatoryLinkId: parseInteger(
+      mailConfig.BREVO_TEMPLATE_SIGNATORY_LINK_ID,
+      'BREVO_TEMPLATE_SIGNATORY_LINK_ID'
+    ),
+    brevoTemplateSigningCompletedId: parseInteger(
+      mailConfig.BREVO_TEMPLATE_SIGNING_COMPLETED_ID,
+      'BREVO_TEMPLATE_SIGNING_COMPLETED_ID'
+    ),
     fromName: mailConfig.MAIL_FROM_NAME,
     fromEmail: mailConfig.MAIL_FROM_EMAIL,
   },

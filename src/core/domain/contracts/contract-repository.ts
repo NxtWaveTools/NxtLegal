@@ -1,9 +1,11 @@
 import type {
   ContractAccessRecord,
   ContractDocumentAccessRecord,
+  ContractDocumentRecord,
   ContractRecord,
   CreateContractDocumentInput,
   CreateContractUploadInput,
+  ReplacePrimaryContractDocumentInput,
 } from '@/core/domain/contracts/types'
 
 export interface ContractRepository {
@@ -16,6 +18,11 @@ export interface ContractRepository {
     contractId: string
     documentId: string
   }): Promise<ContractDocumentAccessRecord | null>
+  getCurrentPrimaryDocumentForAccess(params: {
+    tenantId: string
+    contractId: string
+  }): Promise<ContractDocumentAccessRecord | null>
+  replacePrimaryDocument(input: ReplacePrimaryContractDocumentInput): Promise<ContractDocumentRecord>
   isUploaderInActorTeam(params: {
     tenantId: string
     actorEmployeeId: string

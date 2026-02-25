@@ -1,7 +1,19 @@
 import { AuthorizationError, BusinessRuleError, NotFoundError } from '@/core/http/errors'
-import type { ContractStatus } from '@/core/constants/contracts'
+import type {
+  ContractNotificationChannel,
+  ContractNotificationStatus,
+  ContractNotificationType,
+  ContractSignatoryRecipientType,
+  ContractStatus,
+} from '@/core/constants/contracts'
+import { contractStatuses } from '@/core/constants/contracts'
 import type {
   AdditionalApproverDecisionHistoryItem,
+  ContractNotificationFailure,
+  ContractSigningPreparationDraft,
+  ContractSigningPreparationDraftField,
+  ContractSigningPreparationDraftRecipient,
+  ContractSignatoryField,
   DashboardContractFilter,
   ContractDetail,
   ContractDetailView,
@@ -286,8 +298,12 @@ export class ContractQueryService {
     actorRole?: string
     actorEmail: string
     signatoryEmail: string
+    recipientType: ContractSignatoryRecipientType
+    routingOrder: number
+    fieldConfig: ContractSignatoryField[]
     docusignEnvelopeId: string
     docusignRecipientId: string
+    envelopeSourceDocumentId: string
   }): Promise<ContractDetailView> {
     if (!params.actorRole) {
       throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for adding signatory')
@@ -304,8 +320,12 @@ export class ContractQueryService {
       actorRole: params.actorRole,
       actorEmail: params.actorEmail,
       signatoryEmail: params.signatoryEmail,
+      recipientType: params.recipientType,
+      routingOrder: params.routingOrder,
+      fieldConfig: params.fieldConfig,
       docusignEnvelopeId: params.docusignEnvelopeId,
       docusignRecipientId: params.docusignRecipientId,
+      envelopeSourceDocumentId: params.envelopeSourceDocumentId,
     })
 
     const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
@@ -323,6 +343,139 @@ export class ContractQueryService {
     })
   }
 
+  async saveSigningPreparationDraft(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    recipients: ContractSigningPreparationDraftRecipient[]
+    fields: ContractSigningPreparationDraftField[]
+  }): Promise<ContractSigningPreparationDraft> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for signing preparation')
+    }
+
+    const contractView = await this.getContractDetail({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.actorEmployeeId,
+      role: params.actorRole,
+    })
+
+    if (contractView.contract.status !== contractStatuses.finalApproved) {
+      throw new BusinessRuleError(
+        'SIGNING_PREPARATION_INVALID_STATUS',
+        'Signing preparation drafts can only be saved in FINAL_APPROVED'
+      )
+    }
+
+    return this.contractRepository.saveSigningPreparationDraft({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      actorEmployeeId: params.actorEmployeeId,
+      recipients: params.recipients,
+      fields: params.fields,
+    })
+  }
+
+  async getSigningPreparationDraft(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+  }): Promise<ContractSigningPreparationDraft | null> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for signing preparation')
+    }
+
+    const contractView = await this.getContractDetail({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.actorEmployeeId,
+      role: params.actorRole,
+    })
+
+    if (contractView.contract.status !== contractStatuses.finalApproved) {
+      throw new BusinessRuleError(
+        'SIGNING_PREPARATION_INVALID_STATUS',
+        'Signing preparation drafts can only be loaded in FINAL_APPROVED'
+      )
+    }
+
+    return this.contractRepository.getSigningPreparationDraft({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+    })
+  }
+
+  async countPendingSignatoriesByContract(params: { tenantId: string; contractId: string }): Promise<number> {
+    return this.contractRepository.countPendingSignatoriesByContract(params)
+  }
+
+  async moveContractToInSignature(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    envelopeId: string
+  }): Promise<void> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for signing preparation')
+    }
+
+    if (!params.actorEmail) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    await this.contractRepository.moveContractToInSignature({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      actorEmail: params.actorEmail,
+      envelopeId: params.envelopeId,
+    })
+  }
+
+  async deleteSigningPreparationDraft(params: { tenantId: string; contractId: string }): Promise<void> {
+    await this.contractRepository.deleteSigningPreparationDraft(params)
+  }
+
+  async resolveEnvelopeContext(params: { envelopeId: string; recipientEmail?: string }): Promise<{
+    tenantId: string
+    contractId: string
+    signatoryEmail: string
+    recipientType: ContractSignatoryRecipientType
+    routingOrder: number
+  } | null> {
+    return this.contractRepository.resolveEnvelopeContext(params)
+  }
+
+  async recordDocusignWebhookEvent(params: {
+    tenantId: string
+    contractId: string
+    envelopeId: string
+    recipientEmail?: string
+    eventType: string
+    eventKey: string
+    payload: Record<string, unknown>
+    signerIp?: string
+  }): Promise<{ inserted: boolean }> {
+    return this.contractRepository.recordDocusignWebhookEvent(params)
+  }
+
+  async addSignatoryWebhookAuditEvent(params: {
+    tenantId: string
+    contractId: string
+    eventType: string
+    action: string
+    recipientEmail?: string
+    metadata?: Record<string, unknown>
+  }): Promise<void> {
+    await this.contractRepository.addSignatoryWebhookAuditEvent(params)
+  }
+
   async markSignatoryAsSigned(params: {
     tenantId: string
     envelopeId: string
@@ -335,6 +488,42 @@ export class ContractQueryService {
       recipientEmail: params.recipientEmail,
       signedAt: params.signedAt,
     })
+  }
+
+  async listFailedNotificationDeliveries(params: {
+    tenantId: string
+    cursor?: string
+    limit: number
+    contractId?: string
+  }): Promise<{ items: ContractNotificationFailure[]; nextCursor?: string; total: number }> {
+    return this.contractRepository.listFailedNotificationDeliveries(params)
+  }
+
+  async getEnvelopeNotificationProfile(params: { tenantId: string; contractId: string; envelopeId: string }): Promise<{
+    contractTitle: string
+    recipientEmails: string[]
+  } | null> {
+    return this.contractRepository.getEnvelopeNotificationProfile(params)
+  }
+
+  async recordContractNotificationDelivery(params: {
+    tenantId: string
+    contractId: string
+    envelopeId?: string
+    recipientEmail: string
+    channel: ContractNotificationChannel
+    notificationType: ContractNotificationType
+    templateId: number
+    providerName: string
+    providerMessageId?: string
+    status: ContractNotificationStatus
+    retryCount: number
+    maxRetries: number
+    nextRetryAt?: string
+    lastError?: string
+    metadata?: Record<string, unknown>
+  }): Promise<void> {
+    await this.contractRepository.recordContractNotificationDelivery(params)
   }
 
   private async getContractDetailAfterMutation(params: {

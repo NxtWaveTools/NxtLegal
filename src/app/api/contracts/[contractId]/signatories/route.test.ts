@@ -12,6 +12,10 @@ const mockContractSignatoryService = {
   assignSignatory: jest.fn(),
 }
 
+const mockContractQueryService = {
+  getContractDetail: jest.fn(),
+}
+
 type MockRequest = {
   json?: () => Promise<unknown>
 }
@@ -38,6 +42,7 @@ jest.mock('@/core/http/with-auth', () => ({
 
 jest.mock('@/core/registry/service-registry', () => ({
   getContractSignatoryService: () => mockContractSignatoryService,
+  getContractQueryService: () => mockContractQueryService,
 }))
 
 import { POST } from '@/app/api/contracts/[contractId]/signatories/route'
@@ -49,6 +54,9 @@ describe('Contract signatory assignment route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockSession.tenantId = '00000000-0000-0000-0000-000000000000'
+    mockContractQueryService.getContractDetail.mockResolvedValue({
+      contract: { status: 'FINAL_APPROVED' },
+    })
   })
 
   it('returns session invalid when tenant is missing', async () => {
@@ -56,7 +64,16 @@ describe('Contract signatory assignment route', () => {
 
     const response = await POST(
       {
-        json: async () => ({ signatoryEmail: 'signer@nxtwave.co.in' }),
+        json: async () => ({
+          recipients: [
+            {
+              signatoryEmail: 'signer@nxtwave.co.in',
+              recipientType: 'EXTERNAL',
+              routingOrder: 1,
+              fields: [],
+            },
+          ],
+        }),
       } as unknown as PostRequestArg,
       { params: { contractId: 'contract-1' } } as PostContextArg
     )
@@ -71,7 +88,16 @@ describe('Contract signatory assignment route', () => {
   it('returns contract id required for missing contract id', async () => {
     const response = await POST(
       {
-        json: async () => ({ signatoryEmail: 'signer@nxtwave.co.in' }),
+        json: async () => ({
+          recipients: [
+            {
+              signatoryEmail: 'signer@nxtwave.co.in',
+              recipientType: 'EXTERNAL',
+              routingOrder: 1,
+              fields: [],
+            },
+          ],
+        }),
       } as unknown as PostRequestArg,
       { params: {} } as PostContextArg
     )
@@ -86,7 +112,16 @@ describe('Contract signatory assignment route', () => {
   it('returns validation error for invalid signatory payload', async () => {
     const response = await POST(
       {
-        json: async () => ({ signatoryEmail: 'invalid-email' }),
+        json: async () => ({
+          recipients: [
+            {
+              signatoryEmail: 'invalid-email',
+              recipientType: 'EXTERNAL',
+              routingOrder: 1,
+              fields: [],
+            },
+          ],
+        }),
       } as unknown as PostRequestArg,
       { params: { contractId: 'contract-1' } } as PostContextArg
     )
@@ -105,12 +140,30 @@ describe('Contract signatory assignment route', () => {
       documents: [],
       availableActions: [],
       additionalApprovers: [],
-      signatories: [{ id: 'sig-1', signatoryEmail: 'signer@nxtwave.co.in', status: 'PENDING' }],
+      signatories: [
+        {
+          id: 'sig-1',
+          signatoryEmail: 'signer@nxtwave.co.in',
+          recipientType: 'EXTERNAL',
+          routingOrder: 1,
+          fieldConfig: [],
+          status: 'PENDING',
+        },
+      ],
     })
 
     const response = await POST(
       {
-        json: async () => ({ signatoryEmail: 'signer@nxtwave.co.in' }),
+        json: async () => ({
+          recipients: [
+            {
+              signatoryEmail: 'signer@nxtwave.co.in',
+              recipientType: 'EXTERNAL',
+              routingOrder: 1,
+              fields: [],
+            },
+          ],
+        }),
       } as unknown as PostRequestArg,
       { params: { contractId: 'contract-1' } } as PostContextArg
     )
@@ -126,8 +179,44 @@ describe('Contract signatory assignment route', () => {
       actorEmployeeId: mockSession.employeeId,
       actorRole: mockSession.role,
       actorEmail: mockSession.email,
-      signatoryEmail: 'signer@nxtwave.co.in',
+      recipients: [
+        {
+          signatoryEmail: 'signer@nxtwave.co.in',
+          recipientType: 'EXTERNAL',
+          routingOrder: 1,
+          fields: [],
+        },
+      ],
     })
+  })
+
+  it('returns invalid status when contract is not final approved', async () => {
+    mockContractQueryService.getContractDetail.mockResolvedValueOnce({
+      contract: { status: 'LEGAL_PENDING' },
+    })
+
+    const response = await POST(
+      {
+        json: async () => ({
+          recipients: [
+            {
+              signatoryEmail: 'signer@nxtwave.co.in',
+              recipientType: 'EXTERNAL',
+              routingOrder: 1,
+              fields: [],
+            },
+          ],
+        }),
+      } as unknown as PostRequestArg,
+      { params: { contractId: 'contract-1' } } as PostContextArg
+    )
+
+    const body = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(body.ok).toBe(false)
+    expect(body.error.code).toBe('SIGNATORY_ASSIGN_INVALID_STATUS')
+    expect(mockContractSignatoryService.assignSignatory).not.toHaveBeenCalled()
   })
 
   it('maps app errors with status and code', async () => {
@@ -137,7 +226,16 @@ describe('Contract signatory assignment route', () => {
 
     const response = await POST(
       {
-        json: async () => ({ signatoryEmail: 'signer@nxtwave.co.in' }),
+        json: async () => ({
+          recipients: [
+            {
+              signatoryEmail: 'signer@nxtwave.co.in',
+              recipientType: 'EXTERNAL',
+              routingOrder: 1,
+              fields: [],
+            },
+          ],
+        }),
       } as unknown as PostRequestArg,
       { params: { contractId: 'contract-1' } } as PostContextArg
     )
@@ -156,7 +254,16 @@ describe('Contract signatory assignment route', () => {
 
     const response = await POST(
       {
-        json: async () => ({ signatoryEmail: 'signer@nxtwave.co.in' }),
+        json: async () => ({
+          recipients: [
+            {
+              signatoryEmail: 'signer@nxtwave.co.in',
+              recipientType: 'EXTERNAL',
+              routingOrder: 1,
+              fields: [],
+            },
+          ],
+        }),
       } as unknown as PostRequestArg,
       { params: { contractId: 'contract-1' } } as PostContextArg
     )

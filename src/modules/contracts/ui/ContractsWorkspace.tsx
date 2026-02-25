@@ -10,8 +10,11 @@ import {
   type ContractRecord,
   type ContractTimelineEvent,
 } from '@/core/client/contracts-client'
+import { contractStatuses } from '@/core/constants/contracts'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
+import ContractDocumentsPanel from '@/modules/contracts/ui/ContractDocumentsPanel'
 import { formatContractLogEvents, isContractNoteEvent } from '@/modules/contracts/ui/formatContractLogEvent'
+import PrepareForSigningModal from '@/modules/contracts/ui/PrepareForSigningModal'
 import styles from './contracts-workspace.module.css'
 
 type ContractsWorkspaceProps = {
@@ -48,9 +51,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [documents, setDocuments] = useState<ContractDocument[]>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
-  const [signatoryEmail, setSignatoryEmail] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [isIntakeOpen, setIsIntakeOpen] = useState(false)
+  const [isPrepareForSigningOpen, setIsPrepareForSigningOpen] = useState(false)
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set())
   const [showAllLogs, setShowAllLogs] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -61,7 +64,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [viewerExternalUrl, setViewerExternalUrl] = useState<string | null>(null)
   const [viewerMimeType, setViewerMimeType] = useState<string>('')
   const [viewerFileName, setViewerFileName] = useState<string>('')
-  const [previewingDocumentId, setPreviewingDocumentId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Pagination state
@@ -193,9 +195,21 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setSelectedContractId(contractId)
     setActiveTab('overview')
     setIsIntakeOpen(false)
+    setIsPrepareForSigningOpen(false)
     setExpandedLogIds(new Set())
     setShowAllLogs(false)
   }
+
+  const handleTabChange = useCallback(
+    (tabId: TabId) => {
+      setActiveTab(tabId)
+
+      if (tabId === 'documents' && selectedContractId) {
+        void loadContractContext(selectedContractId)
+      }
+    },
+    [loadContractContext, selectedContractId]
+  )
 
   const loadMore = async () => {
     if (!nextCursor || isLoadingMore) return
@@ -265,38 +279,32 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       return
     }
 
-    const previewKey = document?.id ?? '__primary__'
-    setPreviewingDocumentId(previewKey)
-    try {
-      const response = await contractsClient.download(selectedContractId, {
-        documentId: document?.id,
-      })
+    const response = await contractsClient.download(selectedContractId, {
+      documentId: document?.id,
+    })
 
-      if (!response.ok || !response.data?.signedUrl) {
-        setError(response.error?.message ?? 'Failed to generate document view link')
-        return
-      }
-
-      const resolvedFileName =
-        response.data.fileName ?? document?.displayName ?? selectedContract?.fileName ?? 'Contract document'
-      const resolvedMimeType = document?.fileMimeType ?? ''
-      const isDocx =
-        resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-        resolvedFileName.toLowerCase().endsWith('.docx')
-
-      const previewUrl = contractsClient.previewUrl(selectedContractId, {
-        documentId: document?.id,
-        renderAs: isDocx ? 'html' : 'binary',
-      })
-
-      setViewerUrl(previewUrl)
-      setViewerExternalUrl(response.data.signedUrl)
-      setViewerMimeType(resolvedMimeType)
-      setViewerFileName(resolvedFileName)
-      setIsViewerOpen(true)
-    } finally {
-      setPreviewingDocumentId(null)
+    if (!response.ok || !response.data?.signedUrl) {
+      setError(response.error?.message ?? 'Failed to generate document view link')
+      return
     }
+
+    const resolvedFileName =
+      response.data.fileName ?? document?.displayName ?? selectedContract?.fileName ?? 'Contract document'
+    const resolvedMimeType = document?.fileMimeType ?? ''
+    const isDocx =
+      resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      resolvedFileName.toLowerCase().endsWith('.docx')
+
+    const previewUrl = contractsClient.previewUrl(selectedContractId, {
+      documentId: document?.id,
+      renderAs: isDocx ? 'html' : 'binary',
+    })
+
+    setViewerUrl(previewUrl)
+    setViewerExternalUrl(response.data.signedUrl)
+    setViewerMimeType(resolvedMimeType)
+    setViewerFileName(resolvedFileName)
+    setIsViewerOpen(true)
   }
 
   const closeViewer = useCallback(() => {
@@ -361,28 +369,49 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     applyContractView(response.data)
   }
 
-  const handleAddSignatory = async () => {
-    if (!selectedContractId || !signatoryEmail.trim()) {
-      return
-    }
-
-    setIsMutating(true)
-    const response = await contractsClient.addSignatory(selectedContractId, {
-      signatoryEmail: signatoryEmail.trim().toLowerCase(),
-    })
-    setIsMutating(false)
-
-    if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to add signatory')
-      return
-    }
-
-    setSignatoryEmail('')
-    applyContractView(response.data)
-  }
-
   const noteEvents = useMemo(() => timeline.filter((event) => isContractNoteEvent(event)), [timeline])
   const timelineById = useMemo(() => new Map(timeline.map((event) => [event.id, event])), [timeline])
+  const selectedCurrentDocumentId = selectedContract?.currentDocumentId
+  const signingPreviewDocumentId = useMemo(() => {
+    const primaryDocuments = documents.filter((document) => document.documentKind === 'PRIMARY')
+    const orderedPrimaryDocuments = [...primaryDocuments].sort(
+      (first, second) => (second.versionNumber ?? 0) - (first.versionNumber ?? 0)
+    )
+
+    const isPdfDocument = (document: (typeof documents)[number]) =>
+      document.fileMimeType.toLowerCase().includes('pdf') || document.fileName.toLowerCase().endsWith('.pdf')
+
+    if (selectedCurrentDocumentId) {
+      const currentDocument = primaryDocuments.find((document) => document.id === selectedCurrentDocumentId)
+      if (currentDocument && isPdfDocument(currentDocument)) {
+        return currentDocument.id
+      }
+    }
+
+    const latestPrimaryPdf = orderedPrimaryDocuments.find(isPdfDocument)
+    if (latestPrimaryPdf) {
+      return latestPrimaryPdf.id
+    }
+
+    if (selectedCurrentDocumentId) {
+      const currentDocument = primaryDocuments.find((document) => document.id === selectedCurrentDocumentId)
+      if (currentDocument) {
+        return currentDocument.id
+      }
+    }
+
+    return orderedPrimaryDocuments[0]?.id ?? documents[0]?.id
+  }, [documents, selectedCurrentDocumentId])
+  const signingPreviewUrl = useMemo(() => {
+    if (!selectedContractId) {
+      return ''
+    }
+
+    return contractsClient.previewUrl(selectedContractId, {
+      documentId: signingPreviewDocumentId,
+      renderAs: 'binary',
+    })
+  }, [selectedContractId, signingPreviewDocumentId])
   const formattedLogs = useMemo(() => {
     if (activeTab !== 'activity') {
       return []
@@ -425,26 +454,26 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     if (event.key === 'ArrowRight') {
       event.preventDefault()
       const nextIndex = (currentIndex + 1) % tabs.length
-      setActiveTab(tabs[nextIndex].id)
+      handleTabChange(tabs[nextIndex].id)
       return
     }
 
     if (event.key === 'ArrowLeft') {
       event.preventDefault()
       const nextIndex = (currentIndex - 1 + tabs.length) % tabs.length
-      setActiveTab(tabs[nextIndex].id)
+      handleTabChange(tabs[nextIndex].id)
       return
     }
 
     if (event.key === 'Home') {
       event.preventDefault()
-      setActiveTab(tabs[0].id)
+      handleTabChange(tabs[0].id)
       return
     }
 
     if (event.key === 'End') {
       event.preventDefault()
-      setActiveTab(tabs[tabs.length - 1].id)
+      handleTabChange(tabs[tabs.length - 1].id)
     }
   }
 
@@ -478,6 +507,16 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
 
     router.push('/repository')
+  }
+
+  const handleSigningPrepared = async (contractView: ContractDetailResponse) => {
+    applyContractView(contractView)
+    setIsPrepareForSigningOpen(false)
+    if (contractView.contract.id === selectedContractId) {
+      await loadContractContext(selectedContractId)
+    }
+    await loadContracts()
+    router.refresh()
   }
 
   return (
@@ -651,7 +690,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       aria-selected={selected}
                       aria-controls={`contract-tabpanel-${tab.id}`}
                       className={`${styles.tabButton} ${selected ? styles.tabButtonActive : ''}`}
-                      onClick={() => setActiveTab(tab.id)}
+                      onClick={() => handleTabChange(tab.id)}
                     >
                       {tab.label}
                     </button>
@@ -762,27 +801,26 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
                         <div className={styles.card}>
                           <div className={styles.sectionTitle}>Signatories</div>
-                          <div className={styles.inlineForm}>
-                            <input
-                              type="email"
-                              className={styles.input}
-                              placeholder="signatory@nxtwave.co.in"
-                              value={signatoryEmail}
-                              onChange={(event) => setSignatoryEmail(event.target.value)}
-                            />
-                            <button
-                              type="button"
-                              className={styles.button}
-                              disabled={isMutating}
-                              onClick={() => void handleAddSignatory()}
-                            >
-                              Add Signatory
-                            </button>
-                          </div>
+                          {selectedContract.status === contractStatuses.finalApproved ? (
+                            <div className={styles.inlineForm}>
+                              <button
+                                type="button"
+                                className={styles.button}
+                                disabled={!selectedContractId}
+                                onClick={() => setIsPrepareForSigningOpen(true)}
+                              >
+                                Prepare for Signing
+                              </button>
+                            </div>
+                          ) : (
+                            <div className={styles.eventMeta}>Sign is available only after FINAL_APPROVED.</div>
+                          )}
                           <div className={styles.timeline}>
                             {signatories.map((signatory) => (
                               <div key={signatory.id} className={styles.event}>
-                                <div>{signatory.signatoryEmail}</div>
+                                <div>
+                                  {signatory.signatoryEmail} · {signatory.recipientType} · Step {signatory.routingOrder}
+                                </div>
                                 <div className={styles.eventMeta}>{signatory.status}</div>
                               </div>
                             ))}
@@ -885,45 +923,19 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 )}
 
                 {activeTab === 'documents' && (
-                  <div className={styles.tabSection}>
-                    <div className={styles.card}>
-                      <div className={styles.sectionTitle}>Documents</div>
-                      <div className={styles.timeline}>
-                        {documents.length === 0 ? (
-                          <div className={styles.placeholderRow}>No documents available for this contract.</div>
-                        ) : (
-                          documents.map((document) => (
-                            <div key={document.id} className={styles.documentRow}>
-                              <div className={styles.documentMeta}>
-                                <div className={styles.eventActor}>{document.displayName}</div>
-                                <div className={styles.itemMeta}>{document.fileName}</div>
-                                <div className={styles.itemMeta}>
-                                  {Math.max(1, Math.round(document.fileSizeBytes / 1024))} KB · {document.fileMimeType}
-                                </div>
-                              </div>
-                              <div className={styles.actions}>
-                                <button
-                                  type="button"
-                                  className={styles.button}
-                                  disabled={Boolean(previewingDocumentId)}
-                                  onClick={() => void handleViewDocument(document)}
-                                >
-                                  {previewingDocumentId === document.id ? 'Opening…' : 'Preview'}
-                                </button>
-                                <button
-                                  type="button"
-                                  className={`${styles.button} ${styles.buttonGhost}`}
-                                  onClick={() => void handleDownload(document)}
-                                >
-                                  Download
-                                </button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  <ContractDocumentsPanel
+                    contractId={selectedContract.id}
+                    contractStatus={selectedContract.status}
+                    userRole={session.role}
+                    currentDocumentId={selectedContract.currentDocumentId}
+                    documents={documents}
+                    defaultUploaderEmail={selectedContract.uploadedByEmail}
+                    onPreviewDocument={(document) => void handleViewDocument(document)}
+                    onDownloadDocument={(document) => void handleDownload(document)}
+                    onRefreshDocuments={async () => {
+                      await loadContractContext(selectedContract.id)
+                    }}
+                  />
                 )}
               </div>
             </div>
@@ -978,6 +990,17 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
             </div>
           </div>
         </div>
+      ) : null}
+
+      {selectedContractId && selectedContract && signingPreviewUrl ? (
+        <PrepareForSigningModal
+          isOpen={isPrepareForSigningOpen}
+          contractId={selectedContractId}
+          contractStatus={selectedContract.status}
+          pdfUrl={signingPreviewUrl}
+          onClose={() => setIsPrepareForSigningOpen(false)}
+          onSent={(contractView) => void handleSigningPrepared(contractView)}
+        />
       ) : null}
     </div>
   )

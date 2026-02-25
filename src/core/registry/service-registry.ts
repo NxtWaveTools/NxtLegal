@@ -28,6 +28,7 @@ import { DocusignClient } from '@/core/infra/integrations/docusign/docusign-clie
 import { BrevoSmtpSender } from '@/core/infra/integrations/email/brevo-smtp-sender'
 import { appConfig } from '@/core/config/app-config'
 import type { EmployeeRepository } from '@/core/domain/users/employee-repository'
+import { ExternalServiceError } from '@/core/http/errors'
 
 // Private instances - don't export directly
 let authService: AuthService | null = null
@@ -96,7 +97,9 @@ export function getContractQueryService(): ContractQueryService {
 }
 
 export function getContractSignatoryService(): ContractSignatoryService {
-  if (!contractSignatoryService) {
+  const shouldRefreshInDev = process.env.NODE_ENV !== 'production'
+
+  if (!contractSignatoryService || shouldRefreshInDev) {
     const docusignConfig = appConfig.docusign
     const mailConfig = appConfig.mail
 
@@ -111,16 +114,22 @@ export function getContractSignatoryService(): ContractSignatoryService {
       throw new Error('DocuSign config is incomplete. Please set required DOCUSIGN_* environment variables.')
     }
 
-    if (
-      !mailConfig.brevoSmtpHost ||
-      !mailConfig.brevoSmtpPort ||
-      !mailConfig.brevoSmtpUser ||
-      !mailConfig.brevoSmtpPass ||
-      !mailConfig.fromName ||
-      !mailConfig.fromEmail
-    ) {
-      throw new Error('Brevo SMTP config is incomplete. Please set required BREVO_* and MAIL_FROM_* variables.')
-    }
+    const apiKey = typeof mailConfig.brevoApiKey === 'string' ? mailConfig.brevoApiKey.trim() : ''
+    const apiKeyLooksLikeRestKey = typeof apiKey === 'string' && apiKey.startsWith('xkeysib-')
+    logger.warn('TEMP_DIAG Brevo API key validation', {
+      apiKey: apiKey.length > 0 ? `${apiKey.slice(0, 12)}...${apiKey.slice(-4)}` : null,
+      apiKeyLooksLikeRestKey,
+    })
+
+    const hasBrevoConfig = Boolean(
+      mailConfig.brevoApiBaseUrl &&
+      apiKey &&
+      apiKeyLooksLikeRestKey &&
+      mailConfig.brevoTemplateSignatoryLinkId &&
+      mailConfig.brevoTemplateSigningCompletedId &&
+      mailConfig.fromName &&
+      mailConfig.fromEmail
+    )
 
     const docusignClient = new DocusignClient({
       authBaseUrl: docusignConfig.authBaseUrl,
@@ -131,21 +140,57 @@ export function getContractSignatoryService(): ContractSignatoryService {
       rsaPrivateKey: docusignConfig.rsaPrivateKey,
     })
 
-    const brevoSmtpSender = new BrevoSmtpSender({
-      host: mailConfig.brevoSmtpHost,
-      port: Number(mailConfig.brevoSmtpPort),
-      user: mailConfig.brevoSmtpUser,
-      pass: mailConfig.brevoSmtpPass,
-      allowSelfSigned: mailConfig.brevoSmtpAllowSelfSigned,
-      fromName: mailConfig.fromName,
-      fromEmail: mailConfig.fromEmail,
-    })
+    const isProduction = process.env.NODE_ENV === 'production'
+    if (!hasBrevoConfig && isProduction) {
+      throw new ExternalServiceError(
+        'BREVO',
+        'Brevo config is incomplete. Please set required BREVO_* and MAIL_FROM_* variables.'
+      )
+    }
+
+    const brevoSmtpSender = hasBrevoConfig
+      ? new BrevoSmtpSender({
+          apiBaseUrl: mailConfig.brevoApiBaseUrl,
+          apiKey,
+          fromName: mailConfig.fromName as string,
+          fromEmail: mailConfig.fromEmail as string,
+        })
+      : {
+          sendTemplateEmail: async (input: { recipientEmail: string; templateId: number }) => {
+            logger.warn('Brevo config missing; using dev no-op signatory mail sender', {
+              recipientEmail: input.recipientEmail,
+              templateId: input.templateId,
+            })
+
+            return {
+              providerMessageId: `dev-noop-${Date.now()}`,
+            }
+          },
+        }
+
+    const signatoryLinkTemplateId = mailConfig.brevoTemplateSignatoryLinkId ?? 0
+    const signingCompletedTemplateId = mailConfig.brevoTemplateSigningCompletedId ?? 0
+
+    if (!hasBrevoConfig) {
+      logger.warn('Brevo config is incomplete. Dev no-op email sender is active.', {
+        signatoryLinkTemplateId,
+        signingCompletedTemplateId,
+        hasApiKey: Boolean(apiKey),
+        apiKeyLooksLikeRestKey,
+      })
+    }
 
     contractSignatoryService = new ContractSignatoryService(
       getContractQueryService(),
       getContractUploadService(),
+      supabaseContractRepository,
+      supabaseContractStorageRepository,
       docusignClient,
       brevoSmtpSender,
+      {
+        signatoryLinkTemplateId,
+        signingCompletedTemplateId,
+      },
       appConfig.auth.siteUrl,
       logger
     )

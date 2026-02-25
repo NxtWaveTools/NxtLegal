@@ -48,7 +48,18 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   applyAction: jest.fn(),
   addAdditionalApprover: jest.fn(),
   addSignatory: jest.fn(),
+  saveSigningPreparationDraft: jest.fn(),
+  getSigningPreparationDraft: jest.fn(),
+  countPendingSignatoriesByContract: jest.fn(),
+  moveContractToInSignature: jest.fn(),
+  deleteSigningPreparationDraft: jest.fn(),
+  resolveEnvelopeContext: jest.fn(),
+  recordDocusignWebhookEvent: jest.fn(),
+  addSignatoryWebhookAuditEvent: jest.fn(),
   markSignatoryAsSigned: jest.fn(),
+  listFailedNotificationDeliveries: jest.fn(),
+  getEnvelopeNotificationProfile: jest.fn(),
+  recordContractNotificationDelivery: jest.fn(),
   addContractNote: jest.fn(),
 })
 
@@ -329,5 +340,131 @@ describe('ContractQueryService', () => {
     })
 
     expect(repository.applyAction).not.toHaveBeenCalled()
+  })
+
+  it('saves signing preparation draft when contract is final approved', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    const finalApprovedContract: ContractDetail = {
+      ...baseContract,
+      status: 'FINAL_APPROVED',
+    }
+
+    repository.getById.mockResolvedValue(finalApprovedContract)
+    repository.canAccessContract.mockResolvedValue(true)
+    repository.getDocuments.mockResolvedValue([])
+    repository.getAvailableActions.mockResolvedValue([])
+    repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getSignatories.mockResolvedValue([])
+    repository.saveSigningPreparationDraft.mockResolvedValue({
+      contractId: 'contract-1',
+      recipients: [
+        {
+          name: 'Shriya Mattoo',
+          email: 'shriya@example.com',
+          recipientType: 'INTERNAL',
+          routingOrder: 1,
+        },
+      ],
+      fields: [
+        {
+          fieldType: 'SIGNATURE',
+          pageNumber: 1,
+          xPosition: 100,
+          yPosition: 120,
+          anchorString: null,
+          assignedSignerEmail: 'shriya@example.com',
+        },
+      ],
+      createdByEmployeeId: 'legal-1',
+      updatedByEmployeeId: 'legal-1',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    const result = await service.saveSigningPreparationDraft({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      recipients: [
+        {
+          name: 'Shriya Mattoo',
+          email: 'shriya@example.com',
+          recipientType: 'INTERNAL',
+          routingOrder: 1,
+        },
+      ],
+      fields: [
+        {
+          fieldType: 'SIGNATURE',
+          pageNumber: 1,
+          xPosition: 100,
+          yPosition: 120,
+          anchorString: null,
+          assignedSignerEmail: 'shriya@example.com',
+        },
+      ],
+    })
+
+    expect(result.contractId).toBe('contract-1')
+    expect(repository.saveSigningPreparationDraft).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      recipients: [
+        {
+          name: 'Shriya Mattoo',
+          email: 'shriya@example.com',
+          recipientType: 'INTERNAL',
+          routingOrder: 1,
+        },
+      ],
+      fields: [
+        {
+          fieldType: 'SIGNATURE',
+          pageNumber: 1,
+          xPosition: 100,
+          yPosition: 120,
+          anchorString: null,
+          assignedSignerEmail: 'shriya@example.com',
+        },
+      ],
+    })
+  })
+
+  it('rejects signing preparation draft save when contract is not final approved', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    repository.getById.mockResolvedValue(baseContract)
+    repository.canAccessContract.mockResolvedValue(true)
+    repository.getDocuments.mockResolvedValue([])
+    repository.getAvailableActions.mockResolvedValue([])
+    repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getSignatories.mockResolvedValue([])
+
+    await expect(
+      service.saveSigningPreparationDraft({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        actorEmployeeId: 'legal-1',
+        actorRole: 'LEGAL_TEAM',
+        recipients: [
+          {
+            name: 'Shriya Mattoo',
+            email: 'shriya@example.com',
+            recipientType: 'INTERNAL',
+            routingOrder: 1,
+          },
+        ],
+        fields: [],
+      })
+    ).rejects.toMatchObject<Partial<BusinessRuleError>>({
+      code: 'SIGNING_PREPARATION_INVALID_STATUS',
+    })
+
+    expect(repository.saveSigningPreparationDraft).not.toHaveBeenCalled()
   })
 })

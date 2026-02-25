@@ -18,6 +18,7 @@ export type ContractRecord = {
   currentAssigneeEmployeeId: string
   currentAssigneeEmail: string
   status: ContractStatus
+  currentDocumentId?: string | null
   filePath: string
   fileName: string
   fileSizeBytes: number
@@ -51,22 +52,26 @@ export type ContractAccessRecord = {
   uploadedByEmployeeId: string
   currentAssigneeEmployeeId: string
   status: ContractStatus
+  currentDocumentId?: string | null
   filePath: string
   fileName: string
 }
 
-export type ContractDocumentKind = 'PRIMARY' | 'COUNTERPARTY_SUPPORTING'
+export type ContractDocumentKind = 'PRIMARY' | 'COUNTERPARTY_SUPPORTING' | 'EXECUTED_CONTRACT' | 'AUDIT_CERTIFICATE'
 
 export type ContractDocumentRecord = {
   id: string
   tenantId: string
   contractId: string
   documentKind: ContractDocumentKind
+  versionNumber: number
   displayName: string
   fileName: string
   filePath: string
   fileSizeBytes: number
   fileMimeType: string
+  uploadedRole?: string
+  replacedDocumentId?: string | null
   createdAt: string
 }
 
@@ -74,6 +79,7 @@ export type ContractDocumentAccessRecord = {
   id: string
   tenantId: string
   contractId: string
+  versionNumber?: number
   filePath: string
   fileName: string
 }
@@ -82,6 +88,7 @@ export type CreateContractDocumentInput = {
   tenantId: string
   contractId: string
   documentKind: ContractDocumentKind
+  versionNumber?: number
   displayName: string
   fileName: string
   filePath: string
@@ -89,4 +96,18 @@ export type CreateContractDocumentInput = {
   fileMimeType: string
   uploadedByEmployeeId: string
   uploadedByEmail: string
+  uploadedByRole?: string
+  replacedDocumentId?: string | null
+}
+
+export type ReplacePrimaryContractDocumentInput = {
+  tenantId: string
+  contractId: string
+  fileName: string
+  filePath: string
+  fileSizeBytes: number
+  fileMimeType: string
+  uploadedByEmployeeId: string
+  uploadedByEmail: string
+  uploadedByRole: string
 }

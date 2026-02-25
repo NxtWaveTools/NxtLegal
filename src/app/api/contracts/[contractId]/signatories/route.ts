@@ -3,7 +3,8 @@ import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
-import { getContractSignatoryService } from '@/core/registry/service-registry'
+import { contractStatuses } from '@/core/constants/contracts'
+import { getContractQueryService, getContractSignatoryService } from '@/core/registry/service-registry'
 import { contractSignatorySchema } from '@/core/domain/contracts/schemas'
 import { logger } from '@/core/infra/logging/logger'
 
@@ -20,17 +21,32 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
 
     const payload = contractSignatorySchema.parse(await request.json())
 
+    const contractQueryService = getContractQueryService()
+    const contractView = await contractQueryService.getContractDetail({
+      tenantId: session.tenantId,
+      contractId,
+      employeeId: session.employeeId,
+      role: session.role,
+    })
+
+    if (contractView.contract.status !== contractStatuses.finalApproved) {
+      return NextResponse.json(
+        errorResponse('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in FINAL_APPROVED'),
+        { status: 409 }
+      )
+    }
+
     const contractSignatoryService = getContractSignatoryService()
-    const contractView = await contractSignatoryService.assignSignatory({
+    const updatedContractView = await contractSignatoryService.assignSignatory({
       tenantId: session.tenantId,
       contractId,
       actorEmployeeId: session.employeeId,
       actorRole: session.role,
       actorEmail: session.email ?? '',
-      signatoryEmail: payload.signatoryEmail,
+      recipients: payload.recipients,
     })
 
-    return NextResponse.json(okResponse(contractView))
+    return NextResponse.json(okResponse(updatedContractView))
   } catch (error) {
     if (error instanceof ZodError) {
       return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Invalid signatory payload'), { status: 400 })
@@ -38,8 +54,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
 
     if (
       error instanceof Error &&
-      (error.message.includes('DocuSign config is incomplete') ||
-        error.message.includes('Brevo SMTP config is incomplete'))
+      (error.message.includes('DocuSign config is incomplete') || error.message.includes('Brevo config is incomplete'))
     ) {
       return NextResponse.json(
         errorResponse('SIGNATORY_PROVIDER_NOT_CONFIGURED', 'Signatory provider integration is not configured'),

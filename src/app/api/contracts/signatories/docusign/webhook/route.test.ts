@@ -58,7 +58,7 @@ describe('DocuSign signatory webhook route', () => {
   it('returns validation error for invalid payload', async () => {
     const response = await POST({
       headers: new Headers({ 'x-docusign-webhook-secret': 'test-webhook-secret' }),
-      json: async () => ({ tenantId: 'bad', envelopeId: '' }),
+      json: async () => ({ envelopeId: '' }),
     } as unknown as PostRequestArg)
 
     const body = await response.json()
@@ -70,10 +70,10 @@ describe('DocuSign signatory webhook route', () => {
 
   it('processes valid webhook payload', async () => {
     const payload = {
-      tenantId: '00000000-0000-0000-0000-000000000000',
       envelopeId: 'env-1',
       recipientEmail: 'signer@nxtwave.co.in',
       status: 'completed',
+      eventId: 'event-1',
     }
 
     const response = await POST({
@@ -86,7 +86,15 @@ describe('DocuSign signatory webhook route', () => {
     expect(response.status).toBe(200)
     expect(body.ok).toBe(true)
     expect(body.data.processed).toBe(true)
-    expect(mockContractSignatoryService.handleDocusignSignedWebhook).toHaveBeenCalledWith(payload)
+    expect(mockContractSignatoryService.handleDocusignSignedWebhook).toHaveBeenCalledWith({
+      envelopeId: 'env-1',
+      recipientEmail: 'signer@nxtwave.co.in',
+      status: 'completed',
+      signedAt: undefined,
+      eventId: 'event-1',
+      signerIp: undefined,
+      payload,
+    })
   })
 
   it('maps app errors with status and code', async () => {
@@ -97,7 +105,6 @@ describe('DocuSign signatory webhook route', () => {
     const response = await POST({
       headers: new Headers({ 'x-docusign-webhook-secret': 'test-webhook-secret' }),
       json: async () => ({
-        tenantId: '00000000-0000-0000-0000-000000000000',
         envelopeId: 'env-1',
         status: 'completed',
       }),

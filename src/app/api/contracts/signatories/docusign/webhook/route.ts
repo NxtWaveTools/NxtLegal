@@ -34,15 +34,18 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const payload = docusignWebhookSchema.parse(await request.json())
+    const rawPayload = (await request.json()) as Record<string, unknown>
+    const payload = docusignWebhookSchema.parse(rawPayload)
     const contractSignatoryService = getContractSignatoryService()
 
     await contractSignatoryService.handleDocusignSignedWebhook({
-      tenantId: payload.tenantId,
       envelopeId: payload.envelopeId,
       recipientEmail: payload.recipientEmail,
       status: payload.status,
       signedAt: payload.signedAt,
+      eventId: payload.eventId,
+      signerIp: payload.signerIp,
+      payload: rawPayload,
     })
 
     return NextResponse.json(okResponse({ processed: true }))

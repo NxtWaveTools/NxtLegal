@@ -1,10 +1,16 @@
 import { randomUUID } from 'crypto'
-import { contractStorage } from '@/core/constants/contracts'
+import {
+  contractDocumentMimeTypes,
+  contractDocumentUploadRules,
+  contractDocumentVersioning,
+  contractStatuses,
+  contractStorage,
+} from '@/core/constants/contracts'
 import { limits } from '@/core/constants/limits'
 import { AuthorizationError, BusinessRuleError, DatabaseError } from '@/core/http/errors'
 import type { ContractRepository } from '@/core/domain/contracts/contract-repository'
 import type { ContractStorageRepository } from '@/core/domain/contracts/contract-storage-repository'
-import type { ContractRecord } from '@/core/domain/contracts/types'
+import type { ContractDocumentRecord, ContractRecord } from '@/core/domain/contracts/types'
 
 type Logger = {
   info: (message: string, context?: Record<string, unknown>) => void
@@ -38,8 +44,21 @@ export type UploadContractInput = {
   }>
 }
 
+export type ReplacePrimaryDocumentInput = {
+  tenantId: string
+  contractId: string
+  uploadedByEmployeeId: string
+  uploadedByEmail: string
+  uploadedByRole: string
+  fileName: string
+  fileSizeBytes: number
+  fileMimeType: string
+  fileBytes: Uint8Array
+}
+
 export class ContractUploadService {
-  private readonly allowedUploadRoles = new Set(['POC', 'LEGAL_TEAM', 'USER'])
+  private readonly allowedInitialUploadRoles = new Set(contractDocumentUploadRules.initialAllowedRoles)
+  private readonly allowedReplacementUploadRoles = new Set(contractDocumentUploadRules.replacementAllowedRoles)
   private readonly privilegedReadRoles = new Set(['ADMIN', 'LEGAL_TEAM'])
 
   constructor(
@@ -51,8 +70,16 @@ export class ContractUploadService {
   async uploadContract(input: UploadContractInput): Promise<ContractRecord> {
     this.validateUploadInput(input)
 
-    if (!this.allowedUploadRoles.has(input.uploadedByRole)) {
-      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only POC, LEGAL_TEAM, and USER can upload contracts')
+    if (
+      !this.allowedInitialUploadRoles.has(
+        input.uploadedByRole as (typeof contractDocumentUploadRules.initialAllowedRoles)[number]
+      )
+    ) {
+      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only POC can upload initial contracts')
+    }
+
+    if (!this.isDocxUpload(input.fileName, input.fileMimeType)) {
+      throw new BusinessRuleError('CONTRACT_FILE_FORMAT_INVALID', 'Initial contract upload must be a DOCX file')
     }
 
     const contractId = randomUUID()
@@ -148,6 +175,7 @@ export class ContractUploadService {
         tenantId: input.tenantId,
         contractId,
         documentKind: 'PRIMARY',
+        versionNumber: contractDocumentVersioning.initialVersion,
         displayName: 'Primary Contract',
         fileName: safeFileName,
         filePath,
@@ -155,6 +183,7 @@ export class ContractUploadService {
         fileMimeType: input.fileMimeType,
         uploadedByEmployeeId: input.uploadedByEmployeeId,
         uploadedByEmail: input.uploadedByEmail,
+        uploadedByRole: input.uploadedByRole,
       })
 
       for (const [index, supportingFile] of uploadedSupportingFiles.entries()) {
@@ -186,6 +215,76 @@ export class ContractUploadService {
     return contract
   }
 
+  async replacePrimaryDocument(input: ReplacePrimaryDocumentInput): Promise<ContractDocumentRecord> {
+    this.validateReplacementInput(input)
+
+    if (
+      !this.allowedReplacementUploadRoles.has(
+        input.uploadedByRole as (typeof contractDocumentUploadRules.replacementAllowedRoles)[number]
+      )
+    ) {
+      throw new AuthorizationError(
+        'CONTRACT_REPLACEMENT_FORBIDDEN',
+        'Only LEGAL_TEAM can replace main contract documents'
+      )
+    }
+
+    if (!this.isAllowedReplacementUpload(input.fileName, input.fileMimeType)) {
+      throw new BusinessRuleError('CONTRACT_REPLACEMENT_FILE_FORMAT_INVALID', 'Replacement must be DOCX or PDF')
+    }
+
+    const contract = await this.contractRepository.getForAccess(input.contractId, input.tenantId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
+    }
+
+    if (contract.status === contractStatuses.inSignature) {
+      throw new BusinessRuleError(
+        'CONTRACT_IN_SIGNATURE_REPLACEMENT_FORBIDDEN',
+        'Main document replacement is blocked while contract is in signature'
+      )
+    }
+
+    const safeFileName = this.sanitizeFileName(input.fileName)
+    const filePath = `${input.tenantId}/${input.contractId}/versions/${randomUUID()}-${safeFileName}`
+
+    await this.contractStorageRepository.upload({
+      path: filePath,
+      fileBytes: input.fileBytes,
+      contentType: input.fileMimeType,
+    })
+
+    try {
+      return await this.contractRepository.replacePrimaryDocument({
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+        fileName: safeFileName,
+        filePath,
+        fileSizeBytes: input.fileSizeBytes,
+        fileMimeType: input.fileMimeType,
+        uploadedByEmployeeId: input.uploadedByEmployeeId,
+        uploadedByEmail: input.uploadedByEmail,
+        uploadedByRole: input.uploadedByRole,
+      })
+    } catch (error) {
+      try {
+        await this.contractStorageRepository.remove(filePath)
+      } catch (rollbackError) {
+        this.logger.error('Contract replacement rollback failed', {
+          tenantId: input.tenantId,
+          contractId: input.contractId,
+          filePath,
+          rollbackError: String(rollbackError),
+        })
+      }
+
+      throw new DatabaseError('Failed to replace main contract document', error as Error, {
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+      })
+    }
+  }
+
   async createSignedDownloadUrl(params: {
     contractId: string
     tenantId: string
@@ -214,9 +313,6 @@ export class ContractUploadService {
       throw new AuthorizationError('CONTRACT_READ_FORBIDDEN', 'You do not have access to this contract')
     }
 
-    let filePath = contract.filePath
-    let fileName = contract.fileName
-
     if (params.documentId) {
       const document = await this.contractRepository.getDocumentForAccess({
         tenantId: params.tenantId,
@@ -228,19 +324,66 @@ export class ContractUploadService {
         throw new BusinessRuleError('DOCUMENT_NOT_FOUND', 'Requested document is not available for this contract')
       }
 
-      filePath = document.filePath
-      fileName = document.fileName
+      const signedUrl = await this.contractStorageRepository.createSignedDownloadUrl(
+        document.filePath,
+        contractStorage.signedUrlExpirySeconds
+      )
+
+      return {
+        signedUrl,
+        fileName: document.fileName,
+      }
+    }
+
+    if (!contract.currentDocumentId || contract.currentDocumentId.trim().length === 0) {
+      throw new BusinessRuleError('CONTRACT_CURRENT_DOCUMENT_MISSING', 'Active contract document is missing')
+    }
+
+    const activeDocument = await this.contractRepository.getDocumentForAccess({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      documentId: contract.currentDocumentId,
+    })
+
+    if (!activeDocument) {
+      throw new BusinessRuleError('CONTRACT_CURRENT_DOCUMENT_INVALID', 'Active contract document could not be resolved')
     }
 
     const signedUrl = await this.contractStorageRepository.createSignedDownloadUrl(
-      filePath,
+      activeDocument.filePath,
       contractStorage.signedUrlExpirySeconds
     )
 
     return {
       signedUrl,
-      fileName,
+      fileName: activeDocument.fileName,
     }
+  }
+
+  private isDocxUpload(fileName: string, mimeType: string): boolean {
+    const normalizedMimeType = mimeType.trim().toLowerCase()
+    const normalizedFileName = fileName.trim().toLowerCase()
+
+    return (
+      normalizedMimeType === contractDocumentMimeTypes.docx ||
+      normalizedFileName.endsWith('.docx') ||
+      (normalizedMimeType === 'application/octet-stream' && normalizedFileName.endsWith('.docx'))
+    )
+  }
+
+  private isAllowedReplacementUpload(fileName: string, mimeType: string): boolean {
+    const normalizedMimeType = mimeType.trim().toLowerCase()
+    const normalizedFileName = fileName.trim().toLowerCase()
+
+    if (normalizedMimeType === contractDocumentMimeTypes.docx || normalizedFileName.endsWith('.docx')) {
+      return true
+    }
+
+    if (normalizedMimeType === contractDocumentMimeTypes.pdf || normalizedFileName.endsWith('.pdf')) {
+      return true
+    }
+
+    return false
   }
 
   private validateUploadInput(input: UploadContractInput): void {
@@ -324,5 +467,28 @@ export class ContractUploadService {
     const normalized = fileName.replace(/\\/g, '/').split('/').pop() ?? 'contract-file'
     const safe = normalized.replace(/[^a-zA-Z0-9._-]/g, '_')
     return safe.slice(0, 180)
+  }
+
+  private validateReplacementInput(input: ReplacePrimaryDocumentInput): void {
+    if (!input.contractId.trim()) {
+      throw new BusinessRuleError('CONTRACT_ID_REQUIRED', 'Contract ID is required')
+    }
+
+    if (!input.fileName.trim()) {
+      throw new BusinessRuleError('CONTRACT_FILE_REQUIRED', 'A contract file is required')
+    }
+
+    if (input.fileSizeBytes <= 0) {
+      throw new BusinessRuleError('CONTRACT_FILE_EMPTY', 'Uploaded contract file is empty')
+    }
+
+    const maxFileSizeBytes = limits.maxUploadSizeMb * 1024 * 1024
+    if (input.fileSizeBytes > maxFileSizeBytes) {
+      throw new BusinessRuleError('CONTRACT_FILE_TOO_LARGE', `Uploaded file exceeds ${limits.maxUploadSizeMb}MB limit`)
+    }
+
+    if (!input.fileMimeType.trim()) {
+      throw new BusinessRuleError('CONTRACT_FILE_MIME_REQUIRED', 'File MIME type is required')
+    }
   }
 }

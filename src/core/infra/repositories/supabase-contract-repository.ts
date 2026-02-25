@@ -7,9 +7,11 @@ import type { ContractRepository } from '@/core/domain/contracts/contract-reposi
 import type {
   ContractAccessRecord,
   ContractDocumentAccessRecord,
+  ContractDocumentRecord,
   ContractRecord,
   CreateContractDocumentInput,
   CreateContractUploadInput,
+  ReplacePrimaryContractDocumentInput,
 } from '@/core/domain/contracts/types'
 
 type ContractRow = {
@@ -29,6 +31,7 @@ type ContractRow = {
   current_assignee_employee_id: string
   current_assignee_email: string
   status: string
+  current_document_id: string | null
   file_path: string | null
   file_name: string | null
   file_size_bytes: number | null
@@ -163,7 +166,7 @@ class SupabaseContractRepository implements ContractRepository {
     const { data, error } = await supabase
       .from('contracts')
       .select(
-        'id, tenant_id, title, contract_type_id, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, status, file_path, file_name, file_size_bytes, file_mime_type, counterparty_name, created_at'
+        'id, tenant_id, title, contract_type_id, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, status, current_document_id, file_path, file_name, file_size_bytes, file_mime_type, counterparty_name, created_at'
       )
       .eq('id', contractId)
       .eq('tenant_id', tenantId)
@@ -189,7 +192,9 @@ class SupabaseContractRepository implements ContractRepository {
 
     const { data, error } = await supabase
       .from('contracts')
-      .select('id, tenant_id, uploaded_by_employee_id, current_assignee_employee_id, status, file_path, file_name')
+      .select(
+        'id, tenant_id, uploaded_by_employee_id, current_assignee_employee_id, status, current_document_id, file_path, file_name'
+      )
       .eq('id', contractId)
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
@@ -199,6 +204,7 @@ class SupabaseContractRepository implements ContractRepository {
         uploaded_by_employee_id: string
         current_assignee_employee_id: string
         status: string
+        current_document_id: string | null
         file_path: string | null
         file_name: string | null
       }>()
@@ -229,6 +235,7 @@ class SupabaseContractRepository implements ContractRepository {
       uploadedByEmployeeId: data.uploaded_by_employee_id,
       currentAssigneeEmployeeId: data.current_assignee_employee_id,
       status: data.status as ContractStatus,
+      currentDocumentId: data.current_document_id,
       filePath: data.file_path,
       fileName: data.file_name,
     }
@@ -258,6 +265,7 @@ class SupabaseContractRepository implements ContractRepository {
       tenant_id: input.tenantId,
       contract_id: input.contractId,
       document_kind: input.documentKind,
+      version_number: input.versionNumber,
       display_name: input.displayName,
       file_name: input.fileName,
       file_path: input.filePath,
@@ -265,6 +273,8 @@ class SupabaseContractRepository implements ContractRepository {
       file_mime_type: input.fileMimeType,
       uploaded_by_employee_id: input.uploadedByEmployeeId,
       uploaded_by_email: input.uploadedByEmail,
+      uploaded_role: input.uploadedByRole,
+      replaced_document_id: input.replacedDocumentId,
     })
 
     if (error) {
@@ -283,7 +293,7 @@ class SupabaseContractRepository implements ContractRepository {
 
     const { data, error } = await supabase
       .from('contract_documents')
-      .select('id, tenant_id, contract_id, file_path, file_name')
+      .select('id, tenant_id, contract_id, file_path, file_name, version_number')
       .eq('tenant_id', params.tenantId)
       .eq('contract_id', params.contractId)
       .eq('id', params.documentId)
@@ -294,6 +304,7 @@ class SupabaseContractRepository implements ContractRepository {
         contract_id: string
         file_path: string
         file_name: string
+        version_number: number | null
       }>()
 
     if (error) {
@@ -310,8 +321,102 @@ class SupabaseContractRepository implements ContractRepository {
       id: data.id,
       tenantId: data.tenant_id,
       contractId: data.contract_id,
+      versionNumber: data.version_number ?? undefined,
       filePath: data.file_path,
       fileName: data.file_name,
+    }
+  }
+
+  async getCurrentPrimaryDocumentForAccess(params: {
+    tenantId: string
+    contractId: string
+  }): Promise<ContractDocumentAccessRecord | null> {
+    const supabase = createServiceSupabase()
+
+    const { data, error } = await supabase
+      .from('contract_documents')
+      .select('id, tenant_id, contract_id, file_path, file_name, version_number')
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('document_kind', 'PRIMARY')
+      .is('deleted_at', null)
+      .order('version_number', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle<{
+        id: string
+        tenant_id: string
+        contract_id: string
+        file_path: string
+        file_name: string
+        version_number: number | null
+      }>()
+
+    if (error) {
+      throw new DatabaseError('Failed to fetch current primary contract document', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    if (!data) {
+      return null
+    }
+
+    return {
+      id: data.id,
+      tenantId: data.tenant_id,
+      contractId: data.contract_id,
+      versionNumber: data.version_number ?? undefined,
+      filePath: data.file_path,
+      fileName: data.file_name,
+    }
+  }
+
+  async replacePrimaryDocument(input: ReplacePrimaryContractDocumentInput): Promise<ContractDocumentRecord> {
+    const supabase = createServiceSupabase()
+
+    const { data, error } = await supabase.rpc('create_contract_primary_document_version', {
+      p_tenant_id: input.tenantId,
+      p_contract_id: input.contractId,
+      p_display_name: 'Primary Contract',
+      p_file_name: input.fileName,
+      p_file_path: input.filePath,
+      p_file_size_bytes: input.fileSizeBytes,
+      p_file_mime_type: input.fileMimeType,
+      p_uploaded_by_employee_id: input.uploadedByEmployeeId,
+      p_uploaded_by_email: input.uploadedByEmail,
+      p_uploaded_by_role: input.uploadedByRole,
+    })
+
+    if (error) {
+      throw new DatabaseError('Failed to replace primary contract document', new Error(error.message), {
+        code: error.code,
+        details: error.details,
+      })
+    }
+
+    const payload = (Array.isArray(data) ? data[0] : data) as
+      | { document_id: string; version_number: number; replaced_document_id: string | null }
+      | undefined
+
+    if (!payload?.document_id) {
+      throw new DatabaseError('Primary document replacement did not return a document id')
+    }
+
+    return {
+      id: payload.document_id,
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      documentKind: 'PRIMARY',
+      versionNumber: Number(payload.version_number),
+      displayName: 'Primary Contract',
+      fileName: input.fileName,
+      filePath: input.filePath,
+      fileSizeBytes: input.fileSizeBytes,
+      fileMimeType: input.fileMimeType,
+      uploadedRole: input.uploadedByRole,
+      replacedDocumentId: payload.replaced_document_id,
+      createdAt: new Date().toISOString(),
     }
   }
 
@@ -383,6 +488,7 @@ class SupabaseContractRepository implements ContractRepository {
       currentAssigneeEmployeeId: row.current_assignee_employee_id,
       currentAssigneeEmail: row.current_assignee_email,
       status: row.status as ContractStatus,
+      currentDocumentId: row.current_document_id,
       filePath: row.file_path ?? '',
       fileName: row.file_name ?? '',
       fileSizeBytes: row.file_size_bytes ?? 0,

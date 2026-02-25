@@ -63,8 +63,12 @@ describe('supabaseContractQueryRepository action permissions', () => {
         actorRole: 'POC',
         actorEmail: 'poc@nxtwave.co.in',
         signatoryEmail: 'signer@nxtwave.co.in',
+        recipientType: 'EXTERNAL',
+        routingOrder: 1,
+        fieldConfig: [],
         docusignEnvelopeId: 'env-1',
         docusignRecipientId: '1',
+        envelopeSourceDocumentId: 'document-1',
       })
     ).rejects.toMatchObject<Partial<AuthorizationError>>({
       code: 'CONTRACT_SIGNATORY_FORBIDDEN',
@@ -120,6 +124,115 @@ describe('supabaseContractQueryRepository action permissions', () => {
 
     expect(result).toEqual([])
     expect(from).toHaveBeenCalledWith('contract_signatories')
+    expect(eqTenant).toHaveBeenCalledWith('tenant_id', 'tenant-1')
+    expect(eqContract).toHaveBeenCalledWith('contract_id', 'contract-1')
+  })
+
+  it('enforces tenant-scoped draft upsert when saving signing preparation draft', async () => {
+    const getByIdSpy = jest.spyOn(supabaseContractQueryRepository, 'getById')
+    getByIdSpy.mockResolvedValue({
+      id: 'contract-1',
+      title: 'Contract A',
+      contractTypeId: 'type-1',
+      status: 'FINAL_APPROVED',
+      uploadedByEmployeeId: 'poc-1',
+      uploadedByEmail: 'poc@nxtwave.co.in',
+      currentAssigneeEmployeeId: 'legal-1',
+      currentAssigneeEmail: 'legal@nxtwave.co.in',
+      departmentId: 'dept-1',
+      signatoryName: 'Sig Name',
+      signatoryDesignation: 'Manager',
+      signatoryEmail: 'sig@nxtwave.co.in',
+      backgroundOfRequest: 'Need review',
+      budgetApproved: true,
+      requestCreatedAt: new Date().toISOString(),
+      fileName: 'file.docx',
+      fileSizeBytes: 1024,
+      fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      filePath: 'tenant/contract-1/file.docx',
+      rowVersion: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    const upsert = jest.fn().mockReturnThis()
+    const select = jest.fn().mockReturnThis()
+    const single = jest.fn().mockResolvedValue({
+      data: {
+        contract_id: 'contract-1',
+        recipients: [],
+        fields: [],
+        created_by_employee_id: 'legal-1',
+        updated_by_employee_id: 'legal-1',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      error: null,
+    })
+    const from = jest.fn().mockReturnValue({ upsert, select, single })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    await supabaseContractQueryRepository.saveSigningPreparationDraft({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      recipients: [],
+      fields: [],
+    })
+
+    expect(from).toHaveBeenCalledWith('contract_signing_preparation_drafts')
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenant_id: 'tenant-1',
+        contract_id: 'contract-1',
+      }),
+      { onConflict: 'tenant_id,contract_id' }
+    )
+  })
+
+  it('enforces tenant filter when loading signing preparation draft', async () => {
+    const eqContract = jest.fn().mockReturnThis()
+    const eqTenant = jest
+      .fn()
+      .mockReturnValue({ eq: eqContract, maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }) })
+    const select = jest.fn().mockReturnValue({ eq: eqTenant })
+    const from = jest.fn().mockReturnValue({ select })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    await supabaseContractQueryRepository.getSigningPreparationDraft({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+    })
+
+    expect(from).toHaveBeenCalledWith('contract_signing_preparation_drafts')
+    expect(eqTenant).toHaveBeenCalledWith('tenant_id', 'tenant-1')
+    expect(eqContract).toHaveBeenCalledWith('contract_id', 'contract-1')
+  })
+
+  it('returns null when signing preparation draft table is missing via PostgREST code', async () => {
+    const maybeSingle = jest.fn().mockResolvedValue({
+      data: null,
+      error: {
+        code: 'PGRST205',
+        message: 'Could not find the table public.contract_signing_preparation_drafts in schema cache',
+      },
+    })
+    const eqContract = jest.fn().mockReturnValue({ maybeSingle })
+    const eqTenant = jest.fn().mockReturnValue({ eq: eqContract })
+    const select = jest.fn().mockReturnValue({ eq: eqTenant })
+    const from = jest.fn().mockReturnValue({ select })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const result = await supabaseContractQueryRepository.getSigningPreparationDraft({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+    })
+
+    expect(result).toBeNull()
+    expect(from).toHaveBeenCalledWith('contract_signing_preparation_drafts')
     expect(eqTenant).toHaveBeenCalledWith('tenant_id', 'tenant-1')
     expect(eqContract).toHaveBeenCalledWith('contract_id', 'contract-1')
   })
