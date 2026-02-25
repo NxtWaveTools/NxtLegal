@@ -98,8 +98,6 @@ describe('ContractQueryService', () => {
       additionalApprovers: [],
       legalCollaborators: [],
       signatories: [],
-      legalCollaborators: [],
-      signatories: [],
     })
   })
 
@@ -115,8 +113,6 @@ describe('ContractQueryService', () => {
     repository.getLegalCollaborators.mockResolvedValue([])
     repository.getSignatories.mockResolvedValue([])
     repository.getCounterparties.mockResolvedValue([])
-    repository.getLegalCollaborators.mockResolvedValue([])
-    repository.getSignatories.mockResolvedValue([])
 
     await service.getContractDetail({
       tenantId: 'tenant-1',

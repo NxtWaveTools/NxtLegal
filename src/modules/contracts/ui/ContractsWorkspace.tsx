@@ -63,6 +63,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set())
   const [showAllLogs, setShowAllLogs] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [isContractContextLoading, setIsContractContextLoading] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isMutating, setIsMutating] = useState(false)
   const [activeAction, setActiveAction] = useState<ContractAllowedAction['action'] | null>(null)
   const [confirmActionItem, setConfirmActionItem] = useState<ContractAllowedAction | null>(null)
@@ -176,6 +178,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     let isCancelled = false
 
     const loadSelectedContract = async () => {
+      setIsContractContextLoading(true)
       const [detailResponse, timelineResponse] = await Promise.all([
         contractsClient.detail(selectedContractId),
         contractsClient.timeline(selectedContractId),
@@ -195,6 +198,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setApprovers([])
         setLegalCollaborators([])
         setSignatories([])
+        setIsContractContextLoading(false)
         return
       }
 
@@ -205,6 +209,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       } else {
         setTimeline([])
       }
+
+      setIsContractContextLoading(false)
     }
 
     void loadSelectedContract()
@@ -215,6 +221,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }, [selectedContractId])
 
   const selectContract = (contractId: string) => {
+    setIsContractContextLoading(true)
     setSelectedContractId(contractId)
     setActiveTab('overview')
     setIsIntakeOpen(false)
@@ -702,17 +709,30 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }
 
   return (
-    <div className={styles.layout}>
+    <div className={`${styles.layout} ${!isSidebarOpen ? styles.layoutCollapsed : ''}`}>
       {/* ── Left Sidebar ── */}
-      <aside className={styles.sidebar}>
+      <aside className={`${styles.sidebar} ${!isSidebarOpen ? styles.sidebarCollapsed : ''}`}>
         <div className={styles.sidebarHeader}>
-          <span className={styles.sidebarTitle}>Contracts</span>
-          {!isLoading && (
-            <span className={styles.sidebarCount}>
-              {contracts.length}
-              {totalContracts > 0 ? ` / ${totalContracts}` : ''}
-            </span>
-          )}
+          <div className={styles.sidebarHeaderRow}>
+            <div>
+              <span className={styles.sidebarTitle}>Contracts</span>
+              {!isLoading && (
+                <span className={styles.sidebarCount}>
+                  {contracts.length}
+                  {totalContracts > 0 ? ` / ${totalContracts}` : ''}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              className={styles.menuButton}
+              aria-label={isSidebarOpen ? 'Hide contracts list' : 'Show contracts list'}
+              aria-expanded={isSidebarOpen}
+              onClick={() => setIsSidebarOpen((current) => !current)}
+            >
+              ☰
+            </button>
+          </div>
         </div>
         {isLoading ? (
           <div className={styles.list}>
@@ -794,6 +814,24 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
             <div className={styles.emptyStateIcon}>📄</div>
             <div style={{ fontWeight: 600 }}>Select a contract</div>
             <div className={styles.itemMeta}>Choose a contract from the sidebar to view details</div>
+          </div>
+        ) : isContractContextLoading ? (
+          <div className={styles.detailShimmer}>
+            <div className={styles.shimmerBlock}>
+              <div className={styles.shimmerLine} style={{ width: '28%' }} />
+              <div className={styles.shimmerLine} style={{ width: '92%' }} />
+              <div className={styles.shimmerLine} style={{ width: '84%' }} />
+            </div>
+            <div className={styles.shimmerBlock}>
+              <div className={styles.shimmerLine} style={{ width: '20%' }} />
+              <div className={styles.shimmerLine} style={{ width: '96%' }} />
+              <div className={styles.shimmerLine} style={{ width: '88%' }} />
+              <div className={styles.shimmerLine} style={{ width: '80%' }} />
+            </div>
+            <div className={styles.shimmerBlock}>
+              <div className={styles.shimmerLine} style={{ width: '24%' }} />
+              <div className={styles.shimmerLine} style={{ width: '90%' }} />
+            </div>
           </div>
         ) : (
           <div className={styles.detailsShell}>
