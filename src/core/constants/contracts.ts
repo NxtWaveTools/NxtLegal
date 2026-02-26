@@ -47,10 +47,7 @@ export const contractWorkflowRoles = {
 
 export type ContractWorkflowRole = (typeof contractWorkflowRoles)[keyof typeof contractWorkflowRoles]
 
-export const contractLegalAssignmentAllowedRoles = [
-  contractWorkflowRoles.legalTeam,
-  contractWorkflowRoles.admin,
-] as const
+export const contractLegalAssignmentAllowedRoles = [contractWorkflowRoles.legalTeam] as const
 
 export const contractLegalAssignmentEditableStatuses: ContractStatus[] = [
   contractStatuses.underReview,

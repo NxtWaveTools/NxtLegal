@@ -85,7 +85,7 @@ type ContractDocument = {
   createdAt: string
 }
 
-type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD'
+type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD' | 'ASSIGNED_TO_ME'
 
 type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 type RepositorySortDirection = 'asc' | 'desc'
@@ -252,7 +252,6 @@ type ContractDetailResponse = {
 }
 
 type LegalAssignmentPayload =
-  | { operation: 'set_owner'; ownerEmail: string }
   | { operation: 'add_collaborator'; collaboratorEmail: string }
   | { operation: 'remove_collaborator'; collaboratorEmail: string }
 

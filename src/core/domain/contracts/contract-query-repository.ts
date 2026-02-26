@@ -44,7 +44,13 @@ export type ContractListItem = {
   updatedAt: string
 }
 
-export type DashboardContractFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD'
+export type DashboardContractFilter =
+  | 'ALL'
+  | 'HOD_PENDING'
+  | 'UNDER_REVIEW'
+  | 'COMPLETED'
+  | 'ON_HOLD'
+  | 'ASSIGNED_TO_ME'
 
 export type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 export type RepositorySortDirection = 'asc' | 'desc'

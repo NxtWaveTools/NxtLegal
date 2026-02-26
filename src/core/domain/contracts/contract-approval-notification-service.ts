@@ -33,8 +33,6 @@ type NotificationTemplates = {
   legalContractRejectedTemplateId: number
 }
 
-const LEGAL_TEAM_ALIAS_EMAIL = 'legalteam@nxtwave.co.in'
-
 export class ContractApprovalNotificationService {
   constructor(
     private readonly contractQueryService: ContractQueryService,
@@ -46,10 +44,6 @@ export class ContractApprovalNotificationService {
   private getContractLink(contractId: string): string {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     return `${baseUrl}/contracts/${contractId}`
-  }
-
-  private isLegalTeamAlias(email: string): boolean {
-    return email.trim().toLowerCase() === LEGAL_TEAM_ALIAS_EMAIL
   }
 
   async notifyHodOnContractUpload(params: {
@@ -224,7 +218,7 @@ export class ContractApprovalNotificationService {
     assignedEmail: string
   }): Promise<void> {
     const recipientEmail = params.assignedEmail.trim().toLowerCase()
-    if (!recipientEmail || this.isLegalTeamAlias(recipientEmail)) {
+    if (!recipientEmail) {
       return
     }
 
@@ -260,7 +254,7 @@ export class ContractApprovalNotificationService {
     legalOwnerEmail?: string | null
   }): Promise<void> {
     const recipientEmail = params.legalOwnerEmail?.trim().toLowerCase() ?? ''
-    if (!recipientEmail || this.isLegalTeamAlias(recipientEmail)) {
+    if (!recipientEmail) {
       return
     }
 

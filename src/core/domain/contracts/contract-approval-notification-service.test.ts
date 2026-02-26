@@ -121,7 +121,7 @@ describe('ContractApprovalNotificationService', () => {
     )
   })
 
-  it('skips internal assignment email when recipient is legalteam alias', async () => {
+  it('sends internal assignment email for legalteam recipient as well', async () => {
     const contractQueryService = {
       getContractDetail: jest.fn().mockResolvedValue(createContractView()),
       getLatestNotificationDelivery: jest.fn(),
@@ -142,6 +142,11 @@ describe('ContractApprovalNotificationService', () => {
       assignedEmail: 'legalteam@nxtwave.co.in',
     })
 
-    expect(mailSender.sendTemplateEmail).not.toHaveBeenCalled()
+    expect(mailSender.sendTemplateEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientEmail: 'legalteam@nxtwave.co.in',
+        templateId: templates.legalInternalAssignmentTemplateId,
+      })
+    )
   })
 })

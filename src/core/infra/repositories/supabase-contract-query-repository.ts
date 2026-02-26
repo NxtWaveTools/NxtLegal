@@ -446,6 +446,96 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const statusFilter = this.resolveDashboardStatusFromFilter(resolvedFilter)
     const decodedCursor = this.decodeCursor(params.cursor)
     const supabase = createServiceSupabase()
+    const shouldFilterAssignedToMe = resolvedFilter === 'ASSIGNED_TO_ME'
+    let assignedContractIds: string[] | null = null
+
+    if (shouldFilterAssignedToMe) {
+      const assignedIds = new Set<string>()
+
+      if (params.role !== 'LEGAL_TEAM') {
+        let assigneeQuery = supabase
+          .from('contracts_repository_view')
+          .select('id')
+          .eq('tenant_id', params.tenantId)
+          .eq('current_assignee_employee_id', params.employeeId)
+
+        if (statusFilter) {
+          assigneeQuery = assigneeQuery.eq('status', statusFilter)
+        }
+
+        const { data: assigneeRows, error: assigneeError } = await assigneeQuery
+
+        if (assigneeError) {
+          throw new DatabaseError(
+            'Failed to resolve assigned contracts for dashboard filter',
+            new Error(assigneeError.message),
+            {
+              code: assigneeError.code,
+            }
+          )
+        }
+
+        for (const row of (assigneeRows ?? []) as Array<{ id: string }>) {
+          assignedIds.add(row.id)
+        }
+      }
+
+      const { data: collaboratorRows, error: collaboratorError } = await supabase
+        .from('contract_legal_collaborators')
+        .select('contract_id')
+        .eq('tenant_id', params.tenantId)
+        .eq('collaborator_employee_id', params.employeeId)
+        .is('deleted_at', null)
+
+      if (collaboratorError) {
+        if (
+          !this.isMissingRelationError(collaboratorError, 'contract_legal_collaborators') &&
+          !this.isMissingColumnError(collaboratorError, 'contract_legal_collaborators')
+        ) {
+          throw new DatabaseError(
+            'Failed to resolve legal collaborator contracts for dashboard filter',
+            new Error(collaboratorError.message),
+            {
+              code: collaboratorError.code,
+            }
+          )
+        }
+      } else {
+        const collaboratorContractIds = (collaboratorRows ?? []).map((row) => row.contract_id)
+        if (collaboratorContractIds.length > 0) {
+          let collaboratorContractQuery = supabase
+            .from('contracts_repository_view')
+            .select('id')
+            .eq('tenant_id', params.tenantId)
+            .in('id', collaboratorContractIds)
+
+          if (statusFilter) {
+            collaboratorContractQuery = collaboratorContractQuery.eq('status', statusFilter)
+          }
+
+          const { data: collaboratorContractRows, error: collaboratorContractError } = await collaboratorContractQuery
+
+          if (collaboratorContractError) {
+            throw new DatabaseError(
+              'Failed to resolve collaborator dashboard contracts from repository view',
+              new Error(collaboratorContractError.message),
+              {
+                code: collaboratorContractError.code,
+              }
+            )
+          }
+
+          for (const row of (collaboratorContractRows ?? []) as Array<{ id: string }>) {
+            assignedIds.add(row.id)
+          }
+        }
+      }
+
+      assignedContractIds = Array.from(assignedIds)
+      if (assignedContractIds.length === 0) {
+        return { items: [], total: 0 }
+      }
+    }
 
     let query = supabase
       .from('contracts_repository_view')
@@ -466,6 +556,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       query = query.eq('status', statusFilter)
     }
 
+    if (assignedContractIds) {
+      query = query.in('id', assignedContractIds)
+    }
+
     const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
     if (visibilityFilter) {
       query = query.or(visibilityFilter)
@@ -478,6 +572,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (statusFilter) {
       totalQuery = totalQuery.eq('status', statusFilter)
+    }
+
+    if (assignedContractIds) {
+      totalQuery = totalQuery.in('id', assignedContractIds)
     }
 
     if (visibilityFilter) {
@@ -1918,17 +2016,16 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const pendingApproverCount = await this.getPendingApproverCount(params.tenantId, params.contract.id)
     const firstPendingApprover = await this.getFirstPendingApprover(params.tenantId, params.contract.id)
     const isAssignee = params.contract.currentAssigneeEmployeeId === params.actorEmployeeId
-    const isCollaborator =
-      params.actorRole === 'LEGAL_TEAM'
-        ? await this.isLegalCollaborator(params.tenantId, params.contract.id, params.actorEmployeeId)
-        : false
 
     const actions = actionsFromGraph.filter((item) => {
       const isAdditionalApproverAction = item.action === 'approver.approve' || item.action === 'approver.reject'
-      const canActAsLegalCollaborator =
-        params.actorRole === 'LEGAL_TEAM' && isCollaborator && legalActionNames.has(item.action)
 
-      if (params.actorRole !== 'ADMIN' && !isAdditionalApproverAction && !isAssignee && !canActAsLegalCollaborator) {
+      if (
+        params.actorRole !== 'ADMIN' &&
+        params.actorRole !== 'LEGAL_TEAM' &&
+        !isAdditionalApproverAction &&
+        !isAssignee
+      ) {
         const isHodAction =
           item.action === 'hod.approve' || item.action === 'hod.reject' || item.action === 'hod.bypass'
         if (!(params.actorRole === 'HOD' && isHodAction && params.contract.status === contractStatuses.hodPending)) {
@@ -2003,19 +2100,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       effectiveAction === 'hod.approve' || effectiveAction === 'hod.reject' || effectiveAction === 'hod.bypass'
     const allowMappedHodAction =
       params.actorRole === 'HOD' && isHodAction && contract.status === contractStatuses.hodPending
-    const allowLegalCollaboratorAction =
-      params.actorRole === 'LEGAL_TEAM' &&
-      legalActionNames.has(effectiveAction) &&
-      (await this.isLegalCollaborator(params.tenantId, contract.id, params.actorEmployeeId))
 
     const isAdditionalApproverAction = effectiveAction === 'approver.approve' || effectiveAction === 'approver.reject'
 
     if (
       !isAdditionalApproverAction &&
       params.actorRole !== 'ADMIN' &&
+      params.actorRole !== 'LEGAL_TEAM' &&
       !isAssignee &&
-      !allowMappedHodAction &&
-      !allowLegalCollaboratorAction
+      !allowMappedHodAction
     ) {
       throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only the current assignee can perform this action')
     }
@@ -3807,7 +3900,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   }
 
   private resolveDashboardStatusFromFilter(filter: DashboardContractFilter): ContractStatus | null {
-    if (filter === 'ALL') {
+    if (filter === 'ALL' || filter === 'ASSIGNED_TO_ME') {
       return null
     }
 
@@ -4400,7 +4493,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const contractIds = items.map((item) => item.id)
     const [assignedContractIds, unreadContractIds] = await Promise.all([
-      this.getAssignedContractIdSet(tenantId, employeeId, contractIds),
+      this.getAssignedContractIdSet(tenantId, employeeId, contractIds, role),
       this.getUnreadActivityContractIdSet(tenantId, employeeId, contractIds),
     ])
 
@@ -4416,7 +4509,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   private async getAssignedContractIdSet(
     tenantId: string,
     employeeId: string,
-    contractIds: string[]
+    contractIds: string[],
+    role?: string
   ): Promise<Set<string>> {
     if (contractIds.length === 0) {
       return new Set<string>()
@@ -4425,22 +4519,26 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const supabase = createServiceSupabase()
     const assignedIds = new Set<string>()
 
-    const { data: assigneeRows, error: assigneeError } = await supabase
-      .from('contracts')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .in('id', contractIds)
-      .eq('current_assignee_employee_id', employeeId)
-      .is('deleted_at', null)
+    const shouldIncludeAssignee = role !== 'LEGAL_TEAM'
 
-    if (assigneeError) {
-      throw new DatabaseError('Failed to resolve assignee contract set', new Error(assigneeError.message), {
-        code: assigneeError.code,
-      })
-    }
+    if (shouldIncludeAssignee) {
+      const { data: assigneeRows, error: assigneeError } = await supabase
+        .from('contracts')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .in('id', contractIds)
+        .eq('current_assignee_employee_id', employeeId)
+        .is('deleted_at', null)
 
-    for (const row of (assigneeRows ?? []) as Array<{ id: string }>) {
-      assignedIds.add(row.id)
+      if (assigneeError) {
+        throw new DatabaseError('Failed to resolve assignee contract set', new Error(assigneeError.message), {
+          code: assigneeError.code,
+        })
+      }
+
+      for (const row of (assigneeRows ?? []) as Array<{ id: string }>) {
+        assignedIds.add(row.id)
+      }
     }
 
     const { data: collaboratorRows, error: collaboratorError } = await supabase

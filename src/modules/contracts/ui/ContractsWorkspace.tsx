@@ -61,13 +61,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [documents, setDocuments] = useState<ContractDocument[]>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
-  const [ownerEmail, setOwnerEmail] = useState('')
   const [collaboratorEmail, setCollaboratorEmail] = useState('')
   const [activityMessageText, setActivityMessageText] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [isActivityComposerOpen, setIsActivityComposerOpen] = useState(false)
   const [isSubmittingActivity, setIsSubmittingActivity] = useState(false)
-  const [isSettingOwner, setIsSettingOwner] = useState(false)
   const [isAddingCollaborator, setIsAddingCollaborator] = useState(false)
   const [isMarkingActivitySeen, setIsMarkingActivitySeen] = useState(false)
   const [isIntakeOpen, setIsIntakeOpen] = useState(false)
@@ -135,7 +133,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setApprovers(contractView.additionalApprovers)
     setLegalCollaborators(contractView.legalCollaborators)
     setSignatories(contractView.signatories ?? [])
-    setOwnerEmail(contractView.contract.currentAssigneeEmail)
   }
 
   const syncContractReadState = useCallback((contractId: string, hasUnreadActivity: boolean) => {
@@ -575,31 +572,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
   }
 
-  const handleSetOwner = async () => {
-    if (!selectedContractId || !ownerEmail.trim() || isSettingOwner) {
-      return
-    }
-
-    setIsSettingOwner(true)
-    setIsMutating(true)
-    const response = await contractsClient.manageAssignment(selectedContractId, {
-      operation: 'set_owner',
-      ownerEmail: ownerEmail.trim().toLowerCase(),
-    })
-    setIsMutating(false)
-    setIsSettingOwner(false)
-
-    if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to update legal owner')
-      toast.error(response.error?.message ?? 'Failed to update legal owner')
-      return
-    }
-
-    applyContractView(response.data)
-    await loadContracts()
-    toast.success('Legal owner updated successfully')
-  }
-
   const handleAddCollaborator = async () => {
     if (!selectedContractId || !collaboratorEmail.trim() || isAddingCollaborator) {
       return
@@ -752,7 +724,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     return metadata
   }, [selectedContract])
   const canManageLegalWorkSharing = useMemo(() => {
-    if (!(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN')) {
+    if (session.role !== 'LEGAL_TEAM') {
       return false
     }
 
@@ -1197,34 +1169,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                           <input
                             type="email"
                             className={styles.input}
-                            placeholder="owner@nxtwave.co.in"
-                            value={ownerEmail}
-                            onChange={(event) => setOwnerEmail(event.target.value)}
-                          />
-                          <button
-                            type="button"
-                            className={styles.button}
-                            disabled={isMutating || isSettingOwner || isAddingCollaborator}
-                            onClick={() => void handleSetOwner()}
-                          >
-                            <span className={styles.buttonContent}>
-                              {isSettingOwner ? <Spinner size={14} /> : null}
-                              {isSettingOwner ? 'Setting Owner…' : 'Set Owner'}
-                            </span>
-                          </button>
-                        </div>
-                        <div className={styles.inlineForm}>
-                          <input
-                            type="email"
-                            className={styles.input}
-                            placeholder="collaborator@nxtwave.co.in"
+                            placeholder="legalmember@nxtwave.co.in"
                             value={collaboratorEmail}
                             onChange={(event) => setCollaboratorEmail(event.target.value)}
                           />
                           <button
                             type="button"
                             className={styles.button}
-                            disabled={isMutating || isSettingOwner || isAddingCollaborator}
+                            disabled={isMutating || isAddingCollaborator}
                             onClick={() => void handleAddCollaborator()}
                           >
                             <span className={styles.buttonContent}>

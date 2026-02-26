@@ -31,7 +31,14 @@ export const listContractsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
 })
 
-export const dashboardContractsFilterValues = ['ALL', 'HOD_PENDING', 'UNDER_REVIEW', 'COMPLETED', 'ON_HOLD'] as const
+export const dashboardContractsFilterValues = [
+  'ALL',
+  'HOD_PENDING',
+  'UNDER_REVIEW',
+  'COMPLETED',
+  'ON_HOLD',
+  'ASSIGNED_TO_ME',
+] as const
 
 export const dashboardContractsQuerySchema = z.object({
   filter: z.enum(dashboardContractsFilterValues),
@@ -162,10 +169,6 @@ export const contractApproverReminderSchema = z.object({
 })
 
 export const contractLegalAssignmentSchema = z.discriminatedUnion('operation', [
-  z.object({
-    operation: z.literal('set_owner'),
-    ownerEmail: z.string().trim().toLowerCase().email('Valid legal owner email is required'),
-  }),
   z.object({
     operation: z.literal('add_collaborator'),
     collaboratorEmail: z.string().trim().toLowerCase().email('Valid collaborator email is required'),

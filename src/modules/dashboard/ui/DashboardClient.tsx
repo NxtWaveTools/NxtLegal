@@ -99,6 +99,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       approveFilter: 'UNDER_REVIEW',
       showApproveCard: true,
       filters: [
+        { value: 'ASSIGNED_TO_ME', label: 'Assigned To Me' },
         { value: 'UNDER_REVIEW', label: 'Under Review' },
         { value: 'HOD_PENDING', label: 'HOD Pending' },
         { value: 'COMPLETED', label: 'Completed' },

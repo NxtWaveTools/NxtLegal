@@ -415,7 +415,6 @@ export class ContractQueryService {
     actorRole?: string
     actorEmail: string
     operation: ContractLegalAssignmentOperation
-    ownerEmail?: string
     collaboratorEmail?: string
   }): Promise<ContractDetailView> {
     if (!params.actorRole) {
@@ -424,21 +423,6 @@ export class ContractQueryService {
 
     if (!params.actorEmail) {
       throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
-    }
-
-    if (params.operation === 'set_owner') {
-      if (!params.ownerEmail) {
-        throw new BusinessRuleError('OWNER_EMAIL_REQUIRED', 'Owner email is required')
-      }
-
-      await this.contractRepository.setLegalOwnerByEmail({
-        tenantId: params.tenantId,
-        contractId: params.contractId,
-        actorEmployeeId: params.actorEmployeeId,
-        actorRole: params.actorRole,
-        actorEmail: params.actorEmail,
-        ownerEmail: params.ownerEmail,
-      })
     }
 
     if (params.operation === 'add_collaborator') {

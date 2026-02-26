@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { contractsClient, type ContractTypeOption, type DepartmentOption } from '@/core/client/contracts-client'
 import WorkflowSidebar from './WorkflowSidebar'
 import ChooseFilesStep from './steps/ChooseFilesStep'
@@ -202,44 +203,55 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
       setUploadIdempotencyKey(idempotencyKey)
     }
 
-    const response = await contractsClient.upload({
-      title: generatedTitle,
-      contractTypeId: contractType,
-      counterpartyName: primaryCounterpartyName,
-      counterparties: counterpartyEntries
-        .map((entry) => ({
-          counterpartyName: entry.counterpartyName.trim(),
-          supportingFiles: entry.supportingFiles,
-        }))
-        .filter((entry) => entry.counterpartyName.length > 0),
-      signatoryName: signatoryName.trim(),
-      signatoryDesignation: signatoryDesignation.trim(),
-      signatoryEmail: signatoryEmail.trim().toLowerCase(),
-      backgroundOfRequest: backgroundOfRequest.trim(),
-      departmentId,
-      budgetApproved,
-      file: mainFile,
-      idempotencyKey,
-    })
+    try {
+      const response = await contractsClient.upload({
+        title: generatedTitle,
+        contractTypeId: contractType,
+        counterpartyName: primaryCounterpartyName,
+        counterparties: counterpartyEntries
+          .map((entry) => ({
+            counterpartyName: entry.counterpartyName.trim(),
+            supportingFiles: entry.supportingFiles,
+          }))
+          .filter((entry) => entry.counterpartyName.length > 0),
+        signatoryName: signatoryName.trim(),
+        signatoryDesignation: signatoryDesignation.trim(),
+        signatoryEmail: signatoryEmail.trim().toLowerCase(),
+        backgroundOfRequest: backgroundOfRequest.trim(),
+        departmentId,
+        budgetApproved,
+        file: mainFile,
+        idempotencyKey,
+      })
 
-    if (!response.ok || !response.data?.contract) {
+      if (!response.ok || !response.data?.contract) {
+        setIsSubmitting(false)
+        const failureMessage = response.error?.message ?? 'Failed to upload contract'
+        setUploadError(failureMessage)
+        toast.error(failureMessage)
+        return
+      }
+
       setIsSubmitting(false)
-      setUploadError(response.error?.message ?? 'Failed to upload contract')
-      return
+      const successMessage = `Uploaded ${response.data.contract.title} successfully.`
+      setUploadSuccess(successMessage)
+      toast.success(successMessage)
+      setUploadIdempotencyKey(null)
+
+      if (onUploaded) {
+        await onUploaded()
+      }
+
+      onClose()
+      resetAll()
+      router.push('/dashboard')
+      router.refresh()
+    } catch {
+      setIsSubmitting(false)
+      const failureMessage = 'Unexpected error while uploading contract. Please try again.'
+      setUploadError(failureMessage)
+      toast.error(failureMessage)
     }
-
-    setIsSubmitting(false)
-    setUploadSuccess(`Uploaded ${response.data.contract.title} successfully.`)
-    setUploadIdempotencyKey(null)
-
-    if (onUploaded) {
-      await onUploaded()
-    }
-
-    onClose()
-    resetAll()
-    router.push('/dashboard')
-    router.refresh()
   }
 
   const stepContent = () => {
