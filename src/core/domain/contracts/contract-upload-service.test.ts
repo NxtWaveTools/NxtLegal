@@ -174,4 +174,52 @@ describe('ContractUploadService signing source regression', () => {
       code: 'CONTRACT_READ_FORBIDDEN',
     })
   })
+
+  it('blocks upload when POC is not assigned to selected department', async () => {
+    const contractRepository = {
+      isPocAssignedToDepartment: jest.fn().mockResolvedValue(false),
+      createWithAudit: jest.fn(),
+      createCounterparties: jest.fn(),
+      setCounterpartyName: jest.fn(),
+      createDocument: jest.fn(),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn(),
+      remove: jest.fn(),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.uploadContract({
+        tenantId: 'tenant-1',
+        uploadedByEmployeeId: 'poc-1',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+        uploadedByRole: 'POC',
+        title: 'MSA',
+        contractTypeId: 'type-1',
+        signatoryName: 'Signer',
+        signatoryDesignation: 'Manager',
+        signatoryEmail: 'signer@example.com',
+        backgroundOfRequest: 'Need legal review',
+        departmentId: 'dept-unassigned',
+        budgetApproved: false,
+        counterpartyName: 'NA',
+        fileName: 'contract.docx',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        fileBytes: new Uint8Array([1, 2, 3]),
+      })
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
+    })
+
+    expect(contractRepository.isPocAssignedToDepartment).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      pocEmail: 'poc@nxtwave.co.in',
+      departmentId: 'dept-unassigned',
+    })
+    expect(contractStorageRepository.upload).not.toHaveBeenCalled()
+  })
 })

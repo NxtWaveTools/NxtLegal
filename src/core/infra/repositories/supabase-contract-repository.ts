@@ -497,6 +497,58 @@ class SupabaseContractRepository implements ContractRepository {
     }
   }
 
+  async isPocAssignedToDepartment(params: {
+    tenantId: string
+    pocEmail: string
+    departmentId: string
+  }): Promise<boolean> {
+    const supabase = createServiceSupabase()
+    const normalizedPocEmail = params.pocEmail.trim().toLowerCase()
+
+    const { data: mappings, error: mappingsError } = await supabase
+      .from('team_role_mappings')
+      .select('id')
+      .eq('tenant_id', params.tenantId)
+      .eq('team_id', params.departmentId)
+      .eq('role_type', 'POC')
+      .eq('email', normalizedPocEmail)
+      .eq('active_flag', true)
+      .is('deleted_at', null)
+      .limit(1)
+
+    if (mappingsError) {
+      throw new DatabaseError('Failed to resolve POC assignment for department', new Error(mappingsError.message), {
+        code: mappingsError.code,
+      })
+    }
+
+    if ((mappings ?? []).length > 0) {
+      return true
+    }
+
+    const { data: fallbackTeam, error: fallbackTeamError } = await supabase
+      .from('teams')
+      .select('id')
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.departmentId)
+      .eq('poc_email', normalizedPocEmail)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .limit(1)
+
+    if (fallbackTeamError) {
+      throw new DatabaseError(
+        'Failed to resolve fallback POC assignment for department',
+        new Error(fallbackTeamError.message),
+        {
+          code: fallbackTeamError.code,
+        }
+      )
+    }
+
+    return (fallbackTeam ?? []).length > 0
+  }
+
   async isUploaderInActorTeam(params: {
     tenantId: string
     actorEmployeeId: string

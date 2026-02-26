@@ -87,6 +87,19 @@ export class ContractUploadService {
       throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only POC can upload initial contracts')
     }
 
+    const isPocAssignedToDepartment = await this.contractRepository.isPocAssignedToDepartment({
+      tenantId: input.tenantId,
+      pocEmail: input.uploadedByEmail,
+      departmentId: input.departmentId,
+    })
+
+    if (!isPocAssignedToDepartment) {
+      throw new AuthorizationError(
+        'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
+        'You can upload contracts only for departments assigned to your POC account'
+      )
+    }
+
     if (!this.isDocxUpload(input.fileName, input.fileMimeType)) {
       throw new BusinessRuleError('CONTRACT_FILE_FORMAT_INVALID', 'Initial contract upload must be a DOCX file')
     }

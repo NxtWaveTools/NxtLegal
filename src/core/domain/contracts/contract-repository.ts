@@ -27,6 +27,7 @@ export interface ContractRepository {
     contractId: string
   }): Promise<ContractDocumentAccessRecord | null>
   replacePrimaryDocument(input: ReplacePrimaryContractDocumentInput): Promise<ContractDocumentRecord>
+  isPocAssignedToDepartment(params: { tenantId: string; pocEmail: string; departmentId: string }): Promise<boolean>
   isUploaderInActorTeam(params: {
     tenantId: string
     actorEmployeeId: string
