@@ -181,9 +181,14 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  position: relative;
   background: var(--color-surface-muted);
   padding: 12px;
+}
+
+.pageSurface {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
 }
 
 .placeholder {

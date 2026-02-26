@@ -2656,13 +2656,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     tenantId: string
     contractId: string
     signatoryEmail: string
+    signatoryStatus: 'PENDING' | 'SIGNED'
+    contractStatus: ContractStatus
     recipientType: 'INTERNAL' | 'EXTERNAL'
     routingOrder: number
   } | null> {
     const supabase = createServiceSupabase()
     let query = supabase
       .from('contract_signatories')
-      .select('tenant_id, contract_id, signatory_email, recipient_type, routing_order')
+      .select('tenant_id, contract_id, signatory_email, status, recipient_type, routing_order')
       .eq('docusign_envelope_id', params.envelopeId)
       .is('deleted_at', null)
       .limit(1)
@@ -2675,6 +2677,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       tenant_id: string
       contract_id: string
       signatory_email: string
+      status: 'PENDING' | 'SIGNED'
       recipient_type: 'INTERNAL' | 'EXTERNAL'
       routing_order: number
     }>()
@@ -2689,10 +2692,34 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return null
     }
 
+    const { data: contractRow, error: contractError } = await supabase
+      .from('contracts')
+      .select('status')
+      .eq('tenant_id', data.tenant_id)
+      .eq('id', data.contract_id)
+      .is('deleted_at', null)
+      .maybeSingle<{ status: ContractStatus }>()
+
+    if (contractError) {
+      throw new DatabaseError(
+        'Failed to resolve contract status for envelope context',
+        new Error(contractError.message),
+        {
+          code: contractError.code,
+        }
+      )
+    }
+
+    if (!contractRow) {
+      return null
+    }
+
     return {
       tenantId: data.tenant_id,
       contractId: data.contract_id,
       signatoryEmail: data.signatory_email,
+      signatoryStatus: data.status,
+      contractStatus: contractRow.status,
       recipientType: data.recipient_type,
       routingOrder: data.routing_order,
     }

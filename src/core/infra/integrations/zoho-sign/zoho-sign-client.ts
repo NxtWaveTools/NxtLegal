@@ -132,9 +132,28 @@ export class ZohoSignClient {
   }
 
   private async createRequest(input: CreateSigningEnvelopeInput): Promise<ZohoCreateRequestResponse> {
+    if (input.documentBytes.byteLength === 0) {
+      throw new Error('Zoho Sign request creation failed: source document is empty')
+    }
+
     const form = new FormData()
-    const extension = this.resolveFileExtension(input.documentName, input.documentMimeType)
-    const fileName = input.documentName.includes('.') ? input.documentName : `${input.documentName}.${extension}`
+    const detectedFormat = this.detectSupportedFileFormat({
+      documentName: input.documentName,
+      documentMimeType: input.documentMimeType,
+      documentBytes: input.documentBytes,
+    })
+    if (!detectedFormat) {
+      const firstBytesHex = Buffer.from(input.documentBytes.subarray(0, Math.min(12, input.documentBytes.byteLength)))
+        .toString('hex')
+        .toUpperCase()
+      throw new Error(
+        `Zoho Sign request creation failed: unsupported source document format; ` +
+          `uploadMeta={name:${input.documentName},mime:${input.documentMimeType},size:${input.documentBytes.byteLength},firstBytesHex:${firstBytesHex}}`
+      )
+    }
+
+    const fileName = this.normalizeFileNameWithExtension(input.documentName, detectedFormat.extension)
+    const mimeType = detectedFormat.mimeType
     const dataPayload = {
       requests: {
         request_name: input.emailSubject,
@@ -146,21 +165,28 @@ export class ZohoSignClient {
           signing_order: recipient.routingOrder,
           is_embedded: true,
         })),
+        expiration_days: 30,
       },
     }
 
-    form.append('file', new Blob([Buffer.from(input.documentBytes)], { type: input.documentMimeType }), fileName)
+    const file = new File([Buffer.from(input.documentBytes)], fileName, { type: mimeType })
+    form.append('file', file)
     form.append('data', JSON.stringify(dataPayload))
 
     const response = await fetch(`${this.config.apiBaseUrl}/requests`, {
       method: 'POST',
-      headers: this.createAuthHeaders(),
+      headers: {
+        ...this.createAuthHeaders(),
+        Accept: 'application/json',
+      },
       body: form,
     })
 
     if (!response.ok) {
       const errorBody = await response.text()
-      throw new Error(`Zoho Sign request creation failed: ${errorBody}`)
+      throw new Error(
+        `Zoho Sign request creation failed: ${errorBody}; uploadMeta={fileName:${fileName},mimeType:${mimeType},size:${input.documentBytes.byteLength}}`
+      )
     }
 
     return (await response.json()) as ZohoCreateRequestResponse
@@ -189,7 +215,8 @@ export class ZohoSignClient {
         recipient_name: recipient.name || recipient.email,
         recipient_email: recipient.email,
         signing_order: recipient.routingOrder,
-        verify_recipient: false,
+        // Enforce recipient verification at Zoho to prevent forwarded-link misuse.
+        verify_recipient: true,
         fields: fieldsForRecipient.map((field, index) =>
           this.mapFieldToZohoField(field, params.documentId, actionId, index)
         ),
@@ -199,6 +226,7 @@ export class ZohoSignClient {
     const body = new URLSearchParams({
       data: JSON.stringify({
         requests: {
+          expiration_days: 30,
           actions,
         },
       }),
@@ -225,7 +253,7 @@ export class ZohoSignClient {
         params.host
       )}`,
       {
-        method: 'GET',
+        method: 'POST',
         headers: this.createAuthHeaders(),
       }
     )
@@ -278,8 +306,15 @@ export class ZohoSignClient {
 
   private resolveEmbeddedHost(returnUrl: string): string {
     try {
-      return new URL(returnUrl).origin
+      const origin = new URL(returnUrl).origin
+      if (origin.startsWith('http://')) {
+        return origin.replace('http://', 'https://')
+      }
+      return origin
     } catch {
+      if (returnUrl.startsWith('http://')) {
+        return returnUrl.replace('http://', 'https://')
+      }
       return returnUrl
     }
   }
@@ -293,6 +328,9 @@ export class ZohoSignClient {
     const { fieldTypeName, fieldCategory, defaultWidth, defaultHeight, fieldLabel } = this.resolveZohoFieldType(
       field.fieldType
     )
+    const pageNumber = Math.max(0, (field.pageNumber ?? 1) - 1)
+    const xCoord = this.normalizeZohoPointCoordinate(field.xPosition, 24)
+    const yCoord = this.normalizeZohoPointCoordinate(field.yPosition, 24)
 
     return {
       field_type_name: fieldTypeName,
@@ -300,14 +338,23 @@ export class ZohoSignClient {
       field_name: `${fieldLabel}_${index + 1}`,
       field_label: fieldLabel,
       is_mandatory: field.fieldType === 'SIGNATURE' || field.fieldType === 'INITIAL',
-      page_no: field.pageNumber ?? 1,
+      page_no: pageNumber,
       document_id: documentId,
       action_id: actionId,
-      x_coord: Math.round(field.xPosition ?? 72),
-      y_coord: Math.round(field.yPosition ?? 72),
+      x_coord: xCoord,
+      y_coord: yCoord,
       abs_width: defaultWidth,
       abs_height: defaultHeight,
     }
+  }
+
+  private normalizeZohoPointCoordinate(value: number | null, fallback: number): number {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      return fallback
+    }
+
+    // Send PDF-space coordinates (points) directly, keep safe integer bounds.
+    return Math.max(0, Math.min(2000, Math.round(value)))
   }
 
   private resolveZohoFieldType(fieldType: ContractSignatoryFieldType): {
@@ -392,5 +439,107 @@ export class ZohoSignClient {
     }
 
     return 'bin'
+  }
+
+  private normalizeFileNameWithExtension(fileName: string, extension: string): string {
+    const trimmed = fileName.trim()
+    const lastDotIndex = trimmed.lastIndexOf('.')
+    const baseName = lastDotIndex > 0 ? trimmed.slice(0, lastDotIndex) : trimmed
+    const safeBaseName = baseName.length > 0 ? baseName : 'document'
+    return `${safeBaseName}.${extension}`
+  }
+
+  private detectSupportedFileFormat(params: {
+    documentName: string
+    documentMimeType: string
+    documentBytes: Uint8Array
+  }): { extension: 'pdf' | 'docx' | 'doc'; mimeType: string } | null {
+    const bytes = params.documentBytes
+    const mime = params.documentMimeType.trim().toLowerCase()
+    const extension = this.resolveFileExtension(params.documentName, mime)
+
+    const startsWith = (signature: number[]): boolean => {
+      if (bytes.byteLength < signature.length) {
+        return false
+      }
+
+      return signature.every((value, index) => bytes[index] === value)
+    }
+
+    const isPdfByHeader =
+      bytes.byteLength >= 5 && Buffer.from(bytes.subarray(0, 5)).toString('utf8').toUpperCase() === '%PDF-'
+    if (isPdfByHeader) {
+      return { extension: 'pdf', mimeType: 'application/pdf' }
+    }
+
+    // ZIP header (used by DOCX)
+    const isZip = startsWith([0x50, 0x4b, 0x03, 0x04]) || startsWith([0x50, 0x4b, 0x05, 0x06])
+    if (isZip && (mime.includes('wordprocessingml.document') || extension === 'docx')) {
+      return {
+        extension: 'docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }
+    }
+
+    // OLE Compound File header (legacy DOC)
+    const isOleDoc = startsWith([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])
+    if (isOleDoc && (mime === 'application/msword' || extension === 'doc')) {
+      return { extension: 'doc', mimeType: 'application/msword' }
+    }
+
+    // Fallback to explicit trusted signals
+    if (mime === 'application/pdf') {
+      return { extension: 'pdf', mimeType: 'application/pdf' }
+    }
+    if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      return {
+        extension: 'docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }
+    }
+    if (mime === 'application/msword') {
+      return { extension: 'doc', mimeType: 'application/msword' }
+    }
+
+    return null
+  }
+
+  private resolveUploadMimeType(params: {
+    documentName: string
+    documentMimeType: string
+    documentBytes: Uint8Array
+  }): string {
+    const mime = params.documentMimeType.trim().toLowerCase()
+    if (mime === 'application/pdf') {
+      return mime
+    }
+
+    if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      return mime
+    }
+
+    if (mime === 'application/msword') {
+      return mime
+    }
+
+    const isPdfBySignature =
+      params.documentBytes.byteLength >= 5 &&
+      Buffer.from(params.documentBytes.subarray(0, 5)).toString('utf8') === '%PDF-'
+    if (isPdfBySignature) {
+      return 'application/pdf'
+    }
+
+    const extension = this.resolveFileExtension(params.documentName, mime)
+    if (extension === 'pdf') {
+      return 'application/pdf'
+    }
+    if (extension === 'docx') {
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    }
+    if (extension === 'doc') {
+      return 'application/msword'
+    }
+
+    return 'application/octet-stream'
   }
 }

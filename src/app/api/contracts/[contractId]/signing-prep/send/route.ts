@@ -37,8 +37,24 @@ const POSTHandler = withAuth(async (_request: NextRequest, { session, params }) 
 
     return NextResponse.json(okResponse(result))
   } catch (error) {
+    const errorDetails = (() => {
+      if (error && typeof error === 'object') {
+        // ExternalServiceError stores originalError
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const e: any = error
+        if (e.originalError instanceof Error) {
+          return { message: e.originalError.message, stack: e.originalError.stack }
+        }
+        if (error instanceof Error) {
+          return { message: error.message, stack: error.stack }
+        }
+      }
+      return { info: String(error) }
+    })()
+
     logger.error('Contract signing preparation send failed', {
       error: error instanceof Error ? error.message : String(error),
+      errorDetails,
       stack: error instanceof Error ? error.stack : undefined,
       contractId: params?.contractId,
       tenantId: session.tenantId,

@@ -49,7 +49,7 @@ describe('ContractSignatoryService', () => {
             email: 'signatory@nxtwave.co.in',
             recipientId: '1',
             clientUserId: 'client-1',
-            signingUrl: 'https://docusign.example/sign',
+            signingUrl: 'https://sign.zoho.in/sign/signer-link-1',
           },
         ],
       }),
@@ -117,7 +117,7 @@ describe('ContractSignatoryService', () => {
     expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         templateParams: expect.objectContaining({
-          signing_url: expect.stringContaining('/api/contracts/signatories/docusign/redirect?token='),
+          signing_url: 'https://sign.zoho.in/sign/signer-link-1',
         }),
       })
     )

@@ -641,6 +641,8 @@ export class ContractQueryService {
     tenantId: string
     contractId: string
     signatoryEmail: string
+    signatoryStatus: 'PENDING' | 'SIGNED'
+    contractStatus: ContractStatus
     recipientType: ContractSignatoryRecipientType
     routingOrder: number
   } | null> {
