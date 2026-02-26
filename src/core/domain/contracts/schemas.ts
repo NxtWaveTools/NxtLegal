@@ -31,7 +31,14 @@ export const listContractsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
 })
 
-export const dashboardContractsFilterValues = ['ALL', 'HOD_PENDING', 'UNDER_REVIEW', 'COMPLETED', 'ON_HOLD'] as const
+export const dashboardContractsFilterValues = [
+  'ALL',
+  'HOD_PENDING',
+  'UNDER_REVIEW',
+  'COMPLETED',
+  'ON_HOLD',
+  'ASSIGNED_TO_ME',
+] as const
 
 export const dashboardContractsQuerySchema = z.object({
   filter: z.enum(dashboardContractsFilterValues),
@@ -141,6 +148,16 @@ export const contractActionSchema = z
     }
   })
 
+export const bypassApprovalActionName = 'BYPASS_APPROVAL' as const
+
+export const contractBypassApprovalSchema = z.object({
+  action: z.literal(bypassApprovalActionName),
+  approverId: z.string().trim().uuid('Valid approverId is required'),
+  reason: z.string().trim().min(1, 'Bypass reason is required').max(2000, 'Bypass reason exceeds maximum length'),
+})
+
+export const contractActionCommandSchema = z.union([contractActionSchema, contractBypassApprovalSchema])
+
 export const contractNoteSchema = z.object({
   noteText: z.string().trim().min(1, 'Note is required').max(2000, 'Note exceeds maximum length'),
 })
@@ -157,11 +174,11 @@ export const contractApproverSchema = z.object({
   approverEmail: z.string().trim().toLowerCase().email('Valid approver email is required'),
 })
 
+export const contractApproverReminderSchema = z.object({
+  approverEmail: z.string().trim().toLowerCase().email('Valid approver email is required').optional(),
+})
+
 export const contractLegalAssignmentSchema = z.discriminatedUnion('operation', [
-  z.object({
-    operation: z.literal('set_owner'),
-    ownerEmail: z.string().trim().toLowerCase().email('Valid legal owner email is required'),
-  }),
   z.object({
     operation: z.literal('add_collaborator'),
     collaboratorEmail: z.string().trim().toLowerCase().email('Valid collaborator email is required'),
@@ -302,6 +319,9 @@ export const docusignWebhookSchema = z.object({
 })
 
 export type ContractActionName = (typeof contractActionNames)[number]
+export type ContractBypassApprovalActionName = typeof bypassApprovalActionName
+export type ContractBypassApprovalPayload = z.infer<typeof contractBypassApprovalSchema>
+export type ContractActionCommandPayload = z.infer<typeof contractActionCommandSchema>
 export type DashboardContractsFilter = (typeof dashboardContractsFilterValues)[number]
 export type ContractLegalAssignmentOperation = z.infer<typeof contractLegalAssignmentSchema>['operation']
 export type ContractSignatoryPayload = z.infer<typeof contractSignatorySchema>

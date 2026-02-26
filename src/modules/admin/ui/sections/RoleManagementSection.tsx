@@ -1,4 +1,5 @@
 import type { AdminRoleOption, AdminUserOption } from '@/core/client/admin-client'
+import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
 type RoleManagementSectionProps = {
@@ -81,7 +82,10 @@ export default function RoleManagementSection({
           disabled={!canChangeRole}
           onClick={onSubmitRoleChange}
         >
-          {isSubmittingRoleChange ? 'Updating Role...' : 'Apply Role Change'}
+          <span className={styles.buttonContent}>
+            {isSubmittingRoleChange ? <Spinner size={14} /> : null}
+            {isSubmittingRoleChange ? 'Updating Role...' : 'Apply Role Change'}
+          </span>
         </button>
       </div>
     </div>

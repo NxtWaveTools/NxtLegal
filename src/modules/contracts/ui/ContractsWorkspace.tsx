@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
 import {
   contractsClient,
   type ContractAllowedAction,
@@ -15,8 +16,10 @@ import {
   contractStatuses,
   contractTransitionActions,
 } from '@/core/constants/contracts'
+import Spinner from '@/components/ui/Spinner'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import ContractDocumentsPanel from '@/modules/contracts/ui/ContractDocumentsPanel'
+import ApprovalsTab from '@/modules/contracts/ui/ApprovalsTab'
 import { formatContractLogEvents, isContractNoteEvent } from '@/modules/contracts/ui/formatContractLogEvent'
 import PrepareForSigningModal from '@/modules/contracts/ui/PrepareForSigningModal'
 import styles from './contracts-workspace.module.css'
@@ -35,6 +38,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
     { id: 'documents', label: 'Documents' },
+    { id: 'approvals', label: 'Approvals' },
   ] as const
 
   type TabId = (typeof tabs)[number]['id']
@@ -57,13 +61,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [documents, setDocuments] = useState<ContractDocument[]>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
-  const [signatoryEmail, setSignatoryEmail] = useState('')
-  const [ownerEmail, setOwnerEmail] = useState('')
   const [collaboratorEmail, setCollaboratorEmail] = useState('')
   const [activityMessageText, setActivityMessageText] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [isActivityComposerOpen, setIsActivityComposerOpen] = useState(false)
   const [isSubmittingActivity, setIsSubmittingActivity] = useState(false)
+  const [isAddingCollaborator, setIsAddingCollaborator] = useState(false)
   const [isMarkingActivitySeen, setIsMarkingActivitySeen] = useState(false)
   const [isIntakeOpen, setIsIntakeOpen] = useState(false)
   const [isPrepareForSigningOpen, setIsPrepareForSigningOpen] = useState(false)
@@ -130,7 +133,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setApprovers(contractView.additionalApprovers)
     setLegalCollaborators(contractView.legalCollaborators)
     setSignatories(contractView.signatories ?? [])
-    setOwnerEmail(contractView.contract.currentAssigneeEmail)
   }
 
   const syncContractReadState = useCallback((contractId: string, hasUnreadActivity: boolean) => {
@@ -261,6 +263,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         return false
       }
 
+      const loadingToastId = `contract-action-${actionItem.action}`
+      toast.loading(`Applying ${actionItem.label}...`, { id: loadingToastId })
+
       setActiveAction(actionItem.action)
       const response = await contractsClient.action(selectedContractId, {
         action: actionItem.action,
@@ -272,6 +277,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         if (response.error?.code) {
           setError(response.error.message ?? 'Failed to apply contract action')
         }
+        toast.error(response.error?.message ?? `Failed to apply ${actionItem.label}`, { id: loadingToastId })
         return false
       }
 
@@ -282,6 +288,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       await loadContracts()
       await loadContractContext(selectedContractId)
       router.refresh()
+      toast.success(`${actionItem.label} completed successfully`, { id: loadingToastId })
       return true
     },
     [loadContractContext, loadContracts, router, selectedContractId]
@@ -548,46 +555,69 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     applyContractView(response.data)
   }
 
-  const handleSetOwner = async () => {
-    if (!selectedContractId || !ownerEmail.trim()) {
+  const handleRemindApprover = async (approverEmailToRemind?: string) => {
+    if (!selectedContractId) {
       return
     }
 
     setIsMutating(true)
-    const response = await contractsClient.manageAssignment(selectedContractId, {
-      operation: 'set_owner',
-      ownerEmail: ownerEmail.trim().toLowerCase(),
+    const response = await contractsClient.remindApprover(selectedContractId, {
+      approverEmail: approverEmailToRemind,
+    })
+    setIsMutating(false)
+
+    if (!response.ok) {
+      setError(response.error?.message ?? 'Failed to send reminder')
+      return
+    }
+  }
+
+  const handleBypassApprover = async (approverId: string, reason: string) => {
+    if (!selectedContractId) {
+      return
+    }
+
+    setIsMutating(true)
+    const response = await contractsClient.action(selectedContractId, {
+      action: 'BYPASS_APPROVAL',
+      approverId,
+      reason: reason.trim(),
     })
     setIsMutating(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to update legal owner')
-      return
+      setError(response.error?.message ?? 'Failed to bypass approval')
+      throw new Error(response.error?.message ?? 'Failed to bypass approval')
     }
 
     applyContractView(response.data)
+    await loadContractContext(selectedContractId)
     await loadContracts()
+    router.refresh()
   }
-
   const handleAddCollaborator = async () => {
-    if (!selectedContractId || !collaboratorEmail.trim()) {
+    if (!selectedContractId || !collaboratorEmail.trim() || isAddingCollaborator) {
       return
     }
 
+    setIsAddingCollaborator(true)
     setIsMutating(true)
     const response = await contractsClient.manageAssignment(selectedContractId, {
       operation: 'add_collaborator',
       collaboratorEmail: collaboratorEmail.trim().toLowerCase(),
     })
     setIsMutating(false)
+    setIsAddingCollaborator(false)
 
     if (!response.ok || !response.data) {
       setError(response.error?.message ?? 'Failed to add legal collaborator')
+      toast.error(response.error?.message ?? 'Failed to add legal collaborator')
       return
     }
 
     setCollaboratorEmail('')
     applyContractView(response.data)
+    toast.success('Collaborator added successfully')
   }
 
   const handleRemoveCollaborator = async (email: string) => {
@@ -717,7 +747,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     return metadata
   }, [selectedContract])
   const canManageLegalWorkSharing = useMemo(() => {
-    if (!(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN')) {
+    if (session.role !== 'LEGAL_TEAM') {
       return false
     }
 
@@ -944,7 +974,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 disabled={Boolean(activeAction) || isMutating}
                 onClick={() => void executeAction(item)}
               >
-                {activeAction === item.action ? 'Processing…' : item.label}
+                {activeAction === item.action ? (
+                  <span className={styles.buttonContent}>
+                    <Spinner size={14} />
+                    Processing…
+                  </span>
+                ) : (
+                  item.label
+                )}
               </button>
             ))}
           </div>
@@ -1155,34 +1192,20 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                           <input
                             type="email"
                             className={styles.input}
-                            placeholder="owner@nxtwave.co.in"
-                            value={ownerEmail}
-                            onChange={(event) => setOwnerEmail(event.target.value)}
-                          />
-                          <button
-                            type="button"
-                            className={styles.button}
-                            disabled={isMutating}
-                            onClick={() => void handleSetOwner()}
-                          >
-                            Set Owner
-                          </button>
-                        </div>
-                        <div className={styles.inlineForm}>
-                          <input
-                            type="email"
-                            className={styles.input}
-                            placeholder="collaborator@nxtwave.co.in"
+                            placeholder="legalmember@nxtwave.co.in"
                             value={collaboratorEmail}
                             onChange={(event) => setCollaboratorEmail(event.target.value)}
                           />
                           <button
                             type="button"
                             className={styles.button}
-                            disabled={isMutating}
+                            disabled={isMutating || isAddingCollaborator}
                             onClick={() => void handleAddCollaborator()}
                           >
-                            Add Collaborator
+                            <span className={styles.buttonContent}>
+                              {isAddingCollaborator ? <Spinner size={14} /> : null}
+                              {isAddingCollaborator ? 'Adding Collaborator…' : 'Add Collaborator'}
+                            </span>
                           </button>
                         </div>
                         <div className={styles.timeline}>
@@ -1209,37 +1232,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
                     {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN') && (
                       <>
-                        <div className={styles.card}>
-                          <div className={styles.sectionTitle}>Additional Approvers</div>
-                          <div className={styles.inlineForm}>
-                            <input
-                              type="email"
-                              className={styles.input}
-                              placeholder="approver@nxtwave.co.in"
-                              value={approverEmail}
-                              onChange={(event) => setApproverEmail(event.target.value)}
-                            />
-                            <button
-                              type="button"
-                              className={styles.button}
-                              disabled={isMutating}
-                              onClick={() => void handleAddApprover()}
-                            >
-                              Add Approver
-                            </button>
-                          </div>
-                          <div className={styles.timeline}>
-                            {approvers.map((approver) => (
-                              <div key={approver.id} className={styles.event}>
-                                <div>
-                                  #{approver.sequenceOrder} {approver.approverEmail}
-                                </div>
-                                <div className={styles.eventMeta}>{approver.status}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
                         <div className={styles.card}>
                           <div className={styles.sectionTitle}>Signatories</div>
                           {selectedContract.status === contractStatuses.completed ? (
@@ -1412,6 +1404,21 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                     }}
                   />
                 )}
+
+                {activeTab === 'approvals' && (
+                  <ApprovalsTab
+                    contract={selectedContract}
+                    approvers={approvers}
+                    isMutating={isMutating}
+                    canManageApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
+                    canBypassApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
+                    approverEmail={approverEmail}
+                    onApproverEmailChange={setApproverEmail}
+                    onAddApprover={handleAddApprover}
+                    onRemindApprover={handleRemindApprover}
+                    onBypassApprover={handleBypassApprover}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -1497,7 +1504,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 }}
                 disabled={Boolean(activeAction)}
               >
-                {activeAction === remarkActionItem.action ? 'Processing…' : 'Submit Remarks'}
+                {activeAction === remarkActionItem.action ? (
+                  <span className={styles.buttonContent}>
+                    <Spinner size={14} />
+                    Processing…
+                  </span>
+                ) : (
+                  'Submit Remarks'
+                )}
               </button>
             </div>
           </div>
@@ -1526,7 +1540,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 }}
                 disabled={Boolean(activeAction)}
               >
-                {activeAction === confirmActionItem.action ? 'Processing…' : 'Confirm'}
+                {activeAction === confirmActionItem.action ? (
+                  <span className={styles.buttonContent}>
+                    <Spinner size={14} />
+                    Processing…
+                  </span>
+                ) : (
+                  'Confirm'
+                )}
               </button>
             </div>
           </div>

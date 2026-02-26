@@ -239,4 +239,56 @@ describe('supabaseContractQueryRepository action permissions', () => {
     expect(eqTenant).toHaveBeenCalledWith('tenant_id', 'tenant-1')
     expect(eqContract).toHaveBeenCalledWith('contract_id', 'contract-1')
   })
+
+  it('allows read access for historical additional approver participant', async () => {
+    const maybeSingle = jest.fn().mockResolvedValue({
+      data: { id: 'approver-row-1' },
+      error: null,
+    })
+    const limit = jest.fn().mockReturnValue({ maybeSingle })
+    const is = jest.fn().mockReturnValue({ limit })
+    const eqApprover = jest.fn().mockReturnValue({ is })
+    const eqContract = jest.fn().mockReturnValue({ eq: eqApprover })
+    const eqTenant = jest.fn().mockReturnValue({ eq: eqContract })
+    const select = jest.fn().mockReturnValue({ eq: eqTenant })
+    const from = jest.fn().mockReturnValue({ select })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const canAccess = await supabaseContractQueryRepository.canAccessContract({
+      tenantId: 'tenant-1',
+      actorEmployeeId: 'employee-1',
+      actorRole: 'USER',
+      contract: {
+        id: 'contract-1',
+        title: 'Contract A',
+        contractTypeId: 'type-1',
+        status: 'COMPLETED',
+        uploadedByEmployeeId: 'poc-1',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+        currentAssigneeEmployeeId: 'legal-1',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        departmentId: 'dept-1',
+        signatoryName: 'Sig Name',
+        signatoryDesignation: 'Manager',
+        signatoryEmail: 'sig@nxtwave.co.in',
+        backgroundOfRequest: 'Need review',
+        budgetApproved: true,
+        requestCreatedAt: new Date().toISOString(),
+        fileName: 'file.docx',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filePath: 'tenant/contract-1/file.docx',
+        rowVersion: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    })
+
+    expect(canAccess).toBe(true)
+    expect(from).toHaveBeenCalledWith('contract_additional_approvers')
+    expect(eqTenant).toHaveBeenCalledWith('tenant_id', 'tenant-1')
+    expect(eqContract).toHaveBeenCalledWith('contract_id', 'contract-1')
+    expect(eqApprover).toHaveBeenCalledWith('approver_employee_id', 'employee-1')
+  })
 })

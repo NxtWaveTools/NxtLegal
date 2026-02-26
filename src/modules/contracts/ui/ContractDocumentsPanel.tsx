@@ -2,6 +2,8 @@
 
 import { useMemo, useRef, useState } from 'react'
 import { contractsClient, type ContractDocument } from '@/core/client/contracts-client'
+import Spinner from '@/components/ui/Spinner'
+import { toast } from 'sonner'
 import workspaceStyles from '@/modules/contracts/ui/contracts-workspace.module.css'
 
 type ContractDocumentsPanelProps = {
@@ -128,7 +130,10 @@ const ActiveVersionCard = (props: {
             onClick={props.onReplace}
             disabled={props.isReplacing}
           >
-            {props.isReplacing ? 'Replacing…' : 'Replace Document'}
+            <span className={workspaceStyles.buttonContent}>
+              {props.isReplacing ? <Spinner size={14} /> : null}
+              {props.isReplacing ? 'Replacing…' : 'Replace Document'}
+            </span>
           </button>
         ) : null}
       </div>
@@ -277,12 +282,14 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
 
     if (!response.ok) {
       setError(response.error?.message ?? 'Failed to replace document')
+      toast.error(response.error?.message ?? 'Failed to replace document')
       setIsReplacing(false)
       return
     }
 
     setError(null)
     await onRefreshDocuments()
+    toast.success('Document version uploaded successfully')
     setIsReplacing(false)
   }
 

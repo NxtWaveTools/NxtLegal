@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import {
   type AdminAuditLogItem,
   adminClient,
@@ -14,6 +15,7 @@ import {
 import { routeRegistry } from '@/core/config/route-registry'
 import { adminSectionRegistry } from '@/core/config/admin-section-registry'
 import type { AdminSectionKey } from '@/core/constants/admin-sections'
+import Spinner from '@/components/ui/Spinner'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import TeamManagementSection from '@/modules/admin/ui/sections/TeamManagementSection'
 import UserManagementSection from '@/modules/admin/ui/sections/UserManagementSection'
@@ -241,6 +243,7 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
     const response = await adminClient.systemConfiguration()
     if (!response.ok || !response.data) {
       setToastMessage(response.error?.message ?? 'Failed to load system configuration')
+      toast.error(response.error?.message ?? 'Failed to load system configuration')
       return
     }
 
@@ -276,6 +279,7 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
 
         if (!response.ok || !response.data) {
           setToastMessage(response.error?.message ?? 'Failed to load audit logs')
+          toast.error(response.error?.message ?? 'Failed to load audit logs')
           return
         }
 
@@ -382,6 +386,7 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
 
       if (!response.ok || !response.data) {
         setToastMessage(response.error?.message ?? 'Department creation failed')
+        toast.error(response.error?.message ?? 'Department creation failed')
         return
       }
 
@@ -391,6 +396,7 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
       setReason('')
       await refreshAdminData()
       setToastMessage('Department created. Access will be granted on next Microsoft login for mapped emails.')
+      toast.success('Department created successfully')
     } finally {
       setIsSubmittingCreate(false)
     }
@@ -411,6 +417,7 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
 
       if (!response.ok || !response.data) {
         setToastMessage(response.error?.message ?? 'Role replacement failed')
+        toast.error(response.error?.message ?? 'Role replacement failed')
         return
       }
 
@@ -418,6 +425,7 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
       setReason('')
       await refreshAdminData()
       setToastMessage('Primary role mapping replaced. Old email access is revoked immediately.')
+      toast.success('Primary role replaced successfully')
     } finally {
       setIsSubmittingReplace(false)
     }
@@ -439,6 +447,7 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
 
       if (!response.ok || !response.data) {
         setToastMessage(response.error?.message ?? 'User creation failed')
+        toast.error(response.error?.message ?? 'User creation failed')
         return
       }
 
@@ -446,6 +455,7 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
       setNewUserFullName('')
       await refreshAdminData()
       setToastMessage('User created with default development password: Password@123')
+      toast.success('User created successfully')
     } finally {
       setIsSubmittingUserCreate(false)
     }
@@ -461,11 +471,13 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
       const response = await adminClient.setUserStatus(selectedUser.id, { isActive })
       if (!response.ok || !response.data) {
         setToastMessage(response.error?.message ?? 'Failed to update user status')
+        toast.error(response.error?.message ?? 'Failed to update user status')
         return
       }
 
       await refreshAdminData()
       setToastMessage(`User ${isActive ? 'activated' : 'deactivated'} successfully.`)
+      toast.success(`User ${isActive ? 'activated' : 'deactivated'} successfully`)
     } finally {
       setIsSubmittingStatus(false)
     }
@@ -485,11 +497,13 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
 
       if (!response.ok || !response.data) {
         setToastMessage(response.error?.message ?? 'Failed to assign department role')
+        toast.error(response.error?.message ?? 'Failed to assign department role')
         return
       }
 
       await refreshAdminData()
       setToastMessage('Department role assigned successfully.')
+      toast.success('Department role assigned successfully')
     } finally {
       setIsSubmittingAssignment(false)
     }
@@ -512,11 +526,13 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
 
       if (!response.ok || !response.data) {
         setToastMessage(response.error?.message ?? 'Failed to update legal assignment matrix')
+        toast.error(response.error?.message ?? 'Failed to update legal assignment matrix')
         return
       }
 
       await refreshAdminData()
       setToastMessage('Legal user mapped successfully.')
+      toast.success('Legal assignment matrix updated successfully')
     } finally {
       setIsSubmittingLegalMatrix(false)
     }
@@ -536,11 +552,13 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
 
       if (!response.ok || !response.data) {
         setToastMessage(response.error?.message ?? 'Failed to update user role')
+        toast.error(response.error?.message ?? 'Failed to update user role')
         return
       }
 
       await refreshAdminData()
       setToastMessage(`Role ${roleOperation} operation applied successfully.`)
+      toast.success('Role change applied successfully')
     } finally {
       setIsSubmittingRoleChange(false)
     }
@@ -562,12 +580,14 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
 
       if (!response.ok || !response.data) {
         setToastMessage(response.error?.message ?? 'Failed to update system configuration')
+        toast.error(response.error?.message ?? 'Failed to update system configuration')
         return
       }
 
       setSystemConfiguration(response.data.config)
       setSystemConfigurationReason('')
       setToastMessage('System configuration updated successfully.')
+      toast.success('System configuration saved successfully')
     } finally {
       setIsSubmittingSystemConfig(false)
     }
@@ -908,7 +928,12 @@ export default function AdminConsoleClient({ activeSection, session }: AdminCons
                     isSubmittingReplace || isSubmittingStatus || isSubmittingAssignment || isSubmittingLegalMatrix
                   }
                 >
-                  {confirmationText.confirmLabel}
+                  <span className={styles.buttonContent}>
+                    {isSubmittingReplace || isSubmittingStatus || isSubmittingAssignment || isSubmittingLegalMatrix ? (
+                      <Spinner size={14} />
+                    ) : null}
+                    {confirmationText.confirmLabel}
+                  </span>
                 </button>
               </div>
             </div>

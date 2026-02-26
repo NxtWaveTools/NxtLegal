@@ -1909,6 +1909,8 @@ export type Database = {
       create_contract_with_audit: {
         Args: {
           p_background_of_request: string
+          p_bypass_hod_approval: boolean
+          p_bypass_reason: string | null
           p_budget_approved: boolean
           p_contract_id: string
           p_contract_type_id: string
@@ -1922,6 +1924,7 @@ export type Database = {
           p_signatory_name: string
           p_tenant_id: string
           p_title: string
+          p_upload_mode: string
           p_uploaded_by_email: string
           p_uploaded_by_employee_id: string
           p_uploaded_by_role: string
@@ -1986,6 +1989,7 @@ export type Database = {
         | "CONTRACT_APPROVER_APPROVED"
         | "TEAM_MEMBER_REASSIGNED"
         | "CONTRACT_APPROVER_REJECTED"
+        | "CONTRACT_APPROVER_BYPASSED"
         | "CONTRACT_SIGNATORY_ADDED"
         | "CONTRACT_SIGNATORY_SENT"
         | "CONTRACT_SIGNATORY_DELIVERED"
@@ -2135,6 +2139,7 @@ export const Constants = {
         "CONTRACT_APPROVER_APPROVED",
         "TEAM_MEMBER_REASSIGNED",
         "CONTRACT_APPROVER_REJECTED",
+        "CONTRACT_APPROVER_BYPASSED",
         "CONTRACT_SIGNATORY_ADDED",
         "CONTRACT_SIGNATORY_SENT",
         "CONTRACT_SIGNATORY_DELIVERED",

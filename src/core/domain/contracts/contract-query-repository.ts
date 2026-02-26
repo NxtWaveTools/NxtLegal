@@ -44,7 +44,13 @@ export type ContractListItem = {
   updatedAt: string
 }
 
-export type DashboardContractFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD'
+export type DashboardContractFilter =
+  | 'ALL'
+  | 'HOD_PENDING'
+  | 'UNDER_REVIEW'
+  | 'COMPLETED'
+  | 'ON_HOLD'
+  | 'ASSIGNED_TO_ME'
 
 export type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 export type RepositorySortDirection = 'asc' | 'desc'
@@ -170,7 +176,7 @@ export type ContractAdditionalApprover = {
   approverEmployeeId: string
   approverEmail: string
   sequenceOrder: number
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
   approvedAt: string | null
 }
 
@@ -254,6 +260,12 @@ export type ContractNotificationFailure = {
   lastError: string | null
   createdAt: string
   updatedAt: string
+}
+
+export type ContractNotificationDeliverySummary = {
+  id: string
+  createdAt: string
+  status: ContractNotificationStatus
 }
 
 export type AdditionalApproverDecisionHistoryItem = {
@@ -382,6 +394,15 @@ export interface ContractQueryRepository {
     actorEmail: string
     approverEmail: string
   }): Promise<void>
+  bypassAdditionalApprover(params: {
+    tenantId: string
+    contractId: string
+    approverId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    reason: string
+  }): Promise<void>
   setLegalOwnerByEmail(params: {
     tenantId: string
     contractId: string
@@ -482,6 +503,12 @@ export interface ContractQueryRepository {
     contractTitle: string
     recipientEmails: string[]
   } | null>
+  getLatestNotificationDelivery(params: {
+    tenantId: string
+    contractId: string
+    recipientEmail: string
+    notificationType: ContractNotificationType
+  }): Promise<ContractNotificationDeliverySummary | null>
   recordContractNotificationDelivery(params: {
     tenantId: string
     contractId: string

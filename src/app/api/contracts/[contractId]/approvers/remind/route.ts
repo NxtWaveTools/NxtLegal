@@ -3,8 +3,9 @@ import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
-import { getContractApprovalNotificationService, getContractQueryService } from '@/core/registry/service-registry'
-import { contractApproverSchema } from '@/core/domain/contracts/schemas'
+import { contractNotificationPolicy } from '@/core/constants/contracts'
+import { contractApproverReminderSchema } from '@/core/domain/contracts/schemas'
+import { getContractApprovalNotificationService } from '@/core/registry/service-registry'
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
   try {
@@ -17,35 +18,41 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       return NextResponse.json(errorResponse('CONTRACT_ID_REQUIRED', 'Contract ID is required'), { status: 400 })
     }
 
-    const payload = contractApproverSchema.parse(await request.json())
-    const contractQueryService = getContractQueryService()
-    const contractView = await contractQueryService.addAdditionalApprover({
-      tenantId: session.tenantId,
-      contractId,
-      actorEmployeeId: session.employeeId,
-      actorRole: session.role,
-      actorEmail: session.email ?? '',
-      approverEmail: payload.approverEmail,
-    })
-
+    const payload = contractApproverReminderSchema.parse(await request.json())
     const contractApprovalNotificationService = getContractApprovalNotificationService()
-    await contractApprovalNotificationService.notifyAdditionalApproverAdded({
+
+    const result = await contractApprovalNotificationService.remindPendingApprover({
       tenantId: session.tenantId,
       contractId,
       actorEmployeeId: session.employeeId,
       actorRole: session.role,
-      approverEmail: payload.approverEmail,
+      requestedApproverEmail: payload.approverEmail,
     })
 
-    return NextResponse.json(okResponse(contractView))
+    if (result.blockedByCooldown) {
+      return NextResponse.json(
+        errorResponse(
+          'REMINDER_COOLDOWN_ACTIVE',
+          `Reminder already sent in last ${contractNotificationPolicy.approvalReminderCooldownHours} hours`
+        ),
+        { status: 429 }
+      )
+    }
+
+    return NextResponse.json(
+      okResponse({
+        remindedApproverEmail: result.recipientEmail,
+        remindedApproverRole: result.recipientRole,
+      })
+    )
   } catch (error) {
     if (error instanceof ZodError) {
-      return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Invalid approver payload'), { status: 400 })
+      return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Invalid reminder payload'), { status: 400 })
     }
 
     const status = isAppError(error) ? error.statusCode : 500
     const code = isAppError(error) ? error.code : 'INTERNAL_ERROR'
-    const message = isAppError(error) ? error.message : 'Failed to add additional approver'
+    const message = isAppError(error) ? error.message : 'Failed to send reminder'
 
     return NextResponse.json(errorResponse(code, message), { status })
   }

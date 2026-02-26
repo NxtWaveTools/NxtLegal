@@ -52,6 +52,7 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   getAvailableActions: jest.fn(),
   applyAction: jest.fn(),
   addAdditionalApprover: jest.fn(),
+  bypassAdditionalApprover: jest.fn(),
   setLegalOwnerByEmail: jest.fn(),
   addLegalCollaboratorByEmail: jest.fn(),
   removeLegalCollaboratorByEmail: jest.fn(),
@@ -67,6 +68,7 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   markSignatoryAsSigned: jest.fn(),
   listFailedNotificationDeliveries: jest.fn(),
   getEnvelopeNotificationProfile: jest.fn(),
+  getLatestNotificationDelivery: jest.fn(),
   recordContractNotificationDelivery: jest.fn(),
   addContractNote: jest.fn(),
   addContractActivityMessage: jest.fn(),
@@ -354,6 +356,71 @@ describe('ContractQueryService', () => {
     })
 
     expect(repository.applyAction).not.toHaveBeenCalled()
+  })
+
+  it('restricts individual approval bypass to LEGAL_TEAM or ADMIN', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    await expect(
+      service.bypassAdditionalApprover({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        approverId: 'approver-row-1',
+        actorEmployeeId: 'user-1',
+        actorRole: 'HOD',
+        actorEmail: 'hod@nxtwave.co.in',
+        reason: 'Need to continue legal processing',
+      })
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_ACTION_FORBIDDEN',
+    })
+
+    expect(repository.bypassAdditionalApprover).not.toHaveBeenCalled()
+  })
+
+  it('delegates individual approval bypass and returns refreshed detail view', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    const updatedContract: ContractDetail = {
+      ...baseContract,
+      status: 'UNDER_REVIEW',
+      currentAssigneeEmployeeId: 'legal-1',
+      currentAssigneeEmail: 'legalteam@nxtwave.co.in',
+      rowVersion: 2,
+    }
+
+    repository.bypassAdditionalApprover.mockResolvedValue(undefined)
+    repository.getById.mockResolvedValue(updatedContract)
+    repository.canAccessContract.mockResolvedValue(true)
+    repository.getCounterparties.mockResolvedValue([])
+    repository.getDocuments.mockResolvedValue([])
+    repository.getAvailableActions.mockResolvedValue([])
+    repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getLegalCollaborators.mockResolvedValue([])
+    repository.getSignatories.mockResolvedValue([])
+
+    const result = await service.bypassAdditionalApprover({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      approverId: 'approver-row-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      actorEmail: 'legalteam@nxtwave.co.in',
+      reason: 'Approver is unavailable and SLA is at risk',
+    })
+
+    expect(repository.bypassAdditionalApprover).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      approverId: 'approver-row-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      actorEmail: 'legalteam@nxtwave.co.in',
+      reason: 'Approver is unavailable and SLA is at risk',
+    })
+    expect(result.contract.status).toBe('UNDER_REVIEW')
   })
 
   it('saves signing preparation draft when contract is completed', async () => {

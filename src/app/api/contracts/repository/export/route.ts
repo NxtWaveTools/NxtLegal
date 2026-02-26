@@ -15,6 +15,7 @@ import { repositoryExportQuerySchema } from '@/core/domain/contracts/schemas'
 import type { RepositoryExportColumn } from '@/core/domain/contracts/contract-query-repository'
 
 const defaultColumns = Object.values(contractRepositoryExportColumns) as RepositoryExportColumn[]
+const repositoryReportingAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'])
 
 const toLabeledRows = (rows: Record<string, string | number>[], columns: RepositoryExportColumn[]) =>
   rows.map((row) => {
@@ -81,6 +82,13 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
   try {
     if (!session.tenantId) {
       return NextResponse.json(errorResponse('SESSION_INVALID', 'Session tenant is required'), { status: 401 })
+    }
+
+    const normalizedRole = (session.role ?? '').toUpperCase()
+    if (!repositoryReportingAllowedRoles.has(normalizedRole)) {
+      return NextResponse.json(errorResponse('FORBIDDEN', 'You are not allowed to export repository reports'), {
+        status: 403,
+      })
     }
 
     const queryParams = Object.fromEntries(request.nextUrl.searchParams.entries())

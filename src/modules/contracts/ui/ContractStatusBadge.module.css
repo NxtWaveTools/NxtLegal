@@ -22,25 +22,40 @@
 
 /* Pending states */
 .hodPending,
-.legalPending {
+.pendingExternal {
   background: var(--color-accent-soft);
   color: var(--color-accent);
 }
 
-/* HOD approved — accent tinted */
-.hodApproved {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+/* Under review / pending internal */
+.underReview,
+.pendingInternal {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
 }
 
-/* Final approved — green */
-.finalApproved {
+/* Offline execution */
+.offlineExecution {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+/* On hold */
+.onHold {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+/* Completed / executed */
+.completed,
+.executed {
   background: var(--color-success-soft);
   color: var(--color-success);
 }
 
-/* Legal query / Rejected — soft red */
-.legalQuery {
+/* Voided / rejected */
+.voided,
+.rejected {
   background: var(--color-danger-soft);
   color: var(--color-danger);
 }

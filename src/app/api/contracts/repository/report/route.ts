@@ -6,10 +6,19 @@ import { isAppError } from '@/core/http/errors'
 import { getContractQueryService } from '@/core/registry/service-registry'
 import { repositoryReportingQuerySchema } from '@/core/domain/contracts/schemas'
 
+const repositoryReportingAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'])
+
 const GETHandler = withAuth(async (request: NextRequest, { session }) => {
   try {
     if (!session.tenantId) {
       return NextResponse.json(errorResponse('SESSION_INVALID', 'Session tenant is required'), { status: 401 })
+    }
+
+    const normalizedRole = (session.role ?? '').toUpperCase()
+    if (!repositoryReportingAllowedRoles.has(normalizedRole)) {
+      return NextResponse.json(errorResponse('FORBIDDEN', 'You are not allowed to access repository reporting'), {
+        status: 403,
+      })
     }
 
     const queryParams = Object.fromEntries(request.nextUrl.searchParams.entries())

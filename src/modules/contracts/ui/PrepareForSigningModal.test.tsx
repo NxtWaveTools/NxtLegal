@@ -92,7 +92,7 @@ describe('PrepareForSigningModal', () => {
 
     await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
 
-    expect(screen.getByRole('button', { name: 'Review & Send' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Review & Send' }).hasAttribute('disabled')).toBe(true)
     expect(sendSpy).not.toHaveBeenCalled()
   })
 

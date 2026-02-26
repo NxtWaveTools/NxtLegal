@@ -8,6 +8,8 @@ type ChooseFilesStepProps = {
   mainFile: File | null
   errorMessage: string | null
   isDragging: boolean
+  acceptedExtensionsLabel: string
+  acceptedFileTypes: string
   onFileSelected: (file: File) => void
   onFileRemoved: () => void
   onDragOver: (event: DragEvent<HTMLDivElement>) => void
@@ -19,6 +21,8 @@ export default function ChooseFilesStep({
   mainFile,
   errorMessage,
   isDragging,
+  acceptedExtensionsLabel,
+  acceptedFileTypes,
   onFileSelected,
   onFileRemoved,
   onDragOver,
@@ -28,7 +32,7 @@ export default function ChooseFilesStep({
   return (
     <div>
       <div className={styles.sectionTitle}>Choose Files</div>
-      <p className={styles.helperText}>Only Word (.docx) files allowed. One main document only.</p>
+      <p className={styles.helperText}>Only {acceptedExtensionsLabel} files allowed. One main document only.</p>
       <div
         className={`${styles.dropzone} ${isDragging ? styles.dropzoneActive : ''}`}
         onDragOver={onDragOver}
@@ -43,7 +47,7 @@ export default function ChooseFilesStep({
           id="main-contract-upload"
           className={styles.hiddenInput}
           type="file"
-          accept=".docx"
+          accept={acceptedFileTypes}
           onChange={(event) => {
             const file = event.target.files?.[0]
             if (file) {

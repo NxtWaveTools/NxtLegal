@@ -1,5 +1,6 @@
 import { routeRegistry } from '@/core/config/route-registry'
 import type { ApiResponse } from '@/core/http/response'
+import type { ContractUploadMode } from '@/core/constants/contracts'
 
 type ContractActionName =
   | 'hod.approve'
@@ -18,6 +19,8 @@ type ContractActionName =
   | 'legal.query.reroute'
   | 'approver.approve'
   | 'approver.reject'
+
+type ContractBypassApprovalActionName = 'BYPASS_APPROVAL'
 
 type ContractRecord = {
   id: string
@@ -85,7 +88,7 @@ type ContractDocument = {
   createdAt: string
 }
 
-type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD'
+type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD' | 'ASSIGNED_TO_ME'
 
 type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 type RepositorySortDirection = 'asc' | 'desc'
@@ -179,8 +182,13 @@ type ContractAdditionalApprover = {
   approverEmployeeId: string
   approverEmail: string
   sequenceOrder: number
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
   approvedAt: string | null
+}
+
+type ContractApproverReminderResponse = {
+  remindedApproverEmail: string
+  remindedApproverRole: 'HOD' | 'ADDITIONAL'
 }
 
 type ContractLegalCollaborator = {
@@ -247,7 +255,6 @@ type ContractDetailResponse = {
 }
 
 type LegalAssignmentPayload =
-  | { operation: 'set_owner'; ownerEmail: string }
   | { operation: 'add_collaborator'; collaboratorEmail: string }
   | { operation: 'remove_collaborator'; collaboratorEmail: string }
 
@@ -711,6 +718,9 @@ export const contractsClient = {
     backgroundOfRequest?: string
     departmentId?: string
     budgetApproved?: boolean
+    uploadMode?: ContractUploadMode
+    bypassHodApproval?: boolean
+    bypassReason?: string
     file: File
     supportingFiles?: File[]
     idempotencyKey: string
@@ -735,6 +745,15 @@ export const contractsClient = {
     }
     if (typeof params.budgetApproved === 'boolean') {
       formData.set('budgetApproved', String(params.budgetApproved))
+    }
+    if (params.uploadMode) {
+      formData.set('uploadMode', params.uploadMode)
+    }
+    if (typeof params.bypassHodApproval === 'boolean') {
+      formData.set('bypassHodApproval', String(params.bypassHodApproval))
+    }
+    if (params.bypassReason?.trim()) {
+      formData.set('bypassReason', params.bypassReason.trim())
     }
     if (params.counterpartyName?.trim()) {
       formData.set('counterpartyName', params.counterpartyName.trim())
@@ -801,7 +820,12 @@ export const contractsClient = {
     return parseApiResponse<{ document: ContractDocument }>(response)
   },
 
-  async action(contractId: string, payload: { action: ContractActionName; noteText?: string }) {
+  async action(
+    contractId: string,
+    payload:
+      | { action: ContractActionName; noteText?: string }
+      | { action: ContractBypassApprovalActionName; approverId: string; reason: string }
+  ) {
     const response = await fetch(resolveContractPath(routeRegistry.api.contracts.action, contractId), {
       method: 'POST',
       credentials: 'include',
@@ -838,6 +862,19 @@ export const contractsClient = {
     })
 
     return parseApiResponse<ContractDetailResponse>(response)
+  },
+
+  async remindApprover(contractId: string, payload?: { approverEmail?: string }) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.approverReminder, contractId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ approverEmail: payload?.approverEmail }),
+    })
+
+    return parseApiResponse<ContractApproverReminderResponse>(response)
   },
 
   async manageAssignment(contractId: string, payload: LegalAssignmentPayload) {
@@ -980,6 +1017,7 @@ export type {
   ContractActionName,
   ContractAllowedAction,
   ContractAdditionalApprover,
+  ContractApproverReminderResponse,
   ContractLegalCollaborator,
   ContractSignatory,
   ContractSigningPreparationDraft,

@@ -15,6 +15,8 @@ type ReviewStepProps = {
   signatoryEmail: string
   backgroundOfRequest: string
   budgetApproved: boolean
+  bypassHodApproval?: boolean
+  bypassReason?: string
   organizationEntity: string
 }
 
@@ -28,6 +30,8 @@ export default function ReviewStep({
   signatoryEmail,
   backgroundOfRequest,
   budgetApproved,
+  bypassHodApproval = false,
+  bypassReason,
   organizationEntity,
 }: ReviewStepProps) {
   return (
@@ -72,6 +76,16 @@ export default function ReviewStep({
         <span>Budget Approved</span>
         <span>{budgetApproved ? 'Yes' : 'No'}</span>
       </div>
+      <div className={styles.summaryRow}>
+        <span>Bypass HOD Approval</span>
+        <span>{bypassHodApproval ? 'Yes' : 'No'}</span>
+      </div>
+      {bypassHodApproval ? (
+        <div className={styles.summaryRow}>
+          <span>Bypass Reason</span>
+          <span>{bypassReason || 'Not set'}</span>
+        </div>
+      ) : null}
       <div className={styles.summaryRow}>
         <span>Background</span>
         <span>{backgroundOfRequest || 'Not set'}</span>

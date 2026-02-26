@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import {
@@ -156,6 +157,12 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
                       {item.decision}
                     </span>
                     <span className={styles.statusLabel}>{item.contractDisplayStatusLabel}</span>
+                    <Link
+                      href={contractsClient.resolveProtectedContractPath(item.contractId)}
+                      className={styles.openButton}
+                    >
+                      Open
+                    </Link>
                   </div>
                 </article>
               ))}

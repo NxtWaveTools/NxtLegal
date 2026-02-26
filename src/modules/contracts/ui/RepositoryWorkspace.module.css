@@ -100,12 +100,52 @@
   gap: 8px;
 }
 
+.exportConfigurator {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-muted);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.exportConfiguratorHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.exportConfiguratorTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.exportConfiguratorHint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.exportConfiguratorActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .exportColumnItem {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 12px;
   color: var(--color-text-muted);
+}
+
+.exportColumnItem input {
+  accent-color: var(--color-accent);
 }
 
 .reportingGrid {
@@ -193,6 +233,28 @@
 
 .sortButton:hover {
   color: var(--color-accent);
+}
+
+.contractTitleAction {
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.contractTitleAction:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.contractTitleAction:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .row {
@@ -316,6 +378,33 @@
   white-space: nowrap;
 }
 
+.assignedToWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 280px;
+}
+
+.assignedToPrimary {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assignedToMore {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+}
+
 .muted {
   color: var(--color-text-muted);
 }
@@ -355,9 +444,81 @@
   cursor: not-allowed;
 }
 
+.primaryButton {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  box-shadow: 0 4px 12px rgba(47, 109, 246, 0.25);
+}
+
 .empty {
   padding: 24px;
   color: var(--color-text-muted);
+}
+
+.viewerOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 20px;
+}
+
+.viewerModal {
+  width: min(1320px, 98vw);
+  height: min(92vh, 960px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--color-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.viewerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.viewerTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.viewerBody {
+  flex: 1;
+  min-height: 0;
+  background: var(--color-surface-muted);
+}
+
+.viewerFrame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: var(--color-surface);
+}
+
+.viewerFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--color-border);
 }
 
 /* ── Shimmer Skeleton Table ── */

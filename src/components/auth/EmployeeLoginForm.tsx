@@ -1,6 +1,7 @@
 'use client'
 
 import { limits } from '@/core/constants/limits'
+import Spinner from '@/components/ui/Spinner'
 import { useEmployeeLogin } from '@/modules/auth/ui/use-employee-login'
 
 export default function EmployeeLoginForm() {
@@ -32,9 +33,10 @@ export default function EmployeeLoginForm() {
       />
       <button
         onClick={submit}
-        className="bg-black text-white p-3 rounded font-medium hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed"
+        className="bg-black text-white p-3 rounded font-medium hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
         disabled={loading}
       >
+        {loading ? <Spinner size={14} /> : null}
         {loading ? 'Signing in...' : 'Login with Email'}
       </button>
     </div>

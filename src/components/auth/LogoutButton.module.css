@@ -22,3 +22,16 @@
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(220, 38, 38, 0.1);
 }
+
+.button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.content {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

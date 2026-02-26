@@ -45,12 +45,21 @@ export const contractWorkflowRoles = {
   system: 'SYSTEM',
 } as const
 
+export const contractUploadModes = {
+  default: 'DEFAULT',
+  legalSendForSigning: 'LEGAL_SEND_FOR_SIGNING',
+} as const
+
+export type ContractUploadMode = (typeof contractUploadModes)[keyof typeof contractUploadModes]
+
+export const contractWorkflowIdentities = {
+  legalDepartmentName: 'Legal and Compliance',
+  legalHodEmail: 'legalhod@nxtwave.co.in',
+} as const
+
 export type ContractWorkflowRole = (typeof contractWorkflowRoles)[keyof typeof contractWorkflowRoles]
 
-export const contractLegalAssignmentAllowedRoles = [
-  contractWorkflowRoles.legalTeam,
-  contractWorkflowRoles.admin,
-] as const
+export const contractLegalAssignmentAllowedRoles = [contractWorkflowRoles.legalTeam] as const
 
 export const contractLegalAssignmentEditableStatuses: ContractStatus[] = [
   contractStatuses.underReview,
@@ -98,7 +107,7 @@ export const contractDocumentVersioning = {
 } as const
 
 export const contractDocumentUploadRules = {
-  initialAllowedRoles: [contractWorkflowRoles.poc] as const,
+  initialAllowedRoles: [contractWorkflowRoles.poc, contractWorkflowRoles.legalTeam] as const,
   replacementAllowedRoles: [contractWorkflowRoles.legalTeam] as const,
   initialAllowedMimeTypes: [contractDocumentMimeTypes.docx] as const,
   replacementAllowedMimeTypes: [contractDocumentMimeTypes.docx, contractDocumentMimeTypes.pdf] as const,
@@ -154,6 +163,14 @@ export type ContractNotificationChannel =
 export const contractNotificationTypes = {
   signatoryLink: 'SIGNATORY_LINK',
   signingCompleted: 'SIGNING_COMPLETED',
+  hodApprovalRequested: 'HOD_APPROVAL_REQUESTED',
+  approvalReminder: 'APPROVAL_REMINDER',
+  additionalApproverAdded: 'ADDITIONAL_APPROVER_ADDED',
+  legalInternalAssignment: 'LEGAL_INTERNAL_ASSIGNMENT',
+  legalApprovalReceivedHod: 'LEGAL_APPROVAL_RECEIVED_HOD',
+  legalApprovalReceivedAdditional: 'LEGAL_APPROVAL_RECEIVED_ADDITIONAL',
+  legalReturnedToHod: 'LEGAL_RETURNED_TO_HOD',
+  legalContractRejected: 'LEGAL_CONTRACT_REJECTED',
 } as const
 
 export type ContractNotificationType = (typeof contractNotificationTypes)[keyof typeof contractNotificationTypes]
@@ -169,6 +186,7 @@ export type ContractNotificationStatus =
 export const contractNotificationPolicy = {
   maxRetries: 2,
   retryBaseDelayMinutes: 1,
+  approvalReminderCooldownHours: 24,
 } as const
 
 export const contractAuditEvents = {
@@ -180,6 +198,7 @@ export const contractAuditEvents = {
   signatoryCompleted: 'CONTRACT_SIGNATORY_COMPLETED',
   signatoryDeclined: 'CONTRACT_SIGNATORY_DECLINED',
   signatoryExpired: 'CONTRACT_SIGNATORY_EXPIRED',
+  approverBypassed: 'CONTRACT_APPROVER_BYPASSED',
 } as const
 
 export const contractAuditActions = {
@@ -191,6 +210,7 @@ export const contractAuditActions = {
   signatoryCompleted: 'contract.signatory.completed',
   signatoryDeclined: 'contract.signatory.declined',
   signatoryExpired: 'contract.signatory.expired',
+  approverBypassed: 'contract.approver.bypassed',
 } as const
 
 export const contractStatusLabels: Record<ContractStatus, string> = {
@@ -204,7 +224,7 @@ export const contractStatusLabels: Record<ContractStatus, string> = {
   ON_HOLD: 'On Hold',
   COMPLETED: 'Completed',
   EXECUTED: 'Executed',
-  VOID: 'Void Documents',
+  VOID: 'Voided',
   REJECTED: 'Rejected',
 }
 
@@ -234,7 +254,7 @@ export const contractRepositoryStatusLabels: Record<ContractRepositoryStatus, st
   PENDING_WITH_EXTERNAL_STAKEHOLDERS: 'Pending with External Stakeholders',
   PENDING_WITH_INTERNAL_STAKEHOLDERS: 'Pending with Internal Stakeholders',
   ON_HOLD: 'On Hold',
-  VOID: 'Void Documents',
+  VOID: 'Voided',
   REJECTED: 'Rejected',
   COMPLETED: 'Completed',
   EXECUTED: 'Executed',

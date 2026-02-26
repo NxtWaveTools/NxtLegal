@@ -22,13 +22,19 @@ type AdditionalDataStepProps = {
   backgroundOfRequest: string
   departmentId: string
   departments: Array<{ id: string; name: string }>
+  isDepartmentLocked?: boolean
+  lockedDepartmentName?: string
   budgetApproved: boolean
+  bypassHodApproval?: boolean
+  bypassReason?: string
   onSignatoryNameChange: (value: string) => void
   onSignatoryDesignationChange: (value: string) => void
   onSignatoryEmailChange: (value: string) => void
   onBackgroundOfRequestChange: (value: string) => void
   onDepartmentIdChange: (value: string) => void
   onBudgetApprovedChange: (value: boolean) => void
+  onBypassHodApprovalChange?: (value: boolean) => void
+  onBypassReasonChange?: (value: string) => void
   onSupportingFilesSelected: (counterpartyIndex: number, files: File[]) => void
   onSupportingFileRemoved: (counterpartyIndex: number, fileIndex: number) => void
 }
@@ -49,13 +55,19 @@ export default function AdditionalDataStep({
   backgroundOfRequest,
   departmentId,
   departments,
+  isDepartmentLocked = false,
+  lockedDepartmentName,
   budgetApproved,
+  bypassHodApproval = false,
+  bypassReason = '',
   onSignatoryNameChange,
   onSignatoryDesignationChange,
   onSignatoryEmailChange,
   onBackgroundOfRequestChange,
   onDepartmentIdChange,
   onBudgetApprovedChange,
+  onBypassHodApprovalChange,
+  onBypassReasonChange,
   onSupportingFilesSelected,
   onSupportingFileRemoved,
 }: AdditionalDataStepProps) {
@@ -96,20 +108,59 @@ export default function AdditionalDataStep({
             <label className={styles.label} htmlFor="department-id">
               Department*
             </label>
-            <select
-              id="department-id"
-              className={styles.select}
-              value={departmentId}
-              onChange={(event) => onDepartmentIdChange(event.target.value)}
-            >
-              <option value="">Select department</option>
-              {departments.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.name}
-                </option>
-              ))}
-            </select>
+            {isDepartmentLocked ? (
+              <input id="department-id" className={styles.input} value={lockedDepartmentName || 'Locked'} readOnly />
+            ) : (
+              <select
+                id="department-id"
+                className={styles.select}
+                value={departmentId}
+                onChange={(event) => onDepartmentIdChange(event.target.value)}
+              >
+                <option value="">Select department</option>
+                {departments.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
+
+          {onBypassHodApprovalChange ? (
+            <>
+              <div className={styles.fieldGroup}>
+                <label className={styles.label} htmlFor="bypass-hod-approval">
+                  Bypass HOD Approval
+                </label>
+                <select
+                  id="bypass-hod-approval"
+                  className={styles.select}
+                  value={bypassHodApproval ? 'true' : 'false'}
+                  onChange={(event) => onBypassHodApprovalChange(event.target.value === 'true')}
+                >
+                  <option value="false">No</option>
+                  <option value="true">Yes</option>
+                </select>
+              </div>
+
+              {bypassHodApproval && onBypassReasonChange ? (
+                <div className={styles.fieldGroup}>
+                  <label className={styles.label} htmlFor="bypass-reason">
+                    Bypass Reason*
+                  </label>
+                  <textarea
+                    id="bypass-reason"
+                    className={styles.input}
+                    value={bypassReason}
+                    onChange={(event) => onBypassReasonChange(event.target.value)}
+                    placeholder="Enter mandatory bypass justification"
+                    rows={3}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
 
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="signatory-name">

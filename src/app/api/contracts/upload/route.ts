@@ -1,9 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { getContractUploadService, getIdempotencyService } from '@/core/registry/service-registry'
+import {
+  getContractApprovalNotificationService,
+  getContractUploadService,
+  getIdempotencyService,
+} from '@/core/registry/service-registry'
 import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { logger } from '@/core/infra/logging/logger'
 import { isAppError } from '@/core/http/errors'
+import { createServiceSupabase } from '@/lib/supabase/service'
+import { contractUploadModes, contractWorkflowIdentities, contractWorkflowRoles } from '@/core/constants/contracts'
 import { z } from 'zod'
 
 const uploadContractFormSchema = z.object({
@@ -21,11 +27,20 @@ const uploadContractFormSchema = z.object({
     .trim()
     .min(1, 'Background of request is required')
     .max(4000, 'Background of request exceeds maximum length'),
-  departmentId: z.string().trim().uuid('Valid departmentId is required'),
+  departmentId: z.string().trim().optional(),
   budgetApproved: z
     .enum(['true', 'false'])
     .optional()
     .transform((value) => value === 'true'),
+  uploadMode: z
+    .enum([contractUploadModes.default, contractUploadModes.legalSendForSigning])
+    .optional()
+    .default(contractUploadModes.default),
+  bypassHodApproval: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => value === 'true'),
+  bypassReason: z.string().trim().max(2000, 'Bypass reason exceeds maximum length').optional(),
   counterpartyName: z.string().trim().max(200, 'Counterparty name is too long').optional(),
   counterparties: z
     .string()
@@ -89,6 +104,9 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       backgroundOfRequest: String(formData.get('backgroundOfRequest') ?? ''),
       departmentId: String(formData.get('departmentId') ?? ''),
       budgetApproved: formData.get('budgetApproved') ? String(formData.get('budgetApproved')) : undefined,
+      uploadMode: formData.get('uploadMode') ? String(formData.get('uploadMode')) : undefined,
+      bypassHodApproval: formData.get('bypassHodApproval') ? String(formData.get('bypassHodApproval')) : undefined,
+      bypassReason: formData.get('bypassReason') ? String(formData.get('bypassReason')) : undefined,
       counterpartyName: formData.get('counterpartyName') ? String(formData.get('counterpartyName')) : undefined,
       counterparties: formData.get('counterparties') ? String(formData.get('counterparties')) : undefined,
     })
@@ -154,6 +172,63 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       }, []),
     }))
 
+    const isLegalSendForSigningMode = parsedForm.data.uploadMode === contractUploadModes.legalSendForSigning
+    if (isLegalSendForSigningMode && session.role !== contractWorkflowRoles.legalTeam) {
+      return NextResponse.json(errorResponse('CONTRACT_UPLOAD_FORBIDDEN', 'Only LEGAL_TEAM can use send for signing'), {
+        status: 403,
+      })
+    }
+
+    if (isLegalSendForSigningMode && parsedForm.data.bypassHodApproval && !parsedForm.data.bypassReason?.trim()) {
+      return NextResponse.json(errorResponse('BYPASS_REASON_REQUIRED', 'Bypass reason is required'), {
+        status: 400,
+      })
+    }
+
+    let resolvedDepartmentId = ''
+    if (isLegalSendForSigningMode) {
+      const supabase = createServiceSupabase()
+      const { data: legalDepartment, error: legalDepartmentError } = await supabase
+        .from('teams')
+        .select('id, name')
+        .eq('tenant_id', session.tenantId)
+        .eq('name', contractWorkflowIdentities.legalDepartmentName)
+        .is('deleted_at', null)
+        .maybeSingle<{ id: string; name: string }>()
+
+      if (legalDepartmentError) {
+        return NextResponse.json(
+          errorResponse('LEGAL_DEPARTMENT_LOOKUP_FAILED', 'Failed to resolve legal department'),
+          {
+            status: 500,
+          }
+        )
+      }
+
+      if (!legalDepartment?.id) {
+        return NextResponse.json(
+          errorResponse('LEGAL_DEPARTMENT_NOT_FOUND', 'Legal and Compliance department is not configured'),
+          {
+            status: 400,
+          }
+        )
+      }
+
+      resolvedDepartmentId = legalDepartment.id
+    } else {
+      const parsedDepartmentId = z
+        .string()
+        .uuid('Valid departmentId is required')
+        .safeParse(parsedForm.data.departmentId)
+      if (!parsedDepartmentId.success) {
+        return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Valid departmentId is required'), {
+          status: 400,
+        })
+      }
+
+      resolvedDepartmentId = parsedDepartmentId.data
+    }
+
     const contractUploadService = getContractUploadService()
     const contract = await contractUploadService.uploadContract({
       tenantId: session.tenantId,
@@ -166,8 +241,11 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       signatoryDesignation: parsedForm.data.signatoryDesignation,
       signatoryEmail: parsedForm.data.signatoryEmail,
       backgroundOfRequest: parsedForm.data.backgroundOfRequest,
-      departmentId: parsedForm.data.departmentId,
+      departmentId: resolvedDepartmentId,
       budgetApproved: parsedForm.data.budgetApproved,
+      uploadMode: parsedForm.data.uploadMode,
+      bypassHodApproval: parsedForm.data.bypassHodApproval,
+      bypassReason: parsedForm.data.bypassReason,
       counterpartyName: parsedForm.data.counterpartyName,
       counterparties,
       fileName: uploadedFile.name,
@@ -176,6 +254,16 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       fileBytes,
       supportingFiles,
     })
+
+    if (!parsedForm.data.bypassHodApproval) {
+      const contractApprovalNotificationService = getContractApprovalNotificationService()
+      await contractApprovalNotificationService.notifyHodOnContractUpload({
+        tenantId: session.tenantId,
+        contractId: contract.id,
+        actorEmployeeId: session.employeeId,
+        actorRole: session.role,
+      })
+    }
 
     logger.info('Contract uploaded successfully', {
       tenantId: session.tenantId,

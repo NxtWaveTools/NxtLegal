@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import {
   contractDocumentMimeTypes,
   contractDocumentUploadRules,
+  contractUploadModes,
   contractDocumentVersioning,
   contractStatuses,
   contractStorage,
@@ -23,6 +24,9 @@ export type UploadContractInput = {
   uploadedByEmployeeId: string
   uploadedByEmail: string
   uploadedByRole: string
+  uploadMode: 'DEFAULT' | 'LEGAL_SEND_FOR_SIGNING'
+  bypassHodApproval?: boolean
+  bypassReason?: string
   title: string
   contractTypeId: string
   signatoryName: string
@@ -84,10 +88,40 @@ export class ContractUploadService {
         input.uploadedByRole as (typeof contractDocumentUploadRules.initialAllowedRoles)[number]
       )
     ) {
-      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only POC can upload initial contracts')
+      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only POC or LEGAL_TEAM can upload initial contracts')
     }
 
-    if (!this.isDocxUpload(input.fileName, input.fileMimeType)) {
+    const isLegalSendForSigning = input.uploadMode === contractUploadModes.legalSendForSigning
+    const isLegalTeamUpload = input.uploadedByRole === 'LEGAL_TEAM'
+
+    if (input.uploadedByRole === 'POC') {
+      const isPocAssignedToDepartment = await this.contractRepository.isPocAssignedToDepartment({
+        tenantId: input.tenantId,
+        pocEmail: input.uploadedByEmail,
+        departmentId: input.departmentId,
+      })
+
+      if (!isPocAssignedToDepartment) {
+        throw new AuthorizationError(
+          'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
+          'You can upload contracts only for departments assigned to your POC account'
+        )
+      }
+    }
+
+    if (isLegalSendForSigning && !isLegalTeamUpload) {
+      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only LEGAL_TEAM can use send-for-signing upload mode')
+    }
+
+    if (isLegalSendForSigning && input.bypassHodApproval && !input.bypassReason?.trim()) {
+      throw new BusinessRuleError('BYPASS_REASON_REQUIRED', 'Bypass reason is required when bypassing HOD approval')
+    }
+
+    if (isLegalSendForSigning) {
+      if (!this.isPdfUpload(input.fileName, input.fileMimeType)) {
+        throw new BusinessRuleError('CONTRACT_FILE_FORMAT_INVALID', 'Legal send-for-signing upload must be a PDF file')
+      }
+    } else if (!this.isDocxUpload(input.fileName, input.fileMimeType)) {
       throw new BusinessRuleError('CONTRACT_FILE_FORMAT_INVALID', 'Initial contract upload must be a DOCX file')
     }
 
@@ -149,6 +183,9 @@ export class ContractUploadService {
         uploadedByEmployeeId: input.uploadedByEmployeeId,
         uploadedByEmail: input.uploadedByEmail,
         uploadedByRole: input.uploadedByRole,
+        uploadMode: input.uploadMode,
+        bypassHodApproval: Boolean(input.bypassHodApproval),
+        bypassReason: input.bypassReason?.trim() || undefined,
         filePath,
         fileName: safeFileName,
         fileSizeBytes: input.fileSizeBytes,
@@ -414,6 +451,17 @@ export class ContractUploadService {
     }
 
     return false
+  }
+
+  private isPdfUpload(fileName: string, mimeType: string): boolean {
+    const normalizedMimeType = mimeType.trim().toLowerCase()
+    const normalizedFileName = fileName.trim().toLowerCase()
+
+    return (
+      normalizedMimeType === contractDocumentMimeTypes.pdf ||
+      normalizedFileName.endsWith('.pdf') ||
+      (normalizedMimeType === 'application/octet-stream' && normalizedFileName.endsWith('.pdf'))
+    )
   }
 
   private validateUploadInput(input: UploadContractInput): void {

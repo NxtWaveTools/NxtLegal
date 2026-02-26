@@ -1,4 +1,5 @@
 import type { ContractStatus } from '@/core/constants/contracts'
+import type { ContractUploadMode } from '@/core/constants/contracts'
 
 export type ContractRecord = {
   id: string
@@ -40,6 +41,9 @@ export type CreateContractUploadInput = {
   uploadedByEmployeeId: string
   uploadedByEmail: string
   uploadedByRole: string
+  uploadMode: ContractUploadMode
+  bypassHodApproval: boolean
+  bypassReason?: string
   filePath: string
   fileName: string
   fileSizeBytes: number

@@ -100,7 +100,12 @@ function resolveSavedViews(role?: string | null): RepositorySavedView[] {
     ]
   }
 
-  if (normalizedRole === 'LEGAL_TEAM' || normalizedRole === 'LEGAL_ADMIN' || normalizedRole === 'ADMIN') {
+  if (
+    normalizedRole === 'LEGAL_TEAM' ||
+    normalizedRole === 'LEGAL_ADMIN' ||
+    normalizedRole === 'ADMIN' ||
+    normalizedRole === 'SUPER_ADMIN'
+  ) {
     return [
       {
         id: 'legal_under_review',
@@ -192,8 +197,41 @@ function formatOverdueLabel(record: ContractRecord): string | null {
   return `Overdue by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`
 }
 
+function resolveAssignedToDisplay(record: ContractRecord): {
+  visibleAssignees: string
+  hiddenCount: number
+  fullAssignees: string
+} {
+  const assignees = (record.assignedToUsers ?? [record.currentAssigneeEmail]).filter((value): value is string =>
+    Boolean(value)
+  )
+
+  if (assignees.length === 0) {
+    return {
+      visibleAssignees: '—',
+      hiddenCount: 0,
+      fullAssignees: '—',
+    }
+  }
+
+  const visibleAssignees = assignees.slice(0, 2).join(', ')
+  const hiddenCount = Math.max(assignees.length - 2, 0)
+
+  return {
+    visibleAssignees,
+    hiddenCount,
+    fullAssignees: assignees.join(', '),
+  }
+}
+
 export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProps) {
   const router = useRouter()
+  const normalizedRole = (session.role ?? '').toUpperCase()
+  const canAccessRepositoryReporting =
+    normalizedRole === 'LEGAL_TEAM' ||
+    normalizedRole === 'LEGAL_ADMIN' ||
+    normalizedRole === 'ADMIN' ||
+    normalizedRole === 'SUPER_ADMIN'
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -221,6 +259,13 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const [isReportLoading, setIsReportLoading] = useState(false)
   const [reportError, setReportError] = useState<string | null>(null)
   const [selectedExportColumns, setSelectedExportColumns] = useState<RepositoryExportColumn[]>(defaultExportColumns)
+  const [activeExportFormat, setActiveExportFormat] = useState<'csv' | 'excel' | null>(null)
+  const [activePreview, setActivePreview] = useState<{
+    url: string
+    fileName: string
+    fileMimeType: string
+    externalUrl: string
+  } | null>(null)
   const savedViews = useMemo(() => resolveSavedViews(session.role), [session.role])
   const [activeSavedViewId, setActiveSavedViewId] = useState<string>('custom')
 
@@ -265,6 +310,12 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   }, [loadContracts])
 
   useEffect(() => {
+    if (!canAccessRepositoryReporting) {
+      setReportMetrics(null)
+      setReportError(null)
+      return
+    }
+
     const loadReport = async () => {
       setIsReportLoading(true)
 
@@ -290,7 +341,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     }
 
     void loadReport()
-  }, [customFromDate, customToDate, dateBasis, datePreset, search, statusFilter])
+  }, [canAccessRepositoryReporting, customFromDate, customToDate, dateBasis, datePreset, search, statusFilter])
 
   useEffect(() => {
     setCursorHistory([undefined])
@@ -351,6 +402,57 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     }
   }
 
+  const closePreview = useCallback(() => {
+    setActivePreview(null)
+  }, [])
+
+  useEffect(() => {
+    if (!activePreview) {
+      return
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closePreview()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [activePreview, closePreview])
+
+  const handleOpenCurrentDocument = useCallback(
+    async (contract: ContractRecord) => {
+      const response = await contractsClient.download(contract.id, {
+        documentId: contract.currentDocumentId ?? undefined,
+      })
+
+      if (!response.ok || !response.data?.signedUrl) {
+        setError(response.error?.message ?? 'Failed to generate document view link')
+        return
+      }
+
+      const resolvedFileName = (response.data.fileName ?? contract.fileName?.trim()) || contract.title
+      const resolvedMimeType = contract.fileMimeType ?? ''
+      const isDocx =
+        resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        resolvedFileName.toLowerCase().endsWith('.docx')
+
+      const previewUrl = contractsClient.previewUrl(contract.id, {
+        documentId: contract.currentDocumentId ?? undefined,
+        renderAs: isDocx ? 'html' : 'binary',
+      })
+
+      setActivePreview({
+        url: previewUrl,
+        fileName: resolvedFileName,
+        fileMimeType: resolvedMimeType,
+        externalUrl: response.data.signedUrl,
+      })
+    },
+    [setError]
+  )
+
   const columns = useMemo<ColumnDef<ContractRecord>[]>(
     () => [
       {
@@ -374,7 +476,19 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       {
         accessorKey: 'createdAt',
         header: 'Contract',
-        cell: ({ row }) => row.original.title,
+        cell: ({ row }) => (
+          <button
+            type="button"
+            className={styles.contractTitleAction}
+            onClick={(event) => {
+              event.stopPropagation()
+              void handleOpenCurrentDocument(row.original)
+            }}
+            title="Open current document"
+          >
+            {row.original.title}
+          </button>
+        ),
       },
       {
         accessorKey: 'hodApprovedAt',
@@ -440,7 +554,18 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       {
         accessorKey: 'assignedTo',
         header: 'Assigned To',
-        cell: ({ row }) => (row.original.assignedToUsers ?? [row.original.currentAssigneeEmail]).join(', '),
+        cell: ({ row }) => {
+          const display = resolveAssignedToDisplay(row.original)
+
+          return (
+            <div className={styles.assignedToWrap} title={display.fullAssignees}>
+              <span className={styles.assignedToPrimary}>{display.visibleAssignees}</span>
+              {display.hiddenCount > 0 ? (
+                <span className={styles.assignedToMore}>+{display.hiddenCount} more</span>
+              ) : null}
+            </div>
+          )
+        },
       },
     ],
     []
@@ -469,6 +594,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     })
 
     window.open(exportUrl, '_blank', 'noopener,noreferrer')
+    setActiveExportFormat(null)
   }
 
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -578,77 +704,127 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           </div>
         </section>
 
-        <section className={styles.reportingSection}>
-          <div className={styles.reportingHeader}>
-            <h2 className={styles.reportingTitle}>Repository Reporting</h2>
-            <div className={styles.exportActions}>
-              <button type="button" className={styles.pageButton} onClick={() => downloadExport('csv')}>
-                Export CSV
-              </button>
-              <button type="button" className={styles.pageButton} onClick={() => downloadExport('excel')}>
-                Export Excel
-              </button>
-              <button type="button" className={styles.pageButton} onClick={() => downloadExport('pdf')}>
-                Export PDF
-              </button>
-            </div>
-          </div>
-
-          <div className={styles.exportColumnsGrid}>
-            {defaultExportColumns.map((column) => (
-              <label key={column} className={styles.exportColumnItem}>
-                <input
-                  type="checkbox"
-                  checked={selectedExportColumns.includes(column)}
-                  onChange={() => toggleExportColumn(column)}
-                />
-                <span>{contractRepositoryExportColumnLabels[column]}</span>
-              </label>
-            ))}
-          </div>
-
-          {isReportLoading ? (
-            <div className={styles.empty}>Loading report...</div>
-          ) : reportError ? (
-            <div className={styles.empty}>{reportError}</div>
-          ) : reportMetrics ? (
-            <div className={styles.reportingGrid}>
-              <div className={styles.metricCard}>
-                <h3 className={styles.metricTitle}>Department-wise Reporting</h3>
-                {reportMetrics.departmentMetrics.length === 0 ? (
-                  <p className={styles.muted}>No department metrics available.</p>
-                ) : (
-                  <ul className={styles.metricList}>
-                    {reportMetrics.departmentMetrics.map((metric) => (
-                      <li key={metric.departmentId ?? 'unassigned'} className={styles.metricListItem}>
-                        <span className={styles.metricName}>{metric.departmentName ?? 'Unassigned'}</span>
-                        <span className={styles.metricMeta}>
-                          Total {metric.totalRequestsReceived} · Approved {metric.approved} · Rejected {metric.rejected}{' '}
-                          · Completed {metric.completed} · Pending {metric.pending}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <div className={styles.metricCard}>
-                <h3 className={styles.metricTitle}>Status-wise Reporting</h3>
-                {reportMetrics.statusMetrics.length === 0 ? (
-                  <p className={styles.muted}>No status metrics available.</p>
-                ) : (
-                  <ul className={styles.metricList}>
-                    {reportMetrics.statusMetrics.map((metric) => (
-                      <li key={metric.key} className={styles.metricListItem}>
-                        <span className={styles.metricName}>{metric.label}</span>
-                        <span className={styles.metricValue}>{metric.count}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+        {canAccessRepositoryReporting ? (
+          <section className={styles.reportingSection}>
+            <div className={styles.reportingHeader}>
+              <h2 className={styles.reportingTitle}>Repository Reporting</h2>
+              <div className={styles.exportActions}>
+                <button type="button" className={styles.pageButton} onClick={() => setActiveExportFormat('csv')}>
+                  Export CSV
+                </button>
+                <button type="button" className={styles.pageButton} onClick={() => setActiveExportFormat('excel')}>
+                  Export Excel
+                </button>
               </div>
             </div>
-          ) : null}
+            {activeExportFormat ? (
+              <div className={styles.exportConfigurator}>
+                <div className={styles.exportConfiguratorHeader}>
+                  <div>
+                    <h3 className={styles.exportConfiguratorTitle}>
+                      Choose columns for {activeExportFormat === 'csv' ? 'CSV' : 'Excel'} export
+                    </h3>
+                    <p className={styles.exportConfiguratorHint}>Select the fields you want to include in the file.</p>
+                  </div>
+                  <div className={styles.exportConfiguratorActions}>
+                    <button type="button" className={styles.pageButton} onClick={() => setActiveExportFormat(null)}>
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.pageButton} ${styles.primaryButton}`}
+                      onClick={() => downloadExport(activeExportFormat)}
+                    >
+                      Download {activeExportFormat === 'csv' ? 'CSV' : 'Excel'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={styles.exportColumnsGrid}>
+                  {defaultExportColumns.map((column) => (
+                    <label key={column} className={styles.exportColumnItem}>
+                      <input
+                        type="checkbox"
+                        checked={selectedExportColumns.includes(column)}
+                        onChange={() => toggleExportColumn(column)}
+                      />
+                      <span>{contractRepositoryExportColumnLabels[column]}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {isReportLoading ? (
+              <div className={styles.empty}>Loading report...</div>
+            ) : reportError ? (
+              <div className={styles.empty}>{reportError}</div>
+            ) : reportMetrics ? (
+              <div className={styles.reportingGrid}>
+                <div className={styles.metricCard}>
+                  <h3 className={styles.metricTitle}>Department-wise Reporting</h3>
+                  {reportMetrics.departmentMetrics.length === 0 ? (
+                    <p className={styles.muted}>No department metrics available.</p>
+                  ) : (
+                    <ul className={styles.metricList}>
+                      {reportMetrics.departmentMetrics.map((metric) => (
+                        <li key={metric.departmentId ?? 'unassigned'} className={styles.metricListItem}>
+                          <span className={styles.metricName}>{metric.departmentName ?? 'Unassigned'}</span>
+                          <span className={styles.metricMeta}>
+                            Total {metric.totalRequestsReceived} · Approved {metric.approved} · Rejected{' '}
+                            {metric.rejected} · Completed {metric.completed} · Pending {metric.pending}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className={styles.metricCard}>
+                  <h3 className={styles.metricTitle}>Status-wise Reporting</h3>
+                  {reportMetrics.statusMetrics.length === 0 ? (
+                    <p className={styles.muted}>No status metrics available.</p>
+                  ) : (
+                    <ul className={styles.metricList}>
+                      {reportMetrics.statusMetrics.map((metric) => (
+                        <li key={metric.key} className={styles.metricListItem}>
+                          <span className={styles.metricName}>{metric.label}</span>
+                          <span className={styles.metricValue}>{metric.count}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        <section className={styles.pagination}>
+          <button
+            type="button"
+            className={styles.pageButton}
+            disabled={cursorHistory.length <= 1}
+            onClick={() => {
+              setCursorHistory((previous) => previous.slice(0, previous.length - 1))
+            }}
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            className={styles.pageButton}
+            disabled={!nextCursor}
+            onClick={() => {
+              if (!nextCursor) {
+                return
+              }
+
+              setCursorHistory((previous) => [...previous, nextCursor])
+            }}
+          >
+            Next
+          </button>
         </section>
 
         <section className={styles.tableWrap}>
@@ -725,32 +901,46 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           )}
         </section>
 
-        <section className={styles.pagination}>
-          <button
-            type="button"
-            className={styles.pageButton}
-            disabled={cursorHistory.length <= 1}
-            onClick={() => {
-              setCursorHistory((previous) => previous.slice(0, previous.length - 1))
-            }}
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            className={styles.pageButton}
-            disabled={!nextCursor}
-            onClick={() => {
-              if (!nextCursor) {
-                return
+        {activePreview ? (
+          <div
+            className={styles.viewerOverlay}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Contract document preview"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                closePreview()
               }
-
-              setCursorHistory((previous) => [...previous, nextCursor])
             }}
           >
-            Next
-          </button>
-        </section>
+            <div className={styles.viewerModal}>
+              <div className={styles.viewerHeader}>
+                <div className={styles.viewerTitle}>{activePreview.fileName}</div>
+                <button type="button" className={styles.pageButton} onClick={closePreview}>
+                  Close
+                </button>
+              </div>
+              <div className={styles.viewerBody}>
+                {activePreview.fileMimeType.startsWith('image/') ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={activePreview.url} alt={activePreview.fileName} className={styles.viewerFrame} />
+                ) : (
+                  <iframe src={activePreview.url} title={activePreview.fileName} className={styles.viewerFrame} />
+                )}
+              </div>
+              <div className={styles.viewerFooter}>
+                <span className={styles.muted}>If preview is not available, open in a new tab.</span>
+                <button
+                  type="button"
+                  className={`${styles.pageButton} ${styles.primaryButton}`}
+                  onClick={() => window.open(activePreview.externalUrl, '_blank', 'noopener,noreferrer')}
+                >
+                  Open in New Tab
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </main>
     </ProtectedAppShell>
   )

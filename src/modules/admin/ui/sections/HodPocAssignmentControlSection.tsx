@@ -1,4 +1,5 @@
 import type { AdminDepartmentOption, AdminUserOption } from '@/core/client/admin-client'
+import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
 type HodPocAssignmentControlSectionProps = {
@@ -97,7 +98,10 @@ export default function HodPocAssignmentControlSection({
 
       <div className={styles.actions}>
         <button type="button" className={styles.button} onClick={onReplacePrimaryRole} disabled={!canReplace}>
-          {isSubmittingReplace ? 'Replacing...' : 'Replace Primary Role'}
+          <span className={styles.buttonContent}>
+            {isSubmittingReplace ? <Spinner size={14} /> : null}
+            {isSubmittingReplace ? 'Replacing...' : 'Replace Primary Role'}
+          </span>
         </button>
       </div>
 
@@ -150,7 +154,10 @@ export default function HodPocAssignmentControlSection({
           onClick={onAssignDepartmentRole}
           disabled={!canAssignDepartmentRole}
         >
-          {isSubmittingAssignment ? 'Assigning...' : 'Assign Department Role'}
+          <span className={styles.buttonContent}>
+            {isSubmittingAssignment ? <Spinner size={14} /> : null}
+            {isSubmittingAssignment ? 'Assigning...' : 'Assign Department Role'}
+          </span>
         </button>
       </div>
     </div>

@@ -3,10 +3,12 @@
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
+import Spinner from '@/components/ui/Spinner'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import { contractsClient, type ContractRecord, type DashboardContractsFilter } from '@/core/client/contracts-client'
-import { contractWorkflowRoles } from '@/core/constants/contracts'
+import { contractUploadModes, contractWorkflowRoles, type ContractUploadMode } from '@/core/constants/contracts'
 import { limits } from '@/core/constants/limits'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import styles from './dashboard.module.css'
@@ -97,6 +99,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       approveFilter: 'UNDER_REVIEW',
       showApproveCard: true,
       filters: [
+        { value: 'ASSIGNED_TO_ME', label: 'Assigned To Me' },
         { value: 'UNDER_REVIEW', label: 'Under Review' },
         { value: 'HOD_PENDING', label: 'HOD Pending' },
         { value: 'COMPLETED', label: 'Completed' },
@@ -141,6 +144,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const lastVisibilityRefreshAtRef = useRef(0)
 
   const [isUploadOpen, setIsUploadOpen] = useState(false)
+  const [uploadMode, setUploadMode] = useState<ContractUploadMode>(contractUploadModes.default)
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [isLoadingContracts, setIsLoadingContracts] = useState(true)
   const [isLoadingPageChange, setIsLoadingPageChange] = useState(false)
@@ -149,6 +153,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [pageIndex, setPageIndex] = useState(0)
   const [pageCursors, setPageCursors] = useState<Array<string | undefined>>([undefined])
   const [mutatingContractId, setMutatingContractId] = useState<string | null>(null)
+  const [downloadingContractId, setDownloadingContractId] = useState<string | null>(null)
   const [approvingContractId, setApprovingContractId] = useState<string | null>(null)
   const [rejectingContractId, setRejectingContractId] = useState<string | null>(null)
   const [rejectReasonDraft, setRejectReasonDraft] = useState('')
@@ -387,6 +392,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
       if (!response.ok) {
         setContractsError(response.error?.message ?? 'Failed to complete contract action')
+        toast.error(response.error?.message ?? 'Failed to complete contract action')
         setMutatingContractId(null)
         return false
       }
@@ -396,6 +402,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         loadFilterCounts(),
         loadContractsForFilter(activeFilter, { cursor: pageCursors[pageIndex], pageIndex, isPageChange: true }),
       ])
+      toast.success(action === 'hod.approve' ? 'Contract approved successfully' : 'Contract rejected successfully')
       setMutatingContractId(null)
       return true
     },
@@ -508,8 +515,22 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 count={activeFilterTotal}
                 description="Upload third-party contracts for review"
                 icon={uploadIcon}
-                onClick={() => setIsUploadOpen(true)}
+                onClick={() => {
+                  setUploadMode(contractUploadModes.default)
+                  setIsUploadOpen(true)
+                }}
               />
+              {session.role === contractWorkflowRoles.legalTeam ? (
+                <DashboardActionCard
+                  title="Send for Signing"
+                  count={activeFilterTotal}
+                  description="Initiate legal signing workflow"
+                  onClick={() => {
+                    setUploadMode(contractUploadModes.legalSendForSigning)
+                    setIsUploadOpen(true)
+                  }}
+                />
+              ) : null}
               {roleConfig.showApproveCard ? (
                 <DashboardActionCard
                   title="Approve"
@@ -645,6 +666,48 @@ export default function DashboardClient({ session }: DashboardClientProps) {
               </div>
             ) : (
               <div className={styles.contractList}>
+                <div className={styles.paginationRow}>
+                  <button
+                    type="button"
+                    className={styles.paginationButton}
+                    onClick={() => {
+                      if (pageIndex === 0) {
+                        return
+                      }
+
+                      const previousPageIndex = pageIndex - 1
+                      void loadContractsForFilter(activeFilter, {
+                        cursor: pageCursors[previousPageIndex],
+                        pageIndex: previousPageIndex,
+                        isPageChange: true,
+                      })
+                    }}
+                    disabled={pageIndex === 0 || isLoadingPageChange}
+                  >
+                    ← Previous
+                  </button>
+                  <span className={styles.pageIndicator}>Page {pageIndex + 1}</span>
+                  <button
+                    type="button"
+                    className={styles.paginationButton}
+                    onClick={() => {
+                      if (!contractsCursor) {
+                        return
+                      }
+
+                      const nextPageIndex = pageIndex + 1
+                      void loadContractsForFilter(activeFilter, {
+                        cursor: contractsCursor,
+                        pageIndex: nextPageIndex,
+                        isPageChange: true,
+                      })
+                    }}
+                    disabled={!contractsCursor || isLoadingPageChange}
+                  >
+                    Next →
+                  </button>
+                </div>
+
                 {contracts.map((contract) => (
                   <div key={contract.id} className={styles.contractItem}>
                     <div>
@@ -710,61 +773,30 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                         <button
                           type="button"
                           className={styles.contractActionButton}
+                          disabled={downloadingContractId === contract.id}
                           onClick={async () => {
+                            setDownloadingContractId(contract.id)
                             const response = await contractsClient.download(contract.id)
 
                             if (response.ok && response.data?.signedUrl) {
                               window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+                              toast.success('Document download started')
+                            } else {
+                              toast.error(response.error?.message ?? 'Failed to download document')
                             }
+
+                            setDownloadingContractId(null)
                           }}
                         >
-                          Download
+                          <span className={styles.buttonContent}>
+                            {downloadingContractId === contract.id ? <Spinner size={14} /> : null}
+                            {downloadingContractId === contract.id ? 'Downloading…' : 'Download'}
+                          </span>
                         </button>
                       )}
                     </div>
                   </div>
                 ))}
-                <div className={styles.paginationRow}>
-                  <button
-                    type="button"
-                    className={styles.paginationButton}
-                    onClick={() => {
-                      if (pageIndex === 0) {
-                        return
-                      }
-
-                      const previousPageIndex = pageIndex - 1
-                      void loadContractsForFilter(activeFilter, {
-                        cursor: pageCursors[previousPageIndex],
-                        pageIndex: previousPageIndex,
-                        isPageChange: true,
-                      })
-                    }}
-                    disabled={pageIndex === 0 || isLoadingPageChange}
-                  >
-                    ← Previous
-                  </button>
-                  <span className={styles.pageIndicator}>Page {pageIndex + 1}</span>
-                  <button
-                    type="button"
-                    className={styles.paginationButton}
-                    onClick={() => {
-                      if (!contractsCursor) {
-                        return
-                      }
-
-                      const nextPageIndex = pageIndex + 1
-                      void loadContractsForFilter(activeFilter, {
-                        cursor: contractsCursor,
-                        pageIndex: nextPageIndex,
-                        isPageChange: true,
-                      })
-                    }}
-                    disabled={!contractsCursor || isLoadingPageChange}
-                  >
-                    Next →
-                  </button>
-                </div>
               </div>
             )}
           </div>
@@ -806,7 +838,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 }}
                 disabled={Boolean(mutatingContractId)}
               >
-                {mutatingContractId === rejectingContractId ? 'Rejecting…' : 'Confirm Reject'}
+                <span className={styles.buttonContent}>
+                  {mutatingContractId === rejectingContractId ? <Spinner size={14} /> : null}
+                  {mutatingContractId === rejectingContractId ? 'Rejecting…' : 'Confirm Reject'}
+                </span>
               </button>
             </div>
           </div>
@@ -841,7 +876,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 }}
                 disabled={Boolean(mutatingContractId)}
               >
-                {mutatingContractId === approvingContractId ? 'Approving…' : 'Confirm Approve'}
+                <span className={styles.buttonContent}>
+                  {mutatingContractId === approvingContractId ? <Spinner size={14} /> : null}
+                  {mutatingContractId === approvingContractId ? 'Approving…' : 'Confirm Approve'}
+                </span>
               </button>
             </div>
           </div>
@@ -850,7 +888,12 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
       <ThirdPartyUploadSidebar
         isOpen={isUploadOpen}
-        onClose={() => setIsUploadOpen(false)}
+        mode={uploadMode}
+        actorRole={session.role}
+        onClose={() => {
+          setIsUploadOpen(false)
+          setUploadMode(contractUploadModes.default)
+        }}
         onUploaded={async () => {
           await Promise.all([loadContractsForFilter(activeFilter), loadFilterCounts(), loadPendingApprovals()])
           router.refresh()
