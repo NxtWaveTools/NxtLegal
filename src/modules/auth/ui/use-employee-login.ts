@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { authClient } from '@/core/client/auth-client'
 import { authErrorMessages } from '@/core/constants/auth-errors'
 import { limits } from '@/core/constants/limits'
@@ -49,26 +50,32 @@ export const useEmployeeLogin = (): EmployeeLoginState => {
 
       if (!response || typeof response.ok !== 'boolean') {
         setError(authErrorMessages.auth_failed)
+        toast.error(authErrorMessages.auth_failed)
         setLoading(false)
         return
       }
 
       if (!response.ok) {
-        setError(response.error?.message ?? authErrorMessages.auth_failed)
+        const message = response.error?.message ?? authErrorMessages.auth_failed
+        setError(message)
+        toast.error(message)
         setLoading(false)
         return
       }
 
       if (!response.data?.user?.email) {
         setError(authErrorMessages.auth_failed)
+        toast.error(authErrorMessages.auth_failed)
         setLoading(false)
         return
       }
 
+      toast.success('Login successful')
       router.push(routeRegistry.protected.dashboard)
       router.refresh()
     } catch {
       setError(authErrorMessages.auth_failed)
+      toast.error(authErrorMessages.auth_failed)
       setLoading(false)
     }
   }

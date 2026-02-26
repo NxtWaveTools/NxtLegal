@@ -256,6 +256,12 @@ export type ContractNotificationFailure = {
   updatedAt: string
 }
 
+export type ContractNotificationDeliverySummary = {
+  id: string
+  createdAt: string
+  status: ContractNotificationStatus
+}
+
 export type AdditionalApproverDecisionHistoryItem = {
   contractId: string
   contractTitle: string
@@ -482,6 +488,12 @@ export interface ContractQueryRepository {
     contractTitle: string
     recipientEmails: string[]
   } | null>
+  getLatestNotificationDelivery(params: {
+    tenantId: string
+    contractId: string
+    recipientEmail: string
+    notificationType: ContractNotificationType
+  }): Promise<ContractNotificationDeliverySummary | null>
   recordContractNotificationDelivery(params: {
     tenantId: string
     contractId: string

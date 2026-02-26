@@ -183,6 +183,11 @@ type ContractAdditionalApprover = {
   approvedAt: string | null
 }
 
+type ContractApproverReminderResponse = {
+  remindedApproverEmail: string
+  remindedApproverRole: 'HOD' | 'ADDITIONAL'
+}
+
 type ContractLegalCollaborator = {
   id: string
   collaboratorEmployeeId: string
@@ -840,6 +845,19 @@ export const contractsClient = {
     return parseApiResponse<ContractDetailResponse>(response)
   },
 
+  async remindApprover(contractId: string, payload?: { approverEmail?: string }) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.approverReminder, contractId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ approverEmail: payload?.approverEmail }),
+    })
+
+    return parseApiResponse<ContractApproverReminderResponse>(response)
+  },
+
   async manageAssignment(contractId: string, payload: LegalAssignmentPayload) {
     const response = await fetch(resolveContractPath(routeRegistry.api.contracts.assignments, contractId), {
       method: 'POST',
@@ -980,6 +998,7 @@ export type {
   ContractActionName,
   ContractAllowedAction,
   ContractAdditionalApprover,
+  ContractApproverReminderResponse,
   ContractLegalCollaborator,
   ContractSignatory,
   ContractSigningPreparationDraft,

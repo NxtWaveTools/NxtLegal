@@ -1,3 +1,4 @@
+import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
 type SystemConfigurationSectionProps = {
@@ -156,7 +157,10 @@ export default function SystemConfigurationSection({
           onClick={onSave}
           disabled={isSubmitting}
         >
-          {isSubmitting ? 'Saving...' : 'Save Configuration'}
+          <span className={styles.buttonContent}>
+            {isSubmitting ? <Spinner size={14} /> : null}
+            {isSubmitting ? 'Saving...' : 'Save Configuration'}
+          </span>
         </button>
       </div>
 

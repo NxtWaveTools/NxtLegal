@@ -1,3 +1,4 @@
+import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
 type TeamManagementSectionProps = {
@@ -88,7 +89,10 @@ export default function TeamManagementSection({
           onClick={onCreateTeam}
           disabled={!canCreate}
         >
-          {isSubmittingCreate ? 'Creating...' : 'Create Team'}
+          <span className={styles.buttonContent}>
+            {isSubmittingCreate ? <Spinner size={14} /> : null}
+            {isSubmittingCreate ? 'Creating...' : 'Create Team'}
+          </span>
         </button>
       </div>
 

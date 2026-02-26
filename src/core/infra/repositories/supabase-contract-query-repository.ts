@@ -30,6 +30,7 @@ import type {
   ContractActivityReadState,
   ContractCounterparty,
   ContractDocument,
+  ContractNotificationDeliverySummary,
   ContractNotificationFailure,
   DashboardContractFilter,
   ContractAdditionalApprover,
@@ -2066,6 +2067,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const transition = await this.resolveTransition(params.tenantId, contract.status, effectiveAction)
 
+    // TODO(notification-workflow): add explicit notifications for currently silent transitions such as
+    // legal.void and legal.set.offline_execution once Brevo templates and delivery rules are finalized.
+
     if (!transition.allowed_roles.includes(params.actorRole)) {
       throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'You are not allowed to perform this action')
     }
@@ -3028,6 +3032,47 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return {
       contractTitle: contract.title,
       recipientEmails: Array.from(normalizedEmails),
+    }
+  }
+
+  async getLatestNotificationDelivery(params: {
+    tenantId: string
+    contractId: string
+    recipientEmail: string
+    notificationType:
+      | 'SIGNATORY_LINK'
+      | 'SIGNING_COMPLETED'
+      | 'HOD_APPROVAL_REQUESTED'
+      | 'APPROVAL_REMINDER'
+      | 'ADDITIONAL_APPROVER_ADDED'
+  }): Promise<ContractNotificationDeliverySummary | null> {
+    const supabase = createServiceSupabase()
+
+    const { data, error } = await supabase
+      .from('contract_notification_deliveries')
+      .select('id, created_at, status')
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('recipient_email', params.recipientEmail.trim().toLowerCase())
+      .eq('notification_type', params.notificationType)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle<{ id: string; created_at: string; status: 'SENT' | 'FAILED' }>()
+
+    if (error) {
+      throw new DatabaseError('Failed to load latest contract notification delivery', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    if (!data) {
+      return null
+    }
+
+    return {
+      id: data.id,
+      createdAt: data.created_at,
+      status: data.status,
     }
   }
 

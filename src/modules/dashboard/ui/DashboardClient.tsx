@@ -3,6 +3,8 @@
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
+import Spinner from '@/components/ui/Spinner'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import { contractsClient, type ContractRecord, type DashboardContractsFilter } from '@/core/client/contracts-client'
@@ -149,6 +151,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [pageIndex, setPageIndex] = useState(0)
   const [pageCursors, setPageCursors] = useState<Array<string | undefined>>([undefined])
   const [mutatingContractId, setMutatingContractId] = useState<string | null>(null)
+  const [downloadingContractId, setDownloadingContractId] = useState<string | null>(null)
   const [approvingContractId, setApprovingContractId] = useState<string | null>(null)
   const [rejectingContractId, setRejectingContractId] = useState<string | null>(null)
   const [rejectReasonDraft, setRejectReasonDraft] = useState('')
@@ -387,6 +390,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
       if (!response.ok) {
         setContractsError(response.error?.message ?? 'Failed to complete contract action')
+        toast.error(response.error?.message ?? 'Failed to complete contract action')
         setMutatingContractId(null)
         return false
       }
@@ -396,6 +400,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         loadFilterCounts(),
         loadContractsForFilter(activeFilter, { cursor: pageCursors[pageIndex], pageIndex, isPageChange: true }),
       ])
+      toast.success(action === 'hod.approve' ? 'Contract approved successfully' : 'Contract rejected successfully')
       setMutatingContractId(null)
       return true
     },
@@ -752,15 +757,25 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                         <button
                           type="button"
                           className={styles.contractActionButton}
+                          disabled={downloadingContractId === contract.id}
                           onClick={async () => {
+                            setDownloadingContractId(contract.id)
                             const response = await contractsClient.download(contract.id)
 
                             if (response.ok && response.data?.signedUrl) {
                               window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+                              toast.success('Document download started')
+                            } else {
+                              toast.error(response.error?.message ?? 'Failed to download document')
                             }
+
+                            setDownloadingContractId(null)
                           }}
                         >
-                          Download
+                          <span className={styles.buttonContent}>
+                            {downloadingContractId === contract.id ? <Spinner size={14} /> : null}
+                            {downloadingContractId === contract.id ? 'Downloading…' : 'Download'}
+                          </span>
                         </button>
                       )}
                     </div>
@@ -807,7 +822,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 }}
                 disabled={Boolean(mutatingContractId)}
               >
-                {mutatingContractId === rejectingContractId ? 'Rejecting…' : 'Confirm Reject'}
+                <span className={styles.buttonContent}>
+                  {mutatingContractId === rejectingContractId ? <Spinner size={14} /> : null}
+                  {mutatingContractId === rejectingContractId ? 'Rejecting…' : 'Confirm Reject'}
+                </span>
               </button>
             </div>
           </div>
@@ -842,7 +860,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 }}
                 disabled={Boolean(mutatingContractId)}
               >
-                {mutatingContractId === approvingContractId ? 'Approving…' : 'Confirm Approve'}
+                <span className={styles.buttonContent}>
+                  {mutatingContractId === approvingContractId ? <Spinner size={14} /> : null}
+                  {mutatingContractId === approvingContractId ? 'Approving…' : 'Confirm Approve'}
+                </span>
               </button>
             </div>
           </div>

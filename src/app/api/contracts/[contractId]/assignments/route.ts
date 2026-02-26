@@ -3,7 +3,7 @@ import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
-import { getContractQueryService } from '@/core/registry/service-registry'
+import { getContractApprovalNotificationService, getContractQueryService } from '@/core/registry/service-registry'
 import { contractLegalAssignmentSchema } from '@/core/domain/contracts/schemas'
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
@@ -29,6 +29,27 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       ownerEmail: 'ownerEmail' in payload ? payload.ownerEmail : undefined,
       collaboratorEmail: 'collaboratorEmail' in payload ? payload.collaboratorEmail : undefined,
     })
+
+    const contractApprovalNotificationService = getContractApprovalNotificationService()
+    if (payload.operation === 'set_owner') {
+      await contractApprovalNotificationService.notifyInternalAssignment({
+        tenantId: session.tenantId,
+        contractId,
+        actorEmployeeId: session.employeeId,
+        actorRole: session.role,
+        assignedEmail: payload.ownerEmail,
+      })
+    }
+
+    if (payload.operation === 'add_collaborator') {
+      await contractApprovalNotificationService.notifyInternalAssignment({
+        tenantId: session.tenantId,
+        contractId,
+        actorEmployeeId: session.employeeId,
+        actorRole: session.role,
+        assignedEmail: payload.collaboratorEmail,
+      })
+    }
 
     return NextResponse.json(okResponse(contractView))
   } catch (error) {

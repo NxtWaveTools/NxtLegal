@@ -1,4 +1,5 @@
 import type { AdminUserOption } from '@/core/client/admin-client'
+import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
 type UserManagementSectionProps = {
@@ -67,7 +68,10 @@ export default function UserManagementSection({
           onClick={onCreateUser}
           disabled={!canCreateUser}
         >
-          {isSubmittingUserCreate ? 'Creating User...' : 'Create User'}
+          <span className={styles.buttonContent}>
+            {isSubmittingUserCreate ? <Spinner size={14} /> : null}
+            {isSubmittingUserCreate ? 'Creating User...' : 'Create User'}
+          </span>
         </button>
       </div>
 
@@ -93,7 +97,10 @@ export default function UserManagementSection({
           disabled={!selectedUser || isSubmittingStatus || selectedUser.isActive}
           onClick={onActivateUser}
         >
-          Activate User
+          <span className={styles.buttonContent}>
+            {isSubmittingStatus && selectedUser && !selectedUser.isActive ? <Spinner size={14} /> : null}
+            Activate User
+          </span>
         </button>
         <button
           type="button"
@@ -101,7 +108,10 @@ export default function UserManagementSection({
           disabled={!selectedUser || isSubmittingStatus || !selectedUser.isActive}
           onClick={onDeactivateUser}
         >
-          Deactivate User
+          <span className={styles.buttonContent}>
+            {isSubmittingStatus && selectedUser && selectedUser.isActive ? <Spinner size={14} /> : null}
+            Deactivate User
+          </span>
         </button>
       </div>
     </div>

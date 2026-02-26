@@ -11,6 +11,7 @@ import { contractStatuses } from '@/core/constants/contracts'
 import type {
   AdditionalApproverDecisionHistoryItem,
   ContractActivityReadState,
+  ContractNotificationDeliverySummary,
   ContractNotificationFailure,
   ContractSigningPreparationDraft,
   ContractSigningPreparationDraftField,
@@ -698,6 +699,15 @@ export class ContractQueryService {
     recipientEmails: string[]
   } | null> {
     return this.contractRepository.getEnvelopeNotificationProfile(params)
+  }
+
+  async getLatestNotificationDelivery(params: {
+    tenantId: string
+    contractId: string
+    recipientEmail: string
+    notificationType: ContractNotificationType
+  }): Promise<ContractNotificationDeliverySummary | null> {
+    return this.contractRepository.getLatestNotificationDelivery(params)
   }
 
   async recordContractNotificationDelivery(params: {

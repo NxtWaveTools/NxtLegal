@@ -67,6 +67,7 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   markSignatoryAsSigned: jest.fn(),
   listFailedNotificationDeliveries: jest.fn(),
   getEnvelopeNotificationProfile: jest.fn(),
+  getLatestNotificationDelivery: jest.fn(),
   recordContractNotificationDelivery: jest.fn(),
   addContractNote: jest.fn(),
   addContractActivityMessage: jest.fn(),

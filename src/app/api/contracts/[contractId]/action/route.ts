@@ -3,7 +3,7 @@ import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
-import { getContractQueryService } from '@/core/registry/service-registry'
+import { getContractApprovalNotificationService, getContractQueryService } from '@/core/registry/service-registry'
 import { contractActionSchema } from '@/core/domain/contracts/schemas'
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
@@ -32,6 +32,51 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       actorEmail: session.email ?? '',
       noteText: payload.noteText,
     })
+
+    const contractApprovalNotificationService = getContractApprovalNotificationService()
+
+    if (payload.action === 'hod.approve') {
+      await contractApprovalNotificationService.notifyApprovalReceived({
+        tenantId,
+        contractId,
+        actorEmployeeId: session.employeeId,
+        actorRole: session.role,
+        event: 'HOD_APPROVED',
+        legalOwnerEmail: contractView.contract.currentAssigneeEmail,
+      })
+    }
+
+    if (payload.action === 'approver.approve') {
+      await contractApprovalNotificationService.notifyApprovalReceived({
+        tenantId,
+        contractId,
+        actorEmployeeId: session.employeeId,
+        actorRole: session.role,
+        event: 'ADDITIONAL_APPROVED',
+        legalOwnerEmail: contractView.contract.currentAssigneeEmail,
+      })
+    }
+
+    if (payload.action === 'legal.query.reroute') {
+      await contractApprovalNotificationService.notifyReturnedToHod({
+        tenantId,
+        contractId,
+        actorEmployeeId: session.employeeId,
+        actorRole: session.role,
+        hodEmail: contractView.contract.currentAssigneeEmail,
+      })
+    }
+
+    if (payload.action === 'legal.reject' || payload.action === 'hod.reject') {
+      await contractApprovalNotificationService.notifyContractRejected({
+        tenantId,
+        contractId,
+        actorEmployeeId: session.employeeId,
+        actorRole: session.role,
+        recipientEmails: [contractView.contract.uploadedByEmail, contractView.contract.departmentHodEmail ?? ''],
+        trigger: payload.action === 'legal.reject' ? 'LEGAL_REJECTION' : 'HOD_REJECTED',
+      })
+    }
 
     return NextResponse.json(okResponse(contractView))
   } catch (error) {

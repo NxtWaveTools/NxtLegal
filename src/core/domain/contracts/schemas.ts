@@ -157,6 +157,10 @@ export const contractApproverSchema = z.object({
   approverEmail: z.string().trim().toLowerCase().email('Valid approver email is required'),
 })
 
+export const contractApproverReminderSchema = z.object({
+  approverEmail: z.string().trim().toLowerCase().email('Valid approver email is required').optional(),
+})
+
 export const contractLegalAssignmentSchema = z.discriminatedUnion('operation', [
   z.object({
     operation: z.literal('set_owner'),

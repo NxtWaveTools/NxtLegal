@@ -11,6 +11,7 @@ import { IdempotencyService } from '@/core/domain/idempotency/idempotency-servic
 import { ContractUploadService } from '@/core/domain/contracts/contract-upload-service'
 import { ContractQueryService } from '@/core/domain/contracts/contract-query-service'
 import { ContractSignatoryService } from '@/core/domain/contracts/contract-signatory-service'
+import { ContractApprovalNotificationService } from '@/core/domain/contracts/contract-approval-notification-service'
 import { RoleGovernanceService } from '@/core/domain/admin/role-governance-service'
 import { AdminQueryService } from '@/core/domain/admin/admin-query-service'
 import { TeamGovernanceService } from '@/core/domain/admin/team-governance-service'
@@ -41,6 +42,7 @@ let idempotencyService: IdempotencyService | null = null
 let contractUploadService: ContractUploadService | null = null
 let contractQueryService: ContractQueryService | null = null
 let contractSignatoryService: ContractSignatoryService | null = null
+let contractApprovalNotificationService: ContractApprovalNotificationService | null = null
 let roleGovernanceService: RoleGovernanceService | null = null
 let adminQueryService: AdminQueryService | null = null
 let teamGovernanceService: TeamGovernanceService | null = null
@@ -205,6 +207,66 @@ export function getContractSignatoryService(): ContractSignatoryService {
   return contractSignatoryService
 }
 
+export function getContractApprovalNotificationService(): ContractApprovalNotificationService {
+  const shouldRefreshInDev = process.env.NODE_ENV !== 'production'
+
+  if (!contractApprovalNotificationService || shouldRefreshInDev) {
+    const mailConfig = appConfig.mail
+    const apiKey = typeof mailConfig.brevoApiKey === 'string' ? mailConfig.brevoApiKey.trim() : ''
+    const apiKeyLooksLikeRestKey = typeof apiKey === 'string' && apiKey.startsWith('xkeysib-')
+
+    const hasBrevoConfig = Boolean(
+      mailConfig.brevoApiBaseUrl && apiKey && apiKeyLooksLikeRestKey && mailConfig.fromName && mailConfig.fromEmail
+    )
+
+    const isProduction = process.env.NODE_ENV === 'production'
+    if (!hasBrevoConfig && isProduction) {
+      throw new ExternalServiceError(
+        'BREVO',
+        'Brevo config is incomplete. Please set required BREVO_* and MAIL_FROM_* variables.'
+      )
+    }
+
+    const sender = hasBrevoConfig
+      ? new BrevoSmtpSender({
+          apiBaseUrl: mailConfig.brevoApiBaseUrl,
+          apiKey,
+          fromName: mailConfig.fromName as string,
+          fromEmail: mailConfig.fromEmail as string,
+        })
+      : {
+          sendTemplateEmail: async (input: { recipientEmail: string; templateId: number }) => {
+            logger.warn('Brevo config missing; using dev no-op approval mail sender', {
+              recipientEmail: input.recipientEmail,
+              templateId: input.templateId,
+            })
+
+            return {
+              providerMessageId: `dev-noop-${Date.now()}`,
+            }
+          },
+        }
+
+    contractApprovalNotificationService = new ContractApprovalNotificationService(
+      getContractQueryService(),
+      sender,
+      {
+        hodApprovalRequestedTemplateId: mailConfig.brevoTemplateHodApprovalRequestedId ?? 0,
+        approvalReminderTemplateId: mailConfig.brevoTemplateApprovalReminderId ?? 0,
+        additionalApproverAddedTemplateId: mailConfig.brevoTemplateAdditionalApproverAddedId ?? 0,
+        legalInternalAssignmentTemplateId: mailConfig.brevoTemplateLegalInternalAssignmentId ?? 0,
+        legalApprovalReceivedHodTemplateId: mailConfig.brevoTemplateLegalApprovalReceivedHodId ?? 0,
+        legalApprovalReceivedAdditionalTemplateId: mailConfig.brevoTemplateLegalApprovalReceivedAdditionalId ?? 0,
+        legalReturnedToHodTemplateId: mailConfig.brevoTemplateLegalReturnedToHodId ?? 0,
+        legalContractRejectedTemplateId: mailConfig.brevoTemplateLegalContractRejectedId ?? 0,
+      },
+      logger
+    )
+  }
+
+  return contractApprovalNotificationService
+}
+
 export function getRoleGovernanceService(): RoleGovernanceService {
   if (!roleGovernanceService) {
     roleGovernanceService = new RoleGovernanceService(supabaseRoleGovernanceRepository)
@@ -255,6 +317,7 @@ export function resetServices(): void {
   contractUploadService = null
   contractQueryService = null
   contractSignatoryService = null
+  contractApprovalNotificationService = null
   roleGovernanceService = null
   adminQueryService = null
   teamGovernanceService = null

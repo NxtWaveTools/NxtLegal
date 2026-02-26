@@ -51,6 +51,7 @@ export const routeRegistry = {
       action: '/api/contracts/:contractId/action',
       note: '/api/contracts/:contractId/note',
       approvers: '/api/contracts/:contractId/approvers',
+      approverReminder: '/api/contracts/:contractId/approvers/remind',
       assignments: '/api/contracts/:contractId/assignments',
       signatories: '/api/contracts/:contractId/signatories',
       signingPreparationDraft: '/api/contracts/:contractId/signing-preparation-draft',

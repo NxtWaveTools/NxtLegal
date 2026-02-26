@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { getContractUploadService, getIdempotencyService } from '@/core/registry/service-registry'
+import {
+  getContractApprovalNotificationService,
+  getContractUploadService,
+  getIdempotencyService,
+} from '@/core/registry/service-registry'
 import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { logger } from '@/core/infra/logging/logger'
@@ -175,6 +179,14 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       fileMimeType: uploadedFile.type || 'application/octet-stream',
       fileBytes,
       supportingFiles,
+    })
+
+    const contractApprovalNotificationService = getContractApprovalNotificationService()
+    await contractApprovalNotificationService.notifyHodOnContractUpload({
+      tenantId: session.tenantId,
+      contractId: contract.id,
+      actorEmployeeId: session.employeeId,
+      actorRole: session.role,
     })
 
     logger.info('Contract uploaded successfully', {

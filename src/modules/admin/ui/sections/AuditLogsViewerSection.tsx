@@ -1,3 +1,4 @@
+import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
 type AuditLogViewItem = {
@@ -115,13 +116,22 @@ export default function AuditLogsViewerSection({
 
       <div className={styles.actions}>
         <button type="button" className={styles.button} onClick={onApplyFilters} disabled={isLoading}>
-          Apply Filters
+          <span className={styles.buttonContent}>
+            {isLoading ? <Spinner size={14} /> : null}
+            Apply Filters
+          </span>
         </button>
         <button type="button" className={styles.button} onClick={onResetPaging} disabled={isLoading}>
-          First Page
+          <span className={styles.buttonContent}>
+            {isLoading ? <Spinner size={14} /> : null}
+            First Page
+          </span>
         </button>
         <button type="button" className={styles.button} onClick={onNextPage} disabled={isLoading || !cursor}>
-          Next Page
+          <span className={styles.buttonContent}>
+            {isLoading ? <Spinner size={14} /> : null}
+            Next Page
+          </span>
         </button>
         <button type="button" className={`${styles.button} ${styles.buttonPrimary}`} onClick={onExportCsv}>
           Export CSV

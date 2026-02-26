@@ -65,6 +65,14 @@ const mailConfig = requireConfigGroup({
     BREVO_API_KEY: envServer.brevoApiKey,
     BREVO_TEMPLATE_SIGNATORY_LINK_ID: envServer.brevoSignatoryLinkTemplateId,
     BREVO_TEMPLATE_SIGNING_COMPLETED_ID: envServer.brevoSigningCompletedTemplateId,
+    BREVO_TEMPLATE_HOD_APPROVAL_REQUESTED_ID: envServer.brevoHodApprovalRequestedTemplateId,
+    BREVO_TEMPLATE_APPROVAL_REMINDER_ID: envServer.brevoApprovalReminderTemplateId,
+    BREVO_TEMPLATE_ADDITIONAL_APPROVER_ADDED_ID: envServer.brevoAdditionalApproverAddedTemplateId,
+    BREVO_TEMPLATE_LEGAL_INTERNAL_ASSIGNMENT_ID: envServer.brevoLegalInternalAssignmentTemplateId,
+    BREVO_TEMPLATE_LEGAL_APPROVAL_RECEIVED_HOD_ID: envServer.brevoLegalApprovalReceivedHodTemplateId,
+    BREVO_TEMPLATE_LEGAL_APPROVAL_RECEIVED_ADDITIONAL_ID: envServer.brevoLegalApprovalReceivedAdditionalTemplateId,
+    BREVO_TEMPLATE_LEGAL_RETURNED_TO_HOD_ID: envServer.brevoLegalReturnedToHodTemplateId,
+    BREVO_TEMPLATE_LEGAL_CONTRACT_REJECTED_ID: envServer.brevoLegalContractRejectedTemplateId,
     MAIL_FROM_NAME: envServer.mailFromName,
     MAIL_FROM_EMAIL: envServer.mailFromEmail,
   },
@@ -105,6 +113,38 @@ export const appConfig = {
     brevoTemplateSigningCompletedId: parseInteger(
       mailConfig.BREVO_TEMPLATE_SIGNING_COMPLETED_ID,
       'BREVO_TEMPLATE_SIGNING_COMPLETED_ID'
+    ),
+    brevoTemplateHodApprovalRequestedId: parseInteger(
+      mailConfig.BREVO_TEMPLATE_HOD_APPROVAL_REQUESTED_ID,
+      'BREVO_TEMPLATE_HOD_APPROVAL_REQUESTED_ID'
+    ),
+    brevoTemplateApprovalReminderId: parseInteger(
+      mailConfig.BREVO_TEMPLATE_APPROVAL_REMINDER_ID,
+      'BREVO_TEMPLATE_APPROVAL_REMINDER_ID'
+    ),
+    brevoTemplateAdditionalApproverAddedId: parseInteger(
+      mailConfig.BREVO_TEMPLATE_ADDITIONAL_APPROVER_ADDED_ID,
+      'BREVO_TEMPLATE_ADDITIONAL_APPROVER_ADDED_ID'
+    ),
+    brevoTemplateLegalInternalAssignmentId: parseInteger(
+      mailConfig.BREVO_TEMPLATE_LEGAL_INTERNAL_ASSIGNMENT_ID,
+      'BREVO_TEMPLATE_LEGAL_INTERNAL_ASSIGNMENT_ID'
+    ),
+    brevoTemplateLegalApprovalReceivedHodId: parseInteger(
+      mailConfig.BREVO_TEMPLATE_LEGAL_APPROVAL_RECEIVED_HOD_ID,
+      'BREVO_TEMPLATE_LEGAL_APPROVAL_RECEIVED_HOD_ID'
+    ),
+    brevoTemplateLegalApprovalReceivedAdditionalId: parseInteger(
+      mailConfig.BREVO_TEMPLATE_LEGAL_APPROVAL_RECEIVED_ADDITIONAL_ID,
+      'BREVO_TEMPLATE_LEGAL_APPROVAL_RECEIVED_ADDITIONAL_ID'
+    ),
+    brevoTemplateLegalReturnedToHodId: parseInteger(
+      mailConfig.BREVO_TEMPLATE_LEGAL_RETURNED_TO_HOD_ID,
+      'BREVO_TEMPLATE_LEGAL_RETURNED_TO_HOD_ID'
+    ),
+    brevoTemplateLegalContractRejectedId: parseInteger(
+      mailConfig.BREVO_TEMPLATE_LEGAL_CONTRACT_REJECTED_ID,
+      'BREVO_TEMPLATE_LEGAL_CONTRACT_REJECTED_ID'
     ),
     fromName: mailConfig.MAIL_FROM_NAME,
     fromEmail: mailConfig.MAIL_FROM_EMAIL,

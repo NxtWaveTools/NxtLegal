@@ -154,6 +154,14 @@ export type ContractNotificationChannel =
 export const contractNotificationTypes = {
   signatoryLink: 'SIGNATORY_LINK',
   signingCompleted: 'SIGNING_COMPLETED',
+  hodApprovalRequested: 'HOD_APPROVAL_REQUESTED',
+  approvalReminder: 'APPROVAL_REMINDER',
+  additionalApproverAdded: 'ADDITIONAL_APPROVER_ADDED',
+  legalInternalAssignment: 'LEGAL_INTERNAL_ASSIGNMENT',
+  legalApprovalReceivedHod: 'LEGAL_APPROVAL_RECEIVED_HOD',
+  legalApprovalReceivedAdditional: 'LEGAL_APPROVAL_RECEIVED_ADDITIONAL',
+  legalReturnedToHod: 'LEGAL_RETURNED_TO_HOD',
+  legalContractRejected: 'LEGAL_CONTRACT_REJECTED',
 } as const
 
 export type ContractNotificationType = (typeof contractNotificationTypes)[keyof typeof contractNotificationTypes]
@@ -169,6 +177,7 @@ export type ContractNotificationStatus =
 export const contractNotificationPolicy = {
   maxRetries: 2,
   retryBaseDelayMinutes: 1,
+  approvalReminderCooldownHours: 24,
 } as const
 
 export const contractAuditEvents = {
