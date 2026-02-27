@@ -14,7 +14,7 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
     }
 
     const queryParams = Object.fromEntries(request.nextUrl.searchParams.entries())
-    const { filter, cursor, limit, includeExtras } = dashboardContractsQuerySchema.parse(queryParams)
+    const { filter, scope, cursor, limit, includeExtras } = dashboardContractsQuerySchema.parse(queryParams)
 
     const contractQueryService = getContractQueryService()
     const result = await contractQueryService.getDashboardContracts({
@@ -22,6 +22,7 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       employeeId: session.employeeId,
       role: session.role,
       filter,
+      scope,
       cursor,
       limit,
     })

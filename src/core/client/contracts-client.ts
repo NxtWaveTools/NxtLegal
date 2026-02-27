@@ -94,6 +94,7 @@ type ContractDocument = {
 }
 
 type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD' | 'ASSIGNED_TO_ME'
+type DashboardContractsScope = 'default' | 'personal'
 
 type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 type RepositorySortDirection = 'asc' | 'desc'
@@ -449,12 +450,17 @@ export const contractsClient = {
 
   async dashboardContracts(params: {
     filter: DashboardContractsFilter
+    scope?: DashboardContractsScope
     cursor?: string
     limit?: number
     includeExtras?: boolean
   }): Promise<ApiResponse<DashboardContractsResponse>> {
     const query = new URLSearchParams()
     query.set('filter', params.filter)
+
+    if (params.scope) {
+      query.set('scope', params.scope)
+    }
 
     if (params.cursor) {
       query.set('cursor', params.cursor)
@@ -1071,6 +1077,7 @@ export type {
   AdditionalApproverHistoryResponse,
   ContractDetailResponse,
   DashboardContractsFilter,
+  DashboardContractsScope,
   RepositorySortBy,
   RepositorySortDirection,
   RepositoryDateBasis,

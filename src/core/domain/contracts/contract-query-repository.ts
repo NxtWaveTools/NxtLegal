@@ -58,6 +58,8 @@ export type DashboardContractFilter =
   | 'ON_HOLD'
   | 'ASSIGNED_TO_ME'
 
+export type DashboardContractScope = 'default' | 'personal'
+
 export type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 export type RepositorySortDirection = 'asc' | 'desc'
 export type RepositoryDateBasis = 'request_created_at' | 'hod_approved_at'
@@ -327,6 +329,7 @@ export interface ContractQueryRepository {
     employeeId: string
     role?: string
     filter: DashboardContractFilter
+    scope?: DashboardContractScope
     cursor?: string
     limit: number
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }>

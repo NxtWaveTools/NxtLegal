@@ -34,6 +34,7 @@ import type {
   ContractNotificationDeliverySummary,
   ContractNotificationFailure,
   DashboardContractFilter,
+  DashboardContractScope,
   ContractAdditionalApprover,
   ContractSignatory,
   ContractAllowedAction,
@@ -453,14 +454,22 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     employeeId: string
     role?: string
     filter: DashboardContractFilter
+    scope?: DashboardContractScope
     cursor?: string
     limit: number
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     const resolvedFilter = this.resolveDashboardFilter(params.role, params.filter)
-    const statusFilter = this.resolveDashboardStatusFromFilter(resolvedFilter)
+    const shouldUsePersonalScope = params.scope === 'personal'
+    let statusFilter = this.resolveDashboardStatusFromFilter(resolvedFilter)
+
+    if (shouldUsePersonalScope && resolvedFilter === 'ASSIGNED_TO_ME' && params.role === 'ADMIN') {
+      statusFilter = contractStatuses.hodPending
+    }
+
     const decodedCursor = this.decodeCursor(params.cursor)
     const supabase = createServiceSupabase()
-    const shouldFilterAssignedToMe = resolvedFilter === 'ASSIGNED_TO_ME'
+    const shouldFilterAssignedToMe = resolvedFilter === 'ASSIGNED_TO_ME' && !shouldUsePersonalScope
+    const actorEmail = shouldUsePersonalScope ? await this.getEmployeeEmail(params.tenantId, params.employeeId) : null
     let assignedContractIds: string[] | null = null
 
     if (shouldFilterAssignedToMe) {
@@ -576,9 +585,17 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       query = query.in('id', assignedContractIds)
     }
 
-    const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
-    if (visibilityFilter) {
-      query = query.or(visibilityFilter)
+    if (shouldUsePersonalScope) {
+      if (actorEmail) {
+        query = query.or(`current_assignee_employee_id.eq.${params.employeeId},current_assignee_email.eq.${actorEmail}`)
+      } else {
+        query = query.eq('current_assignee_employee_id', params.employeeId)
+      }
+    } else {
+      const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+      if (visibilityFilter) {
+        query = query.or(visibilityFilter)
+      }
     }
 
     let totalQuery = supabase
@@ -594,8 +611,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       totalQuery = totalQuery.in('id', assignedContractIds)
     }
 
-    if (visibilityFilter) {
-      totalQuery = totalQuery.or(visibilityFilter)
+    if (shouldUsePersonalScope) {
+      if (actorEmail) {
+        totalQuery = totalQuery.or(
+          `current_assignee_employee_id.eq.${params.employeeId},current_assignee_email.eq.${actorEmail}`
+        )
+      } else {
+        totalQuery = totalQuery.eq('current_assignee_employee_id', params.employeeId)
+      }
+    } else {
+      const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+      if (visibilityFilter) {
+        totalQuery = totalQuery.or(visibilityFilter)
+      }
     }
 
     const { count: totalCount, error: totalError } = await totalQuery
@@ -4348,7 +4376,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return contractStatuses.onHold
   }
 
-  private async getHodDepartmentIds(tenantId: string, employeeId: string): Promise<string[]> {
+  private async getEmployeeEmail(tenantId: string, employeeId: string): Promise<string | null> {
     const supabase = createServiceSupabase()
 
     const { data: employee, error: employeeError } = await supabase
@@ -4358,27 +4386,30 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .eq('id', employeeId)
       .eq('is_active', true)
       .is('deleted_at', null)
-      .maybeSingle<{ email: string }>()
+      .maybeSingle<{ email: string | null }>()
 
     if (employeeError) {
-      throw new DatabaseError(
-        'Failed to resolve employee email for HOD access checks',
-        new Error(employeeError.message),
-        {
-          code: employeeError.code,
-        }
-      )
+      throw new DatabaseError('Failed to resolve employee email', new Error(employeeError.message), {
+        code: employeeError.code,
+      })
     }
 
-    if (!employee?.email) {
+    return employee?.email?.trim().toLowerCase() ?? null
+  }
+
+  private async getHodDepartmentIds(tenantId: string, employeeId: string): Promise<string[]> {
+    const employeeEmail = await this.getEmployeeEmail(tenantId, employeeId)
+    if (!employeeEmail) {
       return []
     }
+
+    const supabase = createServiceSupabase()
 
     const { data: hodTeams, error: hodTeamsError } = await supabase
       .from('team_role_mappings')
       .select('team_id')
       .eq('tenant_id', tenantId)
-      .eq('email', employee.email.toLowerCase())
+      .eq('email', employeeEmail)
       .eq('role_type', 'HOD')
       .eq('active_flag', true)
       .is('deleted_at', null)

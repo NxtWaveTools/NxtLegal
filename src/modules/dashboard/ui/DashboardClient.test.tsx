@@ -346,3 +346,51 @@ describe('DashboardClient HOD experience updates', () => {
     jest.restoreAllMocks()
   })
 })
+
+describe('DashboardClient admin personal approvals queue', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('uses personal scope for Assigned To Me and keeps All HOD Pending as a distinct tab', async () => {
+    const dashboardContractsSpy = jest
+      .spyOn(contractsClient, 'dashboardContracts')
+      .mockImplementation(async (params) => {
+        return {
+          ok: true,
+          data: {
+            contracts: [],
+            pagination: {
+              cursor: null,
+              limit: params.limit ?? 1,
+              total: 0,
+            },
+            filter: params.filter,
+            additionalApproverSections: {
+              actionableContracts: [],
+            },
+          },
+        } as never
+      })
+
+    render(
+      <DashboardClient
+        session={{
+          employeeId: 'admin-1',
+          fullName: 'Admin User',
+          email: 'admin@nxtwave.co.in',
+          role: contractWorkflowRoles.admin,
+        }}
+      />
+    )
+
+    expect(await screen.findByRole('button', { name: /Assigned To Me \(0\)/i })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /All HOD Pending \(0\)/i })).toBeTruthy()
+
+    expect(
+      dashboardContractsSpy.mock.calls.some(
+        ([params]) => params.filter === 'ASSIGNED_TO_ME' && params.scope === 'personal'
+      )
+    ).toBe(true)
+  })
+})

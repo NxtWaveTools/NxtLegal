@@ -545,4 +545,128 @@ describe('supabaseContractQueryRepository action permissions', () => {
 
     expect(members).toEqual([{ id: 'legal-1', email: 'legacy.legal@nxtwave.co.in', fullName: 'Legacy Legal' }])
   })
+
+  it('bypasses global visibility override for dashboard personal scope', async () => {
+    const listOr = jest.fn().mockResolvedValue({
+      data: [
+        {
+          id: 'contract-1',
+          title: 'Contract A',
+          status: 'HOD_PENDING',
+          uploaded_by_employee_id: 'poc-1',
+          uploaded_by_email: 'poc@nxtwave.co.in',
+          current_assignee_employee_id: 'admin-1',
+          current_assignee_email: 'legalhod@nxtwave.co.in',
+          hod_approved_at: null,
+          tat_deadline_at: null,
+          tat_breached_at: null,
+          aging_business_days: null,
+          near_breach: false,
+          is_tat_breached: false,
+          created_at: '2026-02-27T10:00:00.000Z',
+          updated_at: '2026-02-27T10:00:00.000Z',
+        },
+      ],
+      error: null,
+    })
+    const listBuilder: {
+      eq: jest.Mock
+      order: jest.Mock
+      limit: jest.Mock
+      lt: jest.Mock
+      in: jest.Mock
+      or: jest.Mock
+    } = {
+      eq: jest.fn(),
+      order: jest.fn(),
+      limit: jest.fn(),
+      lt: jest.fn(),
+      in: jest.fn(),
+      or: listOr,
+    }
+    listBuilder.eq.mockReturnValue(listBuilder)
+    listBuilder.order.mockReturnValue(listBuilder)
+    listBuilder.limit.mockReturnValue(listBuilder)
+    listBuilder.lt.mockReturnValue(listBuilder)
+    listBuilder.in.mockReturnValue(listBuilder)
+    const listSelect = jest.fn().mockReturnValue(listBuilder)
+
+    const totalOr = jest.fn().mockResolvedValue({ count: 1, error: null })
+    const totalBuilder: {
+      eq: jest.Mock
+      in: jest.Mock
+      or: jest.Mock
+    } = {
+      eq: jest.fn(),
+      in: jest.fn(),
+      or: totalOr,
+    }
+    totalBuilder.eq.mockReturnValue(totalBuilder)
+    totalBuilder.in.mockReturnValue(totalBuilder)
+    const totalSelect = jest.fn().mockReturnValue(totalBuilder)
+
+    const from = jest.fn().mockReturnValueOnce({ select: listSelect }).mockReturnValueOnce({ select: totalSelect })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const getEmployeeEmailSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getEmployeeEmail: (tenantId: string, employeeId: string) => Promise<string | null>
+      },
+      'getEmployeeEmail'
+    )
+    getEmployeeEmailSpy.mockResolvedValue('legalhod@nxtwave.co.in')
+
+    const getVisibilityFilterSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getVisibilityFilter: (tenantId: string, role: string | undefined, employeeId: string) => Promise<string | null>
+      },
+      'getVisibilityFilter'
+    )
+
+    const additionalContextSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getAdditionalApproverContractContextMap: (
+          tenantId: string,
+          contractIds: string[],
+          employeeId: string
+        ) => Promise<Map<string, unknown>>
+      },
+      'getAdditionalApproverContractContextMap'
+    )
+    additionalContextSpy.mockResolvedValue(new Map())
+
+    const attachSignalsSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        attachActorContractSignals: (
+          tenantId: string,
+          employeeId: string,
+          items: unknown[],
+          role?: string
+        ) => Promise<unknown[]>
+      },
+      'attachActorContractSignals'
+    )
+    attachSignalsSpy.mockImplementation(async (_tenantId, _employeeId, items) => items)
+
+    const result = await supabaseContractQueryRepository.getDashboardContracts({
+      tenantId: 'tenant-1',
+      employeeId: 'admin-1',
+      role: 'ADMIN',
+      filter: 'ASSIGNED_TO_ME',
+      scope: 'personal',
+      limit: 10,
+    })
+
+    expect(result.total).toBe(1)
+    expect(getVisibilityFilterSpy).not.toHaveBeenCalled()
+    expect(listOr).toHaveBeenCalledWith(
+      'current_assignee_employee_id.eq.admin-1,current_assignee_email.eq.legalhod@nxtwave.co.in'
+    )
+    expect(totalOr).toHaveBeenCalledWith(
+      'current_assignee_employee_id.eq.admin-1,current_assignee_email.eq.legalhod@nxtwave.co.in'
+    )
+    expect(listBuilder.eq).toHaveBeenCalledWith('status', 'HOD_PENDING')
+    expect(totalBuilder.eq).toHaveBeenCalledWith('status', 'HOD_PENDING')
+  })
 })

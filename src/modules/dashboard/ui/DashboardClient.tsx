@@ -8,7 +8,12 @@ import Spinner from '@/components/ui/Spinner'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import { triggerContractStatusConfetti } from '@/modules/contracts/ui/contract-status-confetti'
-import { contractsClient, type ContractRecord, type DashboardContractsFilter } from '@/core/client/contracts-client'
+import {
+  contractsClient,
+  type ContractRecord,
+  type DashboardContractsFilter,
+  type DashboardContractsScope,
+} from '@/core/client/contracts-client'
 import {
   contractRepositoryTatPolicy,
   contractStatuses,
@@ -42,6 +47,7 @@ type ActionCardProps = {
 type DashboardRoleConfig = {
   defaultFilter: DashboardContractsFilter
   approveFilter: DashboardContractsFilter
+  approveScope?: DashboardContractsScope
   filters: Array<{ value: DashboardContractsFilter; label: string }>
   showApproveCard: boolean
 }
@@ -194,12 +200,14 @@ function DashboardActionCard({ title, count, description, onClick, icon }: Actio
 function getRoleConfig(role?: string): DashboardRoleConfig {
   if (role === contractWorkflowRoles.admin) {
     return {
-      defaultFilter: 'ALL',
-      approveFilter: 'HOD_PENDING',
+      defaultFilter: 'ASSIGNED_TO_ME',
+      approveFilter: 'ASSIGNED_TO_ME',
+      approveScope: 'personal',
       showApproveCard: true,
       filters: [
+        { value: 'ASSIGNED_TO_ME', label: 'Assigned To Me' },
+        { value: 'HOD_PENDING', label: 'All HOD Pending' },
         { value: 'ALL', label: 'All' },
-        { value: 'HOD_PENDING', label: 'HOD Pending' },
         { value: 'UNDER_REVIEW', label: 'Under Review' },
         { value: 'COMPLETED', label: 'Completed' },
         { value: 'ON_HOLD', label: 'On Hold' },
@@ -287,6 +295,17 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [activeFilterTotal, setActiveFilterTotal] = useState(0)
   const [actionableAdditionalApprovals, setActionableAdditionalApprovals] = useState<ContractRecord[]>([])
 
+  const resolveFilterScope = useCallback(
+    (filter: DashboardContractsFilter): DashboardContractsScope | undefined => {
+      if (session.role === contractWorkflowRoles.admin && filter === 'ASSIGNED_TO_ME') {
+        return 'personal'
+      }
+
+      return undefined
+    },
+    [session.role]
+  )
+
   const loadPendingApprovals = useCallback(async () => {
     if (!roleConfig.showApproveCard) {
       setPendingApprovalsCount(0)
@@ -295,6 +314,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
     const response = await contractsClient.dashboardContracts({
       filter: roleConfig.approveFilter,
+      scope: roleConfig.approveScope,
       limit: 1,
     })
 
@@ -304,7 +324,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     }
 
     setPendingApprovalsCount(response.data.pagination.total)
-  }, [roleConfig.approveFilter, roleConfig.showApproveCard])
+  }, [roleConfig.approveFilter, roleConfig.approveScope, roleConfig.showApproveCard])
 
   const loadContractsForFilter = useCallback(
     async (
@@ -323,6 +343,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       try {
         const response = await contractsClient.dashboardContracts({
           filter,
+          scope: resolveFilterScope(filter),
           cursor: options?.cursor,
           limit: limits.dashboardContractsPageSize,
           includeExtras: true,
@@ -394,7 +415,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         setIsLoadingPageChange(false)
       }
     },
-    []
+    [resolveFilterScope]
   )
 
   const loadFilterCounts = useCallback(async () => {
@@ -402,6 +423,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       roleConfig.filters.map(async (filterOption) => {
         const response = await contractsClient.dashboardContracts({
           filter: filterOption.value,
+          scope: resolveFilterScope(filterOption.value),
           limit: 1,
         })
 
@@ -418,7 +440,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     }
 
     setFilterCounts(nextCounts)
-  }, [roleConfig.filters])
+  }, [resolveFilterScope, roleConfig.filters])
 
   const applyFilter = useCallback(
     (filter: DashboardContractsFilter) => {

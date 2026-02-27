@@ -19,6 +19,7 @@ import type {
   ContractSignatoryField,
   ContractDocument,
   DashboardContractFilter,
+  DashboardContractScope,
   ContractDetail,
   ContractDetailView,
   ContractLegalMetadata,
@@ -62,6 +63,7 @@ export class ContractQueryService {
     employeeId: string
     role?: string
     filter: DashboardContractFilter
+    scope?: DashboardContractScope
     cursor?: string
     limit: number
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
