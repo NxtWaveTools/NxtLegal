@@ -189,6 +189,19 @@ export const contractLegalAssignmentSchema = z.discriminatedUnion('operation', [
   }),
 ])
 
+export const contractLegalMetadataSchema = z.object({
+  effectiveDate: z
+    .union([z.string().date(), z.literal(''), z.null(), z.undefined()])
+    .transform((value) => (typeof value === 'string' && value.trim() ? value : null)),
+  terminationDate: z
+    .union([z.string().date(), z.literal(''), z.null(), z.undefined()])
+    .transform((value) => (typeof value === 'string' && value.trim() ? value : null)),
+  noticePeriod: z
+    .union([z.string().trim().max(200), z.literal(''), z.null(), z.undefined()])
+    .transform((value) => (typeof value === 'string' && value.trim() ? value.trim() : null)),
+  autoRenewal: z.union([z.boolean(), z.null(), z.undefined()]).transform((value) => value ?? null),
+})
+
 export const contractSignatoryFieldTypeValues = [
   'SIGNATURE',
   'INITIAL',
@@ -324,5 +337,6 @@ export type ContractBypassApprovalPayload = z.infer<typeof contractBypassApprova
 export type ContractActionCommandPayload = z.infer<typeof contractActionCommandSchema>
 export type DashboardContractsFilter = (typeof dashboardContractsFilterValues)[number]
 export type ContractLegalAssignmentOperation = z.infer<typeof contractLegalAssignmentSchema>['operation']
+export type ContractLegalMetadataPayload = z.infer<typeof contractLegalMetadataSchema>
 export type ContractSignatoryPayload = z.infer<typeof contractSignatorySchema>
 export type ContractSigningPreparationDraftPayload = z.infer<typeof contractSigningPreparationDraftSchema>

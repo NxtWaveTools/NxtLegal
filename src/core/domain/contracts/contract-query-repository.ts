@@ -115,6 +115,10 @@ export type ContractDetail = ContractListItem & {
   signatoryEmail: string
   backgroundOfRequest: string
   budgetApproved: boolean
+  legalEffectiveDate?: string | null
+  legalTerminationDate?: string | null
+  legalNoticePeriod?: string | null
+  legalAutoRenewal?: boolean | null
   requestCreatedAt: string
   currentDocumentId?: string | null
   fileName: string
@@ -122,6 +126,13 @@ export type ContractDetail = ContractListItem & {
   fileMimeType: string
   filePath: string
   rowVersion: number
+}
+
+export type ContractLegalMetadata = {
+  effectiveDate: string | null
+  terminationDate: string | null
+  noticePeriod: string | null
+  autoRenewal: boolean | null
 }
 
 export type ContractCounterparty = {
@@ -400,6 +411,14 @@ export interface ContractQueryRepository {
     actorRole: string
     actorEmail: string
     approverEmail: string
+  }): Promise<void>
+  updateLegalMetadata(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    metadata: ContractLegalMetadata
   }): Promise<void>
   bypassAdditionalApprover(params: {
     tenantId: string

@@ -37,6 +37,7 @@ import type {
   ContractSignatory,
   ContractAllowedAction,
   ContractDetail,
+  ContractLegalMetadata,
   ContractLegalCollaborator,
   ContractListItem,
   ContractQueryRepository,
@@ -110,6 +111,10 @@ type ContractEntity = {
   background_of_request: string
   department_id: string
   budget_approved: boolean
+  legal_effective_date?: string | null
+  legal_termination_date?: string | null
+  legal_notice_period?: string | null
+  legal_auto_renewal?: boolean | null
   request_created_at: string
   current_document_id: string | null
   void_reason: string | null
@@ -1059,23 +1064,54 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   async getById(tenantId: string, contractId: string): Promise<ContractDetail | null> {
     const supabase = createServiceSupabase()
 
-    const { data, error } = await supabase
+    const contractDetailSelectWithLegalMetadata =
+      'id, tenant_id, title, contract_type_id, counterparty_name, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, legal_effective_date, legal_termination_date, legal_notice_period, legal_auto_renewal, request_created_at, current_document_id, void_reason, hod_approved_at, tat_deadline_at, tat_breached_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
+    const contractDetailSelectLegacy =
+      'id, tenant_id, title, contract_type_id, counterparty_name, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, current_document_id, void_reason, hod_approved_at, tat_deadline_at, tat_breached_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
+
+    const { data: preferredData, error: preferredError } = await supabase
       .from('contracts')
-      .select(
-        'id, tenant_id, title, contract_type_id, counterparty_name, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, current_document_id, void_reason, hod_approved_at, tat_deadline_at, tat_breached_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
-      )
+      .select(contractDetailSelectWithLegalMetadata)
       .eq('tenant_id', tenantId)
       .eq('id', contractId)
       .is('deleted_at', null)
       .single<ContractEntity>()
 
-    if (error) {
-      if (error.code === 'PGRST116') {
+    if (preferredError && !this.isMissingColumnError(preferredError, 'contracts')) {
+      if (preferredError.code === 'PGRST116') {
         return null
       }
-      throw new DatabaseError('Failed to fetch contract detail', new Error(error.message), {
-        code: error.code,
+      throw new DatabaseError('Failed to fetch contract detail', new Error(preferredError.message), {
+        code: preferredError.code,
       })
+    }
+
+    let data = preferredData
+
+    if (!data && preferredError && this.isMissingColumnError(preferredError, 'contracts')) {
+      const { data: legacyData, error: legacyError } = await supabase
+        .from('contracts')
+        .select(contractDetailSelectLegacy)
+        .eq('tenant_id', tenantId)
+        .eq('id', contractId)
+        .is('deleted_at', null)
+        .single<ContractEntity>()
+
+      if (legacyError) {
+        if (legacyError.code === 'PGRST116') {
+          return null
+        }
+
+        throw new DatabaseError('Failed to fetch contract detail', new Error(legacyError.message), {
+          code: legacyError.code,
+        })
+      }
+
+      data = legacyData
+    }
+
+    if (!data) {
+      return null
     }
 
     const metadata = await this.resolveContractDetailMetadata(tenantId, data.contract_type_id, data.department_id)
@@ -2343,10 +2379,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    if (contract.status !== contractStatuses.underReview) {
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && contract.status !== contractStatuses.underReview) {
       throw new BusinessRuleError(
         'APPROVER_ASSIGN_INVALID_STATUS',
-        'Additional approvers can only be assigned in UNDER_REVIEW'
+        'Additional approvers can only be assigned in UNDER_REVIEW for non-legal-team roles'
       )
     }
 
@@ -2643,6 +2679,76 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (auditError) {
       throw new DatabaseError('Failed to write legal owner audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
+  async updateLegalMetadata(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    metadata: ContractLegalMetadata
+  }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
+    if (params.actorRole !== contractWorkflowRoles.legalTeam) {
+      throw new AuthorizationError('CONTRACT_LEGAL_METADATA_FORBIDDEN', 'Only LEGAL_TEAM can update legal metadata')
+    }
+
+    const contract = await this.getById(params.tenantId, params.contractId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
+    }
+
+    const supabase = createServiceSupabase()
+
+    const { error: updateError } = await supabase
+      .from('contracts')
+      .update({
+        legal_effective_date: params.metadata.effectiveDate,
+        legal_termination_date: params.metadata.terminationDate,
+        legal_notice_period: params.metadata.noticePeriod,
+        legal_auto_renewal: params.metadata.autoRenewal,
+        row_version: contract.rowVersion + 1,
+      })
+      .eq('id', contract.id)
+      .eq('tenant_id', params.tenantId)
+      .eq('row_version', contract.rowVersion)
+
+    if (updateError) {
+      throw new DatabaseError('Failed to update legal metadata', new Error(updateError.message), {
+        code: updateError.code,
+      })
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.actorEmployeeId,
+        event_type: 'CONTRACT_TRANSITIONED',
+        action: 'contract.legal.metadata.updated',
+        actor_email: params.actorEmail,
+        actor_role: params.actorRole,
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        metadata: {
+          effective_date: params.metadata.effectiveDate,
+          termination_date: params.metadata.terminationDate,
+          notice_period: params.metadata.noticePeriod,
+          auto_renewal: params.metadata.autoRenewal,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write legal metadata audit event', new Error(auditError.message), {
         code: auditError.code,
       })
     }
@@ -5190,6 +5296,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       signatoryEmail: row.signatory_email,
       backgroundOfRequest: row.background_of_request,
       budgetApproved: row.budget_approved,
+      legalEffectiveDate: row.legal_effective_date ?? null,
+      legalTerminationDate: row.legal_termination_date ?? null,
+      legalNoticePeriod: row.legal_notice_period ?? null,
+      legalAutoRenewal: row.legal_auto_renewal ?? null,
       requestCreatedAt: row.request_created_at,
       voidReason: row.void_reason,
       currentDocumentId: row.current_document_id,

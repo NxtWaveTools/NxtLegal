@@ -742,6 +742,10 @@ export type Database = {
           file_size_bytes: number | null
           hod_approved_at: string | null
           id: string
+          legal_auto_renewal: boolean | null
+          legal_effective_date: string | null
+          legal_notice_period: string | null
+          legal_termination_date: string | null
           legal_approved_at: string | null
           request_created_at: string
           row_version: number
@@ -776,6 +780,10 @@ export type Database = {
           file_size_bytes?: number | null
           hod_approved_at?: string | null
           id?: string
+          legal_auto_renewal?: boolean | null
+          legal_effective_date?: string | null
+          legal_notice_period?: string | null
+          legal_termination_date?: string | null
           legal_approved_at?: string | null
           request_created_at?: string
           row_version?: number
@@ -810,6 +818,10 @@ export type Database = {
           file_size_bytes?: number | null
           hod_approved_at?: string | null
           id?: string
+          legal_auto_renewal?: boolean | null
+          legal_effective_date?: string | null
+          legal_notice_period?: string | null
+          legal_termination_date?: string | null
           legal_approved_at?: string | null
           request_created_at?: string
           row_version?: number

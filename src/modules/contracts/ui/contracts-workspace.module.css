@@ -386,6 +386,24 @@
   color: var(--color-text);
 }
 
+.legalMetadataForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.legalMetadataField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legalMetadataField > span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 /* ── Tabs ── */
 
 .tabColumn {

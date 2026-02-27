@@ -21,6 +21,7 @@ import type {
   DashboardContractFilter,
   ContractDetail,
   ContractDetailView,
+  ContractLegalMetadata,
   ContractListItem,
   ContractQueryRepository,
   RepositoryDateBasis,
@@ -515,6 +516,50 @@ export class ContractQueryService {
         collaboratorEmail: params.collaboratorEmail,
       })
     }
+
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    return this.getContractDetailAfterMutation({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.actorEmployeeId,
+      role: params.actorRole,
+      updatedContract: contract,
+    })
+  }
+
+  async updateLegalMetadata(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    metadata: ContractLegalMetadata
+  }): Promise<ContractDetailView> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_LEGAL_METADATA_FORBIDDEN', 'User role is required for legal metadata')
+    }
+
+    if (params.actorRole !== contractWorkflowRoles.legalTeam) {
+      throw new AuthorizationError('CONTRACT_LEGAL_METADATA_FORBIDDEN', 'Only LEGAL_TEAM can update legal metadata')
+    }
+
+    if (!params.actorEmail) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    await this.contractRepository.updateLegalMetadata({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      actorEmail: params.actorEmail,
+      metadata: params.metadata,
+    })
 
     const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
 

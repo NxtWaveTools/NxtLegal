@@ -69,11 +69,16 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [approverEmail, setApproverEmail] = useState('')
   const [collaboratorEmail, setCollaboratorEmail] = useState('')
   const [activityMessageText, setActivityMessageText] = useState('')
+  const [legalEffectiveDate, setLegalEffectiveDate] = useState('')
+  const [legalTerminationDate, setLegalTerminationDate] = useState('')
+  const [legalNoticePeriod, setLegalNoticePeriod] = useState('')
+  const [legalAutoRenewal, setLegalAutoRenewal] = useState<'unknown' | 'yes' | 'no'>('unknown')
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [isActivityComposerOpen, setIsActivityComposerOpen] = useState(false)
   const [isSubmittingActivity, setIsSubmittingActivity] = useState(false)
   const [isAddingCollaborator, setIsAddingCollaborator] = useState(false)
   const [isMarkingActivitySeen, setIsMarkingActivitySeen] = useState(false)
+  const [isSavingLegalMetadata, setIsSavingLegalMetadata] = useState(false)
   const [isIntakeOpen, setIsIntakeOpen] = useState(false)
   const [isPrepareForSigningOpen, setIsPrepareForSigningOpen] = useState(false)
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set())
@@ -157,9 +162,26 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     knownContractStatusesRef.current.set(contract.id, contract.status)
   }, [])
 
+  const resetLegalMetadataDraft = () => {
+    setLegalEffectiveDate('')
+    setLegalTerminationDate('')
+    setLegalNoticePeriod('')
+    setLegalAutoRenewal('unknown')
+  }
+
   const applyContractView = (contractView: ContractDetailResponse) => {
     maybeCelebrateExecutedTransition(contractView.contract)
     setSelectedContract(contractView.contract)
+    setLegalEffectiveDate(contractView.contract.legalEffectiveDate ?? '')
+    setLegalTerminationDate(contractView.contract.legalTerminationDate ?? '')
+    setLegalNoticePeriod(contractView.contract.legalNoticePeriod ?? '')
+    setLegalAutoRenewal(
+      contractView.contract.legalAutoRenewal === true
+        ? 'yes'
+        : contractView.contract.legalAutoRenewal === false
+          ? 'no'
+          : 'unknown'
+    )
     setCounterparties(contractView.counterparties ?? [])
     setDocuments(contractView.documents ?? [])
     setAvailableActions(contractView.availableActions)
@@ -183,6 +205,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     if (!detailResponse.ok || !detailResponse.data?.contract) {
       toast.error(detailResponse.error?.message ?? 'Failed to load contract detail')
       setSelectedContract(null)
+      resetLegalMetadataDraft()
       setTimeline([])
       setCounterparties([])
       setDocuments([])
@@ -233,6 +256,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       if (!detailResponse.ok || !detailResponse.data?.contract) {
         toast.error(detailResponse.error?.message ?? 'Failed to load contract detail')
         setSelectedContract(null)
+        resetLegalMetadataDraft()
         setTimeline([])
         setCounterparties([])
         setDocuments([])
@@ -705,6 +729,31 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     syncContractReadState(selectedContractId, false)
   }
 
+  const handleSaveLegalMetadata = async () => {
+    if (!selectedContractId || session.role !== 'LEGAL_TEAM' || isSavingLegalMetadata) {
+      return
+    }
+
+    setIsSavingLegalMetadata(true)
+
+    const response = await contractsClient.updateLegalMetadata(selectedContractId, {
+      effectiveDate: legalEffectiveDate.trim() ? legalEffectiveDate : null,
+      terminationDate: legalTerminationDate.trim() ? legalTerminationDate : null,
+      noticePeriod: legalNoticePeriod.trim() ? legalNoticePeriod.trim() : null,
+      autoRenewal: legalAutoRenewal === 'yes' ? true : legalAutoRenewal === 'no' ? false : null,
+    })
+
+    setIsSavingLegalMetadata(false)
+
+    if (!response.ok || !response.data) {
+      toast.error(response.error?.message ?? 'Failed to save legal metadata')
+      return
+    }
+
+    applyContractView(response.data)
+    toast.success('Legal metadata saved')
+  }
+
   const handleAddCollaboratorSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     void handleAddCollaborator()
@@ -713,6 +762,16 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const handleAddNoteSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     void handleAddNote()
+  }
+
+  const handleAddActivitySubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void handleAddActivityMessage()
+  }
+
+  const handleLegalMetadataSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void handleSaveLegalMetadata()
   }
 
   const handleRemarkDialogSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -815,6 +874,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       selectedContract.status as (typeof contractLegalAssignmentEditableStatuses)[number]
     )
   }, [selectedContract, session.role])
+  const canManageLegalMetadata = session.role === 'LEGAL_TEAM'
   const selectedContractListRow = useMemo(
     () => contracts.find((contract) => contract.id === selectedContractId) ?? null,
     [contracts, selectedContractId]
@@ -1134,6 +1194,68 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                   </div>
                 ))}
               </div>
+
+              {canManageLegalMetadata ? (
+                <div className={styles.sectionBlock}>
+                  <div className={styles.sectionLabel}>Legal Metadata</div>
+                  <form className={styles.legalMetadataForm} onSubmit={handleLegalMetadataSubmit}>
+                    <div className={styles.legalMetadataField}>
+                      <span>Effective Date</span>
+                      <input
+                        type="date"
+                        className={styles.input}
+                        value={legalEffectiveDate}
+                        onChange={(event) => setLegalEffectiveDate(event.target.value)}
+                        disabled={isSavingLegalMetadata || isMutating}
+                      />
+                    </div>
+                    <div className={styles.legalMetadataField}>
+                      <span>Termination Date</span>
+                      <input
+                        type="date"
+                        className={styles.input}
+                        value={legalTerminationDate}
+                        onChange={(event) => setLegalTerminationDate(event.target.value)}
+                        disabled={isSavingLegalMetadata || isMutating}
+                      />
+                    </div>
+                    <div className={styles.legalMetadataField}>
+                      <span>Notice Period</span>
+                      <input
+                        type="text"
+                        className={styles.input}
+                        value={legalNoticePeriod}
+                        onChange={(event) => setLegalNoticePeriod(event.target.value)}
+                        placeholder="e.g. 30 days"
+                        disabled={isSavingLegalMetadata || isMutating}
+                      />
+                    </div>
+                    <div className={styles.legalMetadataField}>
+                      <span>Auto-renewal</span>
+                      <select
+                        className={styles.input}
+                        value={legalAutoRenewal}
+                        onChange={(event) => setLegalAutoRenewal(event.target.value as 'unknown' | 'yes' | 'no')}
+                        disabled={isSavingLegalMetadata || isMutating}
+                      >
+                        <option value="unknown">Not set</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
+                    </div>
+                    <button
+                      type="submit"
+                      className={styles.button}
+                      disabled={isSavingLegalMetadata || isMutating || !selectedContractId}
+                    >
+                      <span className={styles.buttonContent}>
+                        {isSavingLegalMetadata ? <Spinner size={14} /> : null}
+                        {isSavingLegalMetadata ? 'Saving…' : 'Save Legal Metadata'}
+                      </span>
+                    </button>
+                  </form>
+                </div>
+              ) : null}
             </aside>
 
             {/* ── Tab Column ── */}
@@ -1332,7 +1454,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       </div>
 
                       {isActivityComposerOpen ? (
-                        <div className={styles.activityComposer}>
+                        <form className={styles.activityComposer} onSubmit={handleAddActivitySubmit}>
                           <textarea
                             className={styles.textarea}
                             placeholder="Discuss this contract. Use @email to tag someone."
@@ -1342,15 +1464,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                           />
                           <div className={styles.activityComposerActions}>
                             <button
-                              type="button"
+                              type="submit"
                               className={styles.button}
                               disabled={isSubmittingActivity || isMutating}
-                              onClick={() => void handleAddActivityMessage()}
                             >
                               {isSubmittingActivity ? 'Posting…' : 'Post'}
                             </button>
                           </div>
-                        </div>
+                        </form>
                       ) : null}
 
                       <div className={styles.logContainer}>

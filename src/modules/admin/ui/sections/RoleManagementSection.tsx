@@ -29,65 +29,67 @@ export default function RoleManagementSection({
   onRoleOperationChange,
   onSubmitRoleChange,
 }: RoleManagementSectionProps) {
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    onSubmitRoleChange()
+  }
+
   return (
     <div className={styles.panel}>
       <h2 className={styles.panelTitle}>Role Management</h2>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Select User</span>
-        <select
-          className={styles.select}
-          value={selectedUserId}
-          onChange={(event) => onSelectedUserChange(event.target.value)}
-        >
-          {users.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.email}
-            </option>
-          ))}
-        </select>
-      </label>
+      <form onSubmit={handleSubmit}>
+        <label className={styles.field}>
+          <span className={styles.label}>Select User</span>
+          <select
+            className={styles.select}
+            value={selectedUserId}
+            onChange={(event) => onSelectedUserChange(event.target.value)}
+          >
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.email}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Select Role</span>
-        <select
-          className={styles.select}
-          value={selectedRoleKey}
-          onChange={(event) => onSelectedRoleKeyChange(event.target.value)}
-        >
-          {roles.map((role) => (
-            <option key={role.roleKey} value={role.roleKey}>
-              {role.displayName}
-            </option>
-          ))}
-        </select>
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Select Role</span>
+          <select
+            className={styles.select}
+            value={selectedRoleKey}
+            onChange={(event) => onSelectedRoleKeyChange(event.target.value)}
+          >
+            {roles.map((role) => (
+              <option key={role.roleKey} value={role.roleKey}>
+                {role.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Operation</span>
-        <select
-          className={styles.select}
-          value={roleOperation}
-          onChange={(event) => onRoleOperationChange(event.target.value as 'grant' | 'revoke')}
-        >
-          <option value="grant">Grant</option>
-          <option value="revoke">Revoke</option>
-        </select>
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Operation</span>
+          <select
+            className={styles.select}
+            value={roleOperation}
+            onChange={(event) => onRoleOperationChange(event.target.value as 'grant' | 'revoke')}
+          >
+            <option value="grant">Grant</option>
+            <option value="revoke">Revoke</option>
+          </select>
+        </label>
 
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={`${styles.button} ${styles.buttonPrimary}`}
-          disabled={!canChangeRole}
-          onClick={onSubmitRoleChange}
-        >
-          <span className={styles.buttonContent}>
-            {isSubmittingRoleChange ? <Spinner size={14} /> : null}
-            {isSubmittingRoleChange ? 'Updating Role...' : 'Apply Role Change'}
-          </span>
-        </button>
-      </div>
+        <div className={styles.actions}>
+          <button type="submit" className={`${styles.button} ${styles.buttonPrimary}`} disabled={!canChangeRole}>
+            <span className={styles.buttonContent}>
+              {isSubmittingRoleChange ? <Spinner size={14} /> : null}
+              {isSubmittingRoleChange ? 'Updating Role...' : 'Apply Role Change'}
+            </span>
+          </button>
+        </div>
+      </form>
     </div>
   )
 }

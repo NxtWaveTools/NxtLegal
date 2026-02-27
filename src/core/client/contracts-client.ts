@@ -57,6 +57,10 @@ type ContractRecord = {
   signatoryEmail?: string
   backgroundOfRequest?: string
   budgetApproved?: boolean
+  legalEffectiveDate?: string | null
+  legalTerminationDate?: string | null
+  legalNoticePeriod?: string | null
+  legalAutoRenewal?: boolean | null
   requestCreatedAt?: string
   currentDocumentId?: string | null
   tatDeadlineAt?: string | null
@@ -257,6 +261,13 @@ type ContractDetailResponse = {
 type LegalAssignmentPayload =
   | { operation: 'add_collaborator'; collaboratorEmail: string }
   | { operation: 'remove_collaborator'; collaboratorEmail: string }
+
+type LegalMetadataPayload = {
+  effectiveDate: string | null
+  terminationDate: string | null
+  noticePeriod: string | null
+  autoRenewal: boolean | null
+}
 
 type ContractListResponse = {
   contracts: ContractRecord[]
@@ -895,6 +906,19 @@ export const contractsClient = {
 
   async manageAssignment(contractId: string, payload: LegalAssignmentPayload) {
     const response = await fetch(resolveContractPath(routeRegistry.api.contracts.assignments, contractId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    return parseApiResponse<ContractDetailResponse>(response)
+  },
+
+  async updateLegalMetadata(contractId: string, payload: LegalMetadataPayload) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.legalMetadata, contractId), {
       method: 'POST',
       credentials: 'include',
       headers: {
