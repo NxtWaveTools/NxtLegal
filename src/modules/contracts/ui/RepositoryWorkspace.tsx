@@ -14,6 +14,7 @@ import {
 import {
   contractsClient,
   type ContractRecord,
+  type LegalTeamMemberOption,
   type RepositoryDateBasis,
   type RepositoryExportColumn,
   type RepositoryStatusFilter,
@@ -225,11 +226,26 @@ function resolveAssignedToDisplay(record: ContractRecord): {
   }
 }
 
+function toFallbackDisplayName(email: string): string {
+  const localPart = email.split('@')[0] ?? email
+  const normalized = localPart.replace(/[._-]+/g, ' ').trim()
+
+  if (!normalized) {
+    return email
+  }
+
+  return normalized
+    .split(' ')
+    .map((segment) => (segment.length > 0 ? `${segment[0].toUpperCase()}${segment.slice(1)}` : segment))
+    .join(' ')
+}
+
 export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProps) {
   const router = useRouter()
   const normalizedRole = (session.role ?? '').toUpperCase()
+  const isLegalTeamRole = normalizedRole === 'LEGAL_TEAM'
   const canAccessRepositoryReporting =
-    normalizedRole === 'LEGAL_TEAM' ||
+    isLegalTeamRole ||
     normalizedRole === 'LEGAL_ADMIN' ||
     normalizedRole === 'ADMIN' ||
     normalizedRole === 'SUPER_ADMIN'
@@ -265,6 +281,11 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     fileMimeType: string
     externalUrl: string
   } | null>(null)
+  const [legalTeamMembers, setLegalTeamMembers] = useState<LegalTeamMemberOption[]>([])
+  const [legalTeamMembersError, setLegalTeamMembersError] = useState<string | null>(null)
+  const [openAssignmentDropdownContractId, setOpenAssignmentDropdownContractId] = useState<string | null>(null)
+  const [assignmentSavingByContractId, setAssignmentSavingByContractId] = useState<Record<string, boolean>>({})
+  const [assignmentErrorByContractId, setAssignmentErrorByContractId] = useState<Record<string, string>>({})
   const savedViews = useMemo(() => resolveSavedViews(session.role), [session.role])
   const [activeSavedViewId, setActiveSavedViewId] = useState<string>('custom')
 
@@ -343,6 +364,29 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
     void loadReport()
   }, [canAccessRepositoryReporting, customFromDate, customToDate, dateBasis, datePreset, search, statusFilter])
+
+  useEffect(() => {
+    if (!isLegalTeamRole) {
+      setLegalTeamMembers([])
+      setLegalTeamMembersError(null)
+      return
+    }
+
+    const loadLegalTeamMembers = async () => {
+      const response = await contractsClient.legalTeamMembers()
+
+      if (!response.ok || !response.data) {
+        setLegalTeamMembers([])
+        setLegalTeamMembersError(response.error?.message ?? 'Failed to load legal team members')
+        return
+      }
+
+      setLegalTeamMembers(response.data.members)
+      setLegalTeamMembersError(null)
+    }
+
+    void loadLegalTeamMembers()
+  }, [isLegalTeamRole])
 
   useEffect(() => {
     setCursorHistory([undefined])
@@ -451,6 +495,92 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     })
   }, [])
 
+  const resolveContractAssignedEmails = useCallback((contract: ContractRecord): string[] => {
+    const assignees = (contract.assignedToUsers ?? []).map((item) => item.trim().toLowerCase()).filter(Boolean)
+    return Array.from(new Set(assignees))
+  }, [])
+
+  const resolveEmailDisplayName = useCallback(
+    (email: string): string => {
+      const member = legalTeamMembers.find((item) => item.email.toLowerCase() === email.toLowerCase())
+      if (member?.fullName?.trim()) {
+        return member.fullName
+      }
+
+      return toFallbackDisplayName(email)
+    },
+    [legalTeamMembers]
+  )
+
+  const handleContractAssignmentChange = useCallback(
+    async (contractId: string, selectedEmails: string[]) => {
+      if (!isLegalTeamRole) {
+        return
+      }
+
+      const targetContract = contracts.find((contract) => contract.id === contractId)
+      if (!targetContract) {
+        return
+      }
+
+      const previousEmails = resolveContractAssignedEmails(targetContract)
+      const nextEmails = Array.from(new Set(selectedEmails.map((value) => value.trim().toLowerCase()).filter(Boolean)))
+
+      if (previousEmails.length === nextEmails.length && previousEmails.every((email) => nextEmails.includes(email))) {
+        return
+      }
+
+      const emailsToAdd = nextEmails.filter((email) => !previousEmails.includes(email))
+      const emailsToRemove = previousEmails.filter((email) => !nextEmails.includes(email))
+
+      setAssignmentSavingByContractId((current) => ({ ...current, [contractId]: true }))
+      setAssignmentErrorByContractId((current) => {
+        const next = { ...current }
+        delete next[contractId]
+        return next
+      })
+
+      try {
+        for (const email of emailsToAdd) {
+          const response = await contractsClient.manageAssignment(contractId, {
+            operation: 'add_collaborator',
+            collaboratorEmail: email,
+          })
+
+          if (!response.ok) {
+            throw new Error(response.error?.message ?? 'Failed to add collaborator')
+          }
+        }
+
+        for (const email of emailsToRemove) {
+          const response = await contractsClient.manageAssignment(contractId, {
+            operation: 'remove_collaborator',
+            collaboratorEmail: email,
+          })
+
+          if (!response.ok) {
+            throw new Error(response.error?.message ?? 'Failed to remove collaborator')
+          }
+        }
+
+        setContracts((current) =>
+          current.map((contract) =>
+            contract.id === contractId ? { ...contract, assignedToUsers: nextEmails } : contract
+          )
+        )
+        setOpenAssignmentDropdownContractId(contractId)
+      } catch (assignmentError) {
+        setAssignmentErrorByContractId((current) => ({
+          ...current,
+          [contractId]: assignmentError instanceof Error ? assignmentError.message : 'Failed to update assignment',
+        }))
+      } finally {
+        setAssignmentSavingByContractId((current) => ({ ...current, [contractId]: false }))
+      }
+    },
+    [contracts, isLegalTeamRole, resolveContractAssignedEmails]
+  )
+
   const columns = useMemo<ColumnDef<ContractRecord>[]>(
     () => [
       {
@@ -553,6 +683,80 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         accessorKey: 'assignedTo',
         header: 'Assigned To',
         cell: ({ row }) => {
+          if (isLegalTeamRole) {
+            const selectedEmails = resolveContractAssignedEmails(row.original)
+            const selectedDisplayNames = selectedEmails.map((email) => resolveEmailDisplayName(email))
+            const isSaving = Boolean(assignmentSavingByContractId[row.original.id])
+            const assignmentError = assignmentErrorByContractId[row.original.id]
+            const isDropdownOpen = openAssignmentDropdownContractId === row.original.id
+            const triggerLabel = selectedDisplayNames.length > 0 ? selectedDisplayNames.join(', ') : 'Assign Contract'
+
+            return (
+              <div
+                className={styles.assignedToEditor}
+                onClick={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className={styles.assignedToTrigger}
+                  disabled={isSaving || legalTeamMembers.length === 0}
+                  onClick={() =>
+                    setOpenAssignmentDropdownContractId((current) =>
+                      current === row.original.id ? null : row.original.id
+                    )
+                  }
+                  title={triggerLabel}
+                >
+                  <span className={styles.assignedToTriggerLabel}>{triggerLabel}</span>
+                  <span className={styles.assignedToTriggerCaret}>{isDropdownOpen ? '▴' : '▾'}</span>
+                </button>
+                {isDropdownOpen ? (
+                  <div className={styles.assignedToDropdown}>
+                    {selectedEmails.length > 0 ? (
+                      <button
+                        type="button"
+                        className={styles.assignedToClearAll}
+                        disabled={isSaving}
+                        onClick={() => {
+                          void handleContractAssignmentChange(row.original.id, [])
+                        }}
+                      >
+                        Clear all
+                      </button>
+                    ) : null}
+                    {legalTeamMembers.map((member) => {
+                      const memberEmail = member.email.toLowerCase()
+                      const isSelected = selectedEmails.includes(memberEmail)
+                      const memberDisplayName = member.fullName?.trim() || toFallbackDisplayName(member.email)
+
+                      return (
+                        <button
+                          key={member.id}
+                          type="button"
+                          className={`${styles.assignedToOption} ${isSelected ? styles.assignedToOptionSelected : ''}`}
+                          disabled={isSaving}
+                          onClick={() => {
+                            const nextSelected = isSelected
+                              ? selectedEmails.filter((email) => email !== memberEmail)
+                              : [...selectedEmails, memberEmail]
+                            void handleContractAssignmentChange(row.original.id, nextSelected)
+                          }}
+                        >
+                          <span>{memberDisplayName}</span>
+                          {isSelected ? <span className={styles.assignedToOptionCheck}>✓</span> : null}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : null}
+                {legalTeamMembersError ? <span className={styles.assignmentError}>{legalTeamMembersError}</span> : null}
+                {assignmentError ? <span className={styles.assignmentError}>{assignmentError}</span> : null}
+                {isSaving ? <span className={styles.assignmentSaving}>Saving…</span> : null}
+              </div>
+            )
+          }
+
           const display = resolveAssignedToDisplay(row.original)
 
           return (
@@ -566,7 +770,18 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         },
       },
     ],
-    [handleOpenCurrentDocument]
+    [
+      assignmentErrorByContractId,
+      assignmentSavingByContractId,
+      handleContractAssignmentChange,
+      handleOpenCurrentDocument,
+      isLegalTeamRole,
+      legalTeamMembers,
+      legalTeamMembersError,
+      openAssignmentDropdownContractId,
+      resolveEmailDisplayName,
+      resolveContractAssignedEmails,
+    ]
   )
 
   const toggleExportColumn = (column: RepositoryExportColumn) => {

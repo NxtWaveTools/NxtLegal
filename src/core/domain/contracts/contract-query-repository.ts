@@ -187,6 +187,12 @@ export type ContractLegalCollaborator = {
   createdAt: string
 }
 
+export type ContractLegalTeamMember = {
+  id: string
+  email: string
+  fullName?: string | null
+}
+
 export type ContractSignatory = {
   id: string
   signatoryEmail: string
@@ -363,6 +369,7 @@ export interface ContractQueryRepository {
   getTimeline(tenantId: string, contractId: string, limit: number): Promise<ContractTimelineEvent[]>
   getAdditionalApprovers(tenantId: string, contractId: string): Promise<ContractAdditionalApprover[]>
   getLegalCollaborators(tenantId: string, contractId: string): Promise<ContractLegalCollaborator[]>
+  listActiveTenantLegalMembers(tenantId: string): Promise<ContractLegalTeamMember[]>
   isLegalCollaborator(tenantId: string, contractId: string, employeeId: string): Promise<boolean>
   getSignatories(tenantId: string, contractId: string): Promise<ContractSignatory[]>
   canAccessContract(params: {

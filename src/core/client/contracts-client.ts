@@ -308,6 +308,12 @@ type ContractTypeOption = {
   name: string
 }
 
+type LegalTeamMemberOption = {
+  id: string
+  email: string
+  fullName?: string | null
+}
+
 async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
   try {
     return (await response.json()) as ApiResponse<T>
@@ -370,6 +376,16 @@ export const contractsClient = {
     })
 
     return parseApiResponse<{ departments: DepartmentOption[] }>(response)
+  },
+
+  async legalTeamMembers(): Promise<ApiResponse<{ members: LegalTeamMemberOption[] }>> {
+    const response = await fetch(routeRegistry.api.contracts.legalTeamMembers, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    })
+
+    return parseApiResponse<{ members: LegalTeamMemberOption[] }>(response)
   },
 
   async list(params?: { cursor?: string; limit?: number }): Promise<ApiResponse<ContractListResponse>> {
@@ -1011,6 +1027,7 @@ export type {
   ContractRecord,
   ContractDocument,
   DepartmentOption,
+  LegalTeamMemberOption,
   ContractTypeOption,
   ContractTimelineEvent,
   ContractActivityReadState,

@@ -7,8 +7,14 @@ import { toast } from 'sonner'
 import Spinner from '@/components/ui/Spinner'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
+import { triggerContractStatusConfetti } from '@/modules/contracts/ui/contract-status-confetti'
 import { contractsClient, type ContractRecord, type DashboardContractsFilter } from '@/core/client/contracts-client'
-import { contractUploadModes, contractWorkflowRoles, type ContractUploadMode } from '@/core/constants/contracts'
+import {
+  contractStatuses,
+  contractUploadModes,
+  contractWorkflowRoles,
+  type ContractUploadMode,
+} from '@/core/constants/contracts'
 import { limits } from '@/core/constants/limits'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import styles from './dashboard.module.css'
@@ -142,6 +148,8 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const contractsSectionRef = useRef<HTMLElement | null>(null)
   const latestContractsRequestIdRef = useRef(0)
   const lastVisibilityRefreshAtRef = useRef(0)
+  const knownContractStatusesRef = useRef<Map<string, ContractRecord['status']>>(new Map())
+  const executedCelebratedContractIdsRef = useRef<Set<string>>(new Set())
 
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [uploadMode, setUploadMode] = useState<ContractUploadMode>(contractUploadModes.default)
@@ -230,6 +238,21 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         }
 
         const responseData = response.data
+
+        for (const contract of responseData.contracts) {
+          const previousStatus = knownContractStatusesRef.current.get(contract.id)
+          const hasTransitionedToExecuted =
+            previousStatus !== undefined &&
+            previousStatus !== contractStatuses.executed &&
+            contract.status === contractStatuses.executed
+
+          if (hasTransitionedToExecuted && !executedCelebratedContractIdsRef.current.has(contract.id)) {
+            triggerContractStatusConfetti()
+            executedCelebratedContractIdsRef.current.add(contract.id)
+          }
+
+          knownContractStatusesRef.current.set(contract.id, contract.status)
+        }
 
         setContracts(responseData.contracts)
         setActionableAdditionalApprovals(responseData.additionalApproverSections?.actionableContracts ?? [])

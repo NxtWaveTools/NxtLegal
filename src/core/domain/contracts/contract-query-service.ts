@@ -75,6 +75,16 @@ export class ContractQueryService {
     return this.contractRepository.getActionableAdditionalApprovals(params)
   }
 
+  async getActiveTenantLegalMembers(params: { tenantId: string }): Promise<
+    Array<{
+      id: string
+      email: string
+      fullName?: string | null
+    }>
+  > {
+    return this.contractRepository.listActiveTenantLegalMembers(params.tenantId)
+  }
+
   async getAdditionalApproverDecisionHistory(params: {
     tenantId: string
     employeeId: string

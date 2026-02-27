@@ -855,17 +855,23 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const hasNext = rows.length > params.limit
 
-    const assignmentMap = await this.getContractAssignmentEmailMap(
-      params.tenantId,
-      rows.map((row) => row.id),
-      rows
-    )
+    const assignmentMap =
+      params.role === 'LEGAL_TEAM'
+        ? await this.getContractLegalCollaboratorEmailMap(params.tenantId, rows)
+        : await this.getContractAssignmentEmailMap(
+            params.tenantId,
+            rows.map((row) => row.id),
+            rows
+          )
 
     const mappedItems = rows.slice(0, params.limit).map((row) =>
       this.mapListItem(row, additionalApproverContext.get(row.id), {
         creatorName: creatorNameById.get(row.uploaded_by_employee_id) ?? null,
         departmentName: row.department_id ? (departmentNameById.get(row.department_id) ?? null) : null,
-        assignedToUsers: assignmentMap.get(row.id) ?? [row.current_assignee_email],
+        assignedToUsers:
+          params.role === 'LEGAL_TEAM'
+            ? (assignmentMap.get(row.id) ?? [])
+            : (assignmentMap.get(row.id) ?? [row.current_assignee_email]),
       })
     )
     const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
@@ -1587,6 +1593,37 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       collaboratorEmployeeId: row.collaborator_employee_id,
       collaboratorEmail: row.collaborator_email,
       createdAt: row.created_at,
+    }))
+  }
+
+  async listActiveTenantLegalMembers(tenantId: string): Promise<
+    Array<{
+      id: string
+      email: string
+      fullName?: string | null
+    }>
+  > {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, email, full_name')
+      .eq('tenant_id', tenantId)
+      .eq('role', 'LEGAL_TEAM')
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .order('full_name', { ascending: true })
+      .order('email', { ascending: true })
+
+    if (error) {
+      throw new DatabaseError('Failed to fetch legal team members', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      email: row.email,
+      fullName: row.full_name,
     }))
   }
 
@@ -4949,6 +4986,50 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       if (!assignmentMap.has(row.id)) {
         assignmentMap.set(row.id, [row.current_assignee_email])
       }
+    }
+
+    return assignmentMap
+  }
+
+  private async getContractLegalCollaboratorEmailMap(
+    tenantId: string,
+    contractRows: Array<{ id: string; current_assignee_email: string }>
+  ): Promise<Map<string, string[]>> {
+    const assignmentMap = new Map<string, string[]>()
+
+    if (contractRows.length === 0) {
+      return assignmentMap
+    }
+
+    const contractIds = contractRows.map((row) => row.id)
+
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contract_legal_collaborators')
+      .select('contract_id, collaborator_email')
+      .eq('tenant_id', tenantId)
+      .in('contract_id', contractIds)
+      .is('deleted_at', null)
+
+    if (error) {
+      if (
+        this.isMissingRelationError(error, 'contract_legal_collaborators') ||
+        this.isMissingColumnError(error, 'contract_legal_collaborators')
+      ) {
+        return assignmentMap
+      }
+
+      throw new DatabaseError('Failed to resolve legal collaborator assignment map', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    for (const assignment of (data ?? []) as Array<{ contract_id: string; collaborator_email: string }>) {
+      const existing = assignmentMap.get(assignment.contract_id) ?? []
+      if (!existing.includes(assignment.collaborator_email)) {
+        existing.push(assignment.collaborator_email)
+      }
+      assignmentMap.set(assignment.contract_id, existing)
     }
 
     return assignmentMap

@@ -15,8 +15,15 @@ describe('supabaseContractQueryRepository action permissions', () => {
   it('blocks legal action when actor is not current assignee', async () => {
     const getByIdSpy = jest.spyOn(supabaseContractQueryRepository, 'getById')
     const collaboratorSpy = jest.spyOn(supabaseContractQueryRepository, 'isLegalCollaborator')
+    const canActorAccessSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        canActorAccessContract: (...args: unknown[]) => Promise<boolean>
+      },
+      'canActorAccessContract'
+    )
 
     collaboratorSpy.mockResolvedValue(false)
+    canActorAccessSpy.mockResolvedValue(false)
 
     getByIdSpy.mockResolvedValue({
       id: 'contract-1',
@@ -290,5 +297,99 @@ describe('supabaseContractQueryRepository action permissions', () => {
     expect(eqTenant).toHaveBeenCalledWith('tenant_id', 'tenant-1')
     expect(eqContract).toHaveBeenCalledWith('contract_id', 'contract-1')
     expect(eqApprover).toHaveBeenCalledWith('approver_employee_id', 'employee-1')
+  })
+
+  it('retains collaborator when email matches current assignee regression', async () => {
+    const order = jest.fn().mockResolvedValue({
+      data: [
+        {
+          id: 'collab-1',
+          collaborator_employee_id: 'legal-1',
+          collaborator_email: 'legal.team@nxtwave.co.in',
+          created_at: '2026-02-27T04:30:00.000Z',
+        },
+      ],
+      error: null,
+    })
+    const is = jest.fn().mockReturnValue({ order })
+    const eqContract = jest.fn().mockReturnValue({ is })
+    const eqTenant = jest.fn().mockReturnValue({ eq: eqContract })
+    const select = jest.fn().mockReturnValue({ eq: eqTenant })
+    const from = jest.fn().mockReturnValue({ select })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const result = await supabaseContractQueryRepository.getLegalCollaborators('tenant-1', 'contract-1')
+
+    expect(result).toEqual([
+      {
+        id: 'collab-1',
+        collaboratorEmployeeId: 'legal-1',
+        collaboratorEmail: 'legal.team@nxtwave.co.in',
+        createdAt: '2026-02-27T04:30:00.000Z',
+      },
+    ])
+    expect(from).toHaveBeenCalledWith('contract_legal_collaborators')
+    expect(eqTenant).toHaveBeenCalledWith('tenant_id', 'tenant-1')
+    expect(eqContract).toHaveBeenCalledWith('contract_id', 'contract-1')
+  })
+
+  it('builds collaborator assignment map without dropping assignee-matching email', async () => {
+    const is = jest.fn().mockResolvedValue({
+      data: [
+        { contract_id: 'contract-1', collaborator_email: 'legal.team@nxtwave.co.in' },
+        { contract_id: 'contract-1', collaborator_email: 'legal.team@nxtwave.co.in' },
+        { contract_id: 'contract-1', collaborator_email: 'trishanth.reddy@nxtwave.co.in' },
+      ],
+      error: null,
+    })
+    const inFilter = jest.fn().mockReturnValue({ is })
+    const eq = jest.fn().mockReturnValue({ in: inFilter })
+    const select = jest.fn().mockReturnValue({ eq })
+    const from = jest.fn().mockReturnValue({ select })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const result = await (
+      supabaseContractQueryRepository as unknown as {
+        getContractLegalCollaboratorEmailMap: (
+          tenantId: string,
+          contractRows: Array<{ id: string; current_assignee_email: string }>
+        ) => Promise<Map<string, string[]>>
+      }
+    ).getContractLegalCollaboratorEmailMap('tenant-1', [
+      { id: 'contract-1', current_assignee_email: 'legal.team@nxtwave.co.in' },
+    ])
+
+    expect(result.get('contract-1')).toEqual(['legal.team@nxtwave.co.in', 'trishanth.reddy@nxtwave.co.in'])
+  })
+
+  it('returns empty collaborator assignment map when collaborator table is missing', async () => {
+    const is = jest.fn().mockResolvedValue({
+      data: null,
+      error: {
+        code: 'PGRST205',
+        message: 'Could not find relation',
+      },
+    })
+    const inFilter = jest.fn().mockReturnValue({ is })
+    const eq = jest.fn().mockReturnValue({ in: inFilter })
+    const select = jest.fn().mockReturnValue({ eq })
+    const from = jest.fn().mockReturnValue({ select })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const result = await (
+      supabaseContractQueryRepository as unknown as {
+        getContractLegalCollaboratorEmailMap: (
+          tenantId: string,
+          contractRows: Array<{ id: string; current_assignee_email: string }>
+        ) => Promise<Map<string, string[]>>
+      }
+    ).getContractLegalCollaboratorEmailMap('tenant-1', [
+      { id: 'contract-1', current_assignee_email: 'legal.team@nxtwave.co.in' },
+    ])
+
+    expect(result.size).toBe(0)
   })
 })

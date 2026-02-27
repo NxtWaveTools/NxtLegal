@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
+import type { FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import {
@@ -21,8 +23,12 @@ import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import ContractDocumentsPanel from '@/modules/contracts/ui/ContractDocumentsPanel'
 import ApprovalsTab from '@/modules/contracts/ui/ApprovalsTab'
 import { formatContractLogEvents, isContractNoteEvent } from '@/modules/contracts/ui/formatContractLogEvent'
-import PrepareForSigningModal from '@/modules/contracts/ui/PrepareForSigningModal'
+import { triggerContractStatusConfetti } from '@/modules/contracts/ui/contract-status-confetti'
 import styles from './contracts-workspace.module.css'
+
+const PrepareForSigningModal = dynamic(() => import('@/modules/contracts/ui/PrepareForSigningModal'), {
+  ssr: false,
+})
 
 type ContractsWorkspaceProps = {
   session: {
@@ -91,6 +97,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [hasMore, setHasMore] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [totalContracts, setTotalContracts] = useState(0)
+  const knownContractStatusesRef = useRef<Map<string, ContractRecord['status']>>(new Map())
+  const executedCelebratedContractIdsRef = useRef<Set<string>>(new Set())
+  const pendingCompletedCelebrationContractIdRef = useRef<string | null>(null)
 
   const PAGE_SIZE = 15
 
@@ -122,7 +131,34 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
   }, [])
 
+  const maybeCelebrateExecutedTransition = useCallback((contract: ContractRecord) => {
+    const normalizedCurrentStatus = (contract.status ?? '').toUpperCase()
+    const normalizedPreviousStatus = (knownContractStatusesRef.current.get(contract.id) ?? '').toUpperCase()
+    const previousStatus = knownContractStatusesRef.current.get(contract.id)
+    const hasTransitionedToCompleted =
+      previousStatus !== undefined &&
+      normalizedPreviousStatus !== contractStatuses.completed &&
+      normalizedCurrentStatus === contractStatuses.completed
+    const hasTransitionedToExecuted =
+      previousStatus !== undefined &&
+      normalizedPreviousStatus !== contractStatuses.executed &&
+      normalizedCurrentStatus === contractStatuses.executed
+
+    if (hasTransitionedToCompleted && pendingCompletedCelebrationContractIdRef.current === contract.id) {
+      triggerContractStatusConfetti()
+      pendingCompletedCelebrationContractIdRef.current = null
+    }
+
+    if (hasTransitionedToExecuted && !executedCelebratedContractIdsRef.current.has(contract.id)) {
+      triggerContractStatusConfetti()
+      executedCelebratedContractIdsRef.current.add(contract.id)
+    }
+
+    knownContractStatusesRef.current.set(contract.id, contract.status)
+  }, [])
+
   const applyContractView = (contractView: ContractDetailResponse) => {
+    maybeCelebrateExecutedTransition(contractView.contract)
     setSelectedContract(contractView.contract)
     setCounterparties(contractView.counterparties ?? [])
     setDocuments(contractView.documents ?? [])
@@ -277,12 +313,26 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
       if (response.data) {
         applyContractView(response.data)
+
+        if ((response.data.contract.status ?? '').toUpperCase() === contractStatuses.completed) {
+          await triggerContractStatusConfetti()
+          pendingCompletedCelebrationContractIdRef.current = null
+        } else {
+          pendingCompletedCelebrationContractIdRef.current = selectedContractId
+        }
       }
 
       await loadContracts()
       await loadContractContext(selectedContractId)
       router.refresh()
       toast.success(`${actionItem.label} completed successfully`, { id: loadingToastId })
+
+      if ((response.data?.contract.status ?? '').toUpperCase() === contractStatuses.completed) {
+        window.setTimeout(() => {
+          triggerContractStatusConfetti()
+        }, 120)
+      }
+
       return true
     },
     [loadContractContext, loadContracts, router, selectedContractId]
