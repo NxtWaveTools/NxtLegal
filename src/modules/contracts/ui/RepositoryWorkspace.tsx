@@ -5,8 +5,10 @@ import { useRouter } from 'next/navigation'
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { toast } from 'sonner'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
+import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import {
+  contractUploadModes,
   contractRepositoryExportColumnLabels,
   contractRepositoryExportColumns,
   contractRepositoryStatusLabels,
@@ -311,6 +313,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     fileMimeType: string
     externalUrl: string
   } | null>(null)
+  const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [legalTeamMembers, setLegalTeamMembers] = useState<LegalTeamMemberOption[]>([])
   const [legalTeamMembersError, setLegalTeamMembersError] = useState<string | null>(null)
   const [openAssignmentDropdownContractId, setOpenAssignmentDropdownContractId] = useState<string | null>(null)
@@ -982,6 +985,15 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
       activeNav="repository"
       canAccessApproverHistory={session.canAccessApproverHistory}
+      quickAction={
+        normalizedRole === 'HOD'
+          ? {
+              ariaLabel: 'Upload third-party contract',
+              onClick: () => setIsUploadOpen(true),
+              isActive: isUploadOpen,
+            }
+          : undefined
+      }
     >
       <main className={styles.main}>
         <section className={styles.header}>
@@ -1131,7 +1143,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                   {reportMetrics.departmentMetrics.length === 0 ? (
                     <p className={styles.muted}>No department metrics available.</p>
                   ) : (
-                    <ul className={styles.metricList}>
+                    <ul className={`${styles.metricList} ${styles.metricListScrollable}`}>
                       {reportMetrics.departmentMetrics.map((metric) => (
                         <li key={metric.departmentId ?? 'unassigned'} className={styles.metricListItem}>
                           <span className={styles.metricName}>{metric.departmentName ?? 'Unassigned'}</span>
@@ -1309,6 +1321,17 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
             </div>
           </div>
         ) : null}
+
+        <ThirdPartyUploadSidebar
+          isOpen={isUploadOpen}
+          mode={contractUploadModes.default}
+          actorRole={session.role}
+          onClose={() => setIsUploadOpen(false)}
+          onUploaded={async () => {
+            await loadContracts()
+            router.refresh()
+          }}
+        />
       </main>
     </ProtectedAppShell>
   )

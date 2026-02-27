@@ -17,6 +17,11 @@ type ProtectedAppShellProps = {
   }
   activeNav: 'home' | 'repository' | 'admin' | 'approver-history'
   canAccessApproverHistory?: boolean
+  quickAction?: {
+    ariaLabel: string
+    onClick: () => void
+    isActive?: boolean
+  }
   children: ReactNode
 }
 
@@ -24,6 +29,7 @@ export default function ProtectedAppShell({
   session,
   activeNav,
   canAccessApproverHistory = false,
+  quickAction,
   children,
 }: ProtectedAppShellProps) {
   const router = useRouter()
@@ -61,6 +67,26 @@ export default function ProtectedAppShell({
           <span className={styles.sidebarBrandText}>NxtWave</span>
         </div>
         <div className={styles.navList}>
+          {quickAction ? (
+            <button
+              type="button"
+              className={`${styles.navItem} ${quickAction.isActive ? styles.navItemActive : ''}`}
+              aria-label={quickAction.ariaLabel}
+              onClick={quickAction.onClick}
+            >
+              <span className={styles.navIcon}>
+                <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
+                  <path
+                    d="M10 4v12M4 10h12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+            </button>
+          ) : null}
           <button
             type="button"
             className={`${styles.navItem} ${activeNav === 'home' ? styles.navItemActive : ''}`}

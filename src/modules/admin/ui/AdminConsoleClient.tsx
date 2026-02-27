@@ -8,8 +8,9 @@ import {
   type AdminDepartmentOption,
   type SystemConfigurationPayload,
 } from '@/core/client/admin-client'
-import { contractWorkflowIdentities } from '@/core/constants/contracts'
+import { contractUploadModes, contractWorkflowIdentities } from '@/core/constants/contracts'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
+import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import AdminPrimaryActionsSection from '@/modules/admin/ui/sections/AdminPrimaryActionsSection'
 import SystemConfigurationSection from '@/modules/admin/ui/sections/SystemConfigurationSection'
 import AuditLogsViewerSection from '@/modules/admin/ui/sections/AuditLogsViewerSection'
@@ -33,6 +34,7 @@ type AdminConsoleClientProps = {
 const emailPattern = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
 
 export default function AdminConsoleClient({ session }: AdminConsoleClientProps) {
+  const normalizedRole = (session.role ?? '').toUpperCase()
   const [departments, setDepartments] = useState<AdminDepartmentOption[]>([])
   const [users, setUsers] = useState<Array<{ id: string; email: string; fullName: string | null; roles: string[] }>>([])
   const [selectedTeamId, setSelectedTeamId] = useState('')
@@ -70,6 +72,7 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
   const [auditLogsLimit, setAuditLogsLimit] = useState<number>(25)
   const [auditLogsTotal, setAuditLogsTotal] = useState<number>(0)
   const [isLoadingAuditLogs, setIsLoadingAuditLogs] = useState(false)
+  const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [auditFilters, setAuditFilters] = useState({
     query: '',
     action: '',
@@ -544,6 +547,15 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
       session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
       activeNav="admin"
       canAccessApproverHistory={session.canAccessApproverHistory}
+      quickAction={
+        normalizedRole === 'HOD'
+          ? {
+              ariaLabel: 'Upload third-party contract',
+              onClick: () => setIsUploadOpen(true),
+              isActive: isUploadOpen,
+            }
+          : undefined
+      }
     >
       <main className={styles.main}>
         <section className={styles.header}>
@@ -736,6 +748,16 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
             </div>
           </div>
         ) : null}
+
+        <ThirdPartyUploadSidebar
+          isOpen={isUploadOpen}
+          mode={contractUploadModes.default}
+          actorRole={session.role}
+          onClose={() => setIsUploadOpen(false)}
+          onUploaded={async () => {
+            await refreshAdminData()
+          }}
+        />
       </main>
     </ProtectedAppShell>
   )

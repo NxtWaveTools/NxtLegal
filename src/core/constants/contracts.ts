@@ -107,7 +107,7 @@ export const contractDocumentVersioning = {
 } as const
 
 export const contractDocumentUploadRules = {
-  initialAllowedRoles: [contractWorkflowRoles.poc, contractWorkflowRoles.legalTeam] as const,
+  initialAllowedRoles: [contractWorkflowRoles.poc, contractWorkflowRoles.legalTeam, contractWorkflowRoles.hod] as const,
   replacementAllowedRoles: [contractWorkflowRoles.legalTeam] as const,
   initialAllowedMimeTypes: [contractDocumentMimeTypes.docx] as const,
   replacementAllowedMimeTypes: [contractDocumentMimeTypes.docx, contractDocumentMimeTypes.pdf] as const,

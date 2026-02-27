@@ -89,7 +89,10 @@ export class ContractUploadService {
         input.uploadedByRole as (typeof contractDocumentUploadRules.initialAllowedRoles)[number]
       )
     ) {
-      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only POC or LEGAL_TEAM can upload initial contracts')
+      throw new AuthorizationError(
+        'CONTRACT_UPLOAD_FORBIDDEN',
+        'Only POC, HOD, or LEGAL_TEAM can upload initial contracts'
+      )
     }
 
     const isLegalSendForSigning = input.uploadMode === contractUploadModes.legalSendForSigning
@@ -106,6 +109,21 @@ export class ContractUploadService {
         throw new AuthorizationError(
           'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
           'You can upload contracts only for departments assigned to your POC account'
+        )
+      }
+    }
+
+    if (input.uploadedByRole === 'HOD') {
+      const isHodAssignedToDepartment = await this.contractRepository.isHodAssignedToDepartment({
+        tenantId: input.tenantId,
+        hodEmail: input.uploadedByEmail,
+        departmentId: input.departmentId,
+      })
+
+      if (!isHodAssignedToDepartment) {
+        throw new AuthorizationError(
+          'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
+          'You can upload contracts only for your assigned HOD department'
         )
       }
     }

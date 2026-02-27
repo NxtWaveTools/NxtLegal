@@ -176,6 +176,13 @@
   gap: 8px;
 }
 
+.metricListScrollable {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
 .metricListItem {
   display: flex;
   justify-content: space-between;

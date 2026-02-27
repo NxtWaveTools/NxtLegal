@@ -554,6 +554,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, aging_business_days, near_breach, is_tat_breached, created_at, updated_at'
       )
       .eq('tenant_id', params.tenantId)
+      .order('is_tat_breached', { ascending: false })
+      .order('near_breach', { ascending: false })
       .order('created_at', { ascending: false })
       .order('updated_at', { ascending: false })
       .order('id', { ascending: false })
@@ -2292,26 +2294,25 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       assigneeEmail = legalAssignee.email
       nextStatus = contractStatuses.underReview
 
-      if (effectiveAction === 'hod.approve') {
-        const todayUtc = new Date().toISOString().slice(0, 10)
-        const { data: deadlineDate, error: deadlineError } = await supabase.rpc('business_day_add', {
-          start_date: todayUtc,
-          days: 7,
-        })
+      const nowIso = new Date().toISOString()
+      const todayUtc = nowIso.slice(0, 10)
+      const { data: deadlineDate, error: deadlineError } = await supabase.rpc('business_day_add', {
+        start_date: todayUtc,
+        days: contractRepositoryTatPolicy.businessDays,
+      })
 
-        if (deadlineError || !deadlineDate) {
-          throw new DatabaseError(
-            'Failed to compute TAT deadline for HOD approval',
-            new Error(deadlineError?.message),
-            {
-              code: deadlineError?.code,
-            }
-          )
-        }
-
-        hodApprovedAt = new Date().toISOString()
-        tatDeadlineAt = `${deadlineDate}T23:59:59.000Z`
+      if (deadlineError || !deadlineDate) {
+        throw new DatabaseError(
+          'Failed to compute TAT deadline for HOD transition',
+          new Error(deadlineError?.message),
+          {
+            code: deadlineError?.code,
+          }
+        )
       }
+
+      hodApprovedAt = nowIso
+      tatDeadlineAt = `${deadlineDate}T23:59:59.000Z`
     } else if (effectiveAction === 'legal.query.reroute') {
       const hodAssignee = await this.getTeamHodAssignee(params.tenantId, contract.departmentId)
       assigneeEmployeeId = hodAssignee.id
@@ -2334,7 +2335,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       row_version: contract.rowVersion + 1,
     }
 
-    if (effectiveAction === 'hod.approve') {
+    if (effectiveAction === 'hod.approve' || effectiveAction === 'hod.bypass') {
       updatePayload.hod_approved_at = hodApprovedAt
       updatePayload.tat_deadline_at = tatDeadlineAt
     }

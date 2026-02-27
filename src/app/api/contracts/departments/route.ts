@@ -19,6 +19,7 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
     )
 
     const roleScopedToPocAssignments = normalizedRole === 'POC' || normalizedRole === 'USER'
+    const roleScopedToHodAssignments = normalizedRole === 'HOD'
 
     let scopedTeamIds: string[] | null = null
 
@@ -44,6 +45,39 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
           .select('id')
           .eq('tenant_id', session.tenantId)
           .eq('poc_email', normalizedEmail)
+          .eq('is_active', true)
+          .is('deleted_at', null)
+
+        if (fallbackTeamsError) {
+          throw fallbackTeamsError
+        }
+
+        scopedTeamIds = Array.from(new Set((fallbackTeams ?? []).map((team) => team.id)))
+      }
+    }
+
+    if (!isAdminRole && roleScopedToHodAssignments && normalizedEmail) {
+      const { data: hodMappings, error: hodMappingsError } = await supabase
+        .from('team_role_mappings')
+        .select('team_id')
+        .eq('tenant_id', session.tenantId)
+        .eq('role_type', 'HOD')
+        .eq('email', normalizedEmail)
+        .eq('active_flag', true)
+        .is('deleted_at', null)
+
+      if (hodMappingsError) {
+        throw hodMappingsError
+      }
+
+      scopedTeamIds = Array.from(new Set((hodMappings ?? []).map((row) => row.team_id)))
+
+      if (scopedTeamIds.length === 0) {
+        const { data: fallbackTeams, error: fallbackTeamsError } = await supabase
+          .from('teams')
+          .select('id')
+          .eq('tenant_id', session.tenantId)
+          .eq('hod_email', normalizedEmail)
           .eq('is_active', true)
           .is('deleted_at', null)
 

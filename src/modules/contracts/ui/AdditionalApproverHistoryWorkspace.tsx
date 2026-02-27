@@ -3,7 +3,9 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { contractUploadModes } from '@/core/constants/contracts'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
+import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import {
   contractsClient,
   type AdditionalApproverDecisionHistoryRecord,
@@ -35,6 +37,7 @@ const timestampFormatter = new Intl.DateTimeFormat('en-GB', {
 })
 
 export default function AdditionalApproverHistoryWorkspace({ session }: AdditionalApproverHistoryWorkspaceProps) {
+  const normalizedRole = (session.role ?? '').toUpperCase()
   const [historyItems, setHistoryItems] = useState<AdditionalApproverDecisionHistoryRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [departments, setDepartments] = useState<DepartmentOption[]>([])
@@ -42,6 +45,7 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
   const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([undefined])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
+  const [isUploadOpen, setIsUploadOpen] = useState(false)
 
   const isAdminRole = useMemo(() => adminHistoryRoles.has((session.role ?? '').toUpperCase()), [session.role])
   const activeCursor = cursorHistory[cursorHistory.length - 1]
@@ -103,6 +107,15 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
       session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
       activeNav="approver-history"
       canAccessApproverHistory={session.canAccessApproverHistory}
+      quickAction={
+        normalizedRole === 'HOD'
+          ? {
+              ariaLabel: 'Upload third-party contract',
+              onClick: () => setIsUploadOpen(true),
+              isActive: isUploadOpen,
+            }
+          : undefined
+      }
     >
       <main className={styles.main}>
         <section className={styles.header}>
@@ -194,6 +207,16 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
             </button>
           </div>
         </section>
+
+        <ThirdPartyUploadSidebar
+          isOpen={isUploadOpen}
+          mode={contractUploadModes.default}
+          actorRole={session.role}
+          onClose={() => setIsUploadOpen(false)}
+          onUploaded={async () => {
+            await loadHistory()
+          }}
+        />
       </main>
     </ProtectedAppShell>
   )

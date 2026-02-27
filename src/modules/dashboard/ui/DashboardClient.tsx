@@ -10,6 +10,7 @@ import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import { triggerContractStatusConfetti } from '@/modules/contracts/ui/contract-status-confetti'
 import { contractsClient, type ContractRecord, type DashboardContractsFilter } from '@/core/client/contracts-client'
 import {
+  contractRepositoryTatPolicy,
   contractStatuses,
   contractUploadModes,
   contractWorkflowRoles,
@@ -67,6 +68,113 @@ const dashboardTimestampFormatter = new Intl.DateTimeFormat('en-GB', {
   minute: '2-digit',
   hour12: true,
 })
+
+const terminalContractStatuses = new Set<string>([
+  contractStatuses.completed,
+  contractStatuses.executed,
+  contractStatuses.rejected,
+  contractStatuses.void,
+])
+
+function isTerminalContractStatus(status: string): boolean {
+  return terminalContractStatuses.has(status)
+}
+
+function shouldShowDashboardAging(status: string): boolean {
+  return status !== contractStatuses.completed && status !== contractStatuses.executed
+}
+
+function getDashboardAgingTone(agingBusinessDays: number | null | undefined): 'green' | 'yellow' | 'red' | 'neutral' {
+  if (typeof agingBusinessDays !== 'number') {
+    return 'neutral'
+  }
+
+  if (agingBusinessDays <= 5) {
+    return 'green'
+  }
+
+  if (agingBusinessDays <= contractRepositoryTatPolicy.businessDays) {
+    return 'yellow'
+  }
+
+  return 'red'
+}
+
+function formatDashboardAgingLabel(agingBusinessDays: number | null | undefined): string {
+  if (typeof agingBusinessDays !== 'number') {
+    return 'Contract aging: -'
+  }
+
+  return `Contract aging: ${agingBusinessDays} business day${agingBusinessDays === 1 ? '' : 's'}`
+}
+
+function formatDashboardTatBreachLabel(contract: ContractRecord): string | null {
+  if (
+    !contract.isTatBreached ||
+    isTerminalContractStatus(contract.status) ||
+    typeof contract.agingBusinessDays !== 'number'
+  ) {
+    return null
+  }
+
+  const overdueDays = Math.max(contract.agingBusinessDays - contractRepositoryTatPolicy.businessDays, 0)
+  if (overdueDays === 0) {
+    return 'TAT Breached'
+  }
+
+  return `TAT Breached · Overdue by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`
+}
+
+function formatApprovalRequestedLabel(requestedAt: string | null | undefined): string | null {
+  if (!requestedAt) {
+    return null
+  }
+
+  const requestedAtMs = Date.parse(requestedAt)
+  if (Number.isNaN(requestedAtMs)) {
+    return null
+  }
+
+  const diffMs = Math.max(Date.now() - requestedAtMs, 0)
+  const minuteMs = 60 * 1000
+  const hourMs = 60 * minuteMs
+  const dayMs = 24 * hourMs
+
+  if (diffMs < hourMs) {
+    const minutes = Math.max(1, Math.floor(diffMs / minuteMs))
+    return `Approval requested ${minutes} minute${minutes === 1 ? '' : 's'} ago`
+  }
+
+  if (diffMs < dayMs) {
+    const hours = Math.floor(diffMs / hourMs)
+    return `Approval requested ${hours} hour${hours === 1 ? '' : 's'} ago`
+  }
+
+  const days = Math.floor(diffMs / dayMs)
+  return `Approval requested ${days} day${days === 1 ? '' : 's'} ago`
+}
+
+function getApprovalRequestedTone(requestedAt: string | null | undefined): 'green' | 'yellow' | 'red' | 'neutral' {
+  if (!requestedAt) {
+    return 'neutral'
+  }
+
+  const requestedAtMs = Date.parse(requestedAt)
+  if (Number.isNaN(requestedAtMs)) {
+    return 'neutral'
+  }
+
+  const elapsedHours = Math.max((Date.now() - requestedAtMs) / (60 * 60 * 1000), 0)
+  if (elapsedHours <= 1) {
+    return 'green'
+  }
+
+  if (elapsedHours <= contractRepositoryTatPolicy.businessDays * 24) {
+    return 'yellow'
+  }
+
+  return 'red'
+}
 
 function DashboardActionCard({ title, count, description, onClick, icon }: ActionCardProps) {
   return (
@@ -536,6 +644,18 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
       activeNav="home"
       canAccessApproverHistory={session.canAccessApproverHistory}
+      quickAction={
+        session.role === contractWorkflowRoles.hod
+          ? {
+              ariaLabel: 'Upload third-party contract',
+              onClick: () => {
+                setUploadMode(contractUploadModes.default)
+                setIsUploadOpen(true)
+              },
+              isActive: isUploadOpen,
+            }
+          : undefined
+      }
     >
       <main className={styles.main}>
         <section className={styles.greeting}>
@@ -551,16 +671,18 @@ export default function DashboardClient({ session }: DashboardClientProps) {
           <div className={styles.tasksCardGroup}>
             <div className={styles.tasksHeader}>Tasks pending on you</div>
             <div className={styles.taskCards}>
-              <DashboardActionCard
-                title="Upload Third-Party Contract"
-                count={activeFilterTotal}
-                description="Upload third-party contracts for review"
-                icon={uploadIcon}
-                onClick={() => {
-                  setUploadMode(contractUploadModes.default)
-                  setIsUploadOpen(true)
-                }}
-              />
+              {session.role !== contractWorkflowRoles.hod ? (
+                <DashboardActionCard
+                  title="Upload Third-Party Contract"
+                  count={activeFilterTotal}
+                  description="Upload third-party contracts for review"
+                  icon={uploadIcon}
+                  onClick={() => {
+                    setUploadMode(contractUploadModes.default)
+                    setIsUploadOpen(true)
+                  }}
+                />
+              ) : null}
               {session.role === contractWorkflowRoles.legalTeam ? (
                 <DashboardActionCard
                   title="Send for Signing"
@@ -735,95 +857,144 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   </button>
                 </div>
 
-                {contracts.map((contract) => (
-                  <div key={contract.id} className={styles.contractItem}>
-                    <div>
-                      <div className={styles.contractTitleRow}>
-                        <div className={styles.contractTitle}>{contract.title}</div>
-                        {contract.hasUnreadActivity ? (
-                          <span className={styles.unreadDot} aria-label="Unread activity" />
+                {contracts.map((contract) => {
+                  const showAging =
+                    session.role !== contractWorkflowRoles.hod && shouldShowDashboardAging(contract.status)
+                  const showApprovalRequestedTimeline =
+                    session.role === contractWorkflowRoles.hod &&
+                    activeFilter === 'HOD_PENDING' &&
+                    contract.status === contractStatuses.hodPending
+                  const approvalRequestedTimestamp = contract.requestCreatedAt ?? contract.createdAt
+                  const approvalRequestedLabel = showApprovalRequestedTimeline
+                    ? formatApprovalRequestedLabel(approvalRequestedTimestamp)
+                    : null
+                  const approvalRequestedTone = showApprovalRequestedTimeline
+                    ? getApprovalRequestedTone(approvalRequestedTimestamp)
+                    : 'neutral'
+                  const approvalRequestedToneClassName =
+                    approvalRequestedTone === 'green'
+                      ? styles.contractAgingGreen
+                      : approvalRequestedTone === 'yellow'
+                        ? styles.contractAgingYellow
+                        : approvalRequestedTone === 'red'
+                          ? styles.contractAgingRed
+                          : styles.contractAgingNeutral
+                  const agingTone = getDashboardAgingTone(contract.agingBusinessDays)
+                  const agingToneClassName =
+                    agingTone === 'green'
+                      ? styles.contractAgingGreen
+                      : agingTone === 'yellow'
+                        ? styles.contractAgingYellow
+                        : agingTone === 'red'
+                          ? styles.contractAgingRed
+                          : styles.contractAgingNeutral
+                  const tatBreachLabel = formatDashboardTatBreachLabel(contract)
+                  const shouldHighlightBreach = contract.isTatBreached && !isTerminalContractStatus(contract.status)
+
+                  return (
+                    <div
+                      key={contract.id}
+                      className={`${styles.contractItem} ${shouldHighlightBreach ? styles.contractItemBreached : ''}`}
+                    >
+                      <div>
+                        <div className={styles.contractTitleRow}>
+                          <div className={styles.contractTitle}>{contract.title}</div>
+                          {contract.hasUnreadActivity ? (
+                            <span className={styles.unreadDot} aria-label="Unread activity" />
+                          ) : null}
+                        </div>
+                        <div className={styles.contractMeta}>
+                          Created by {contract.uploadedByEmail || contract.uploadedByEmployeeId}
+                        </div>
+                        <div className={styles.contractMeta}>
+                          {dashboardTimestampFormatter.format(new Date(contract.createdAt))}
+                        </div>
+                        {approvalRequestedLabel ? (
+                          <div className={`${styles.contractAging} ${approvalRequestedToneClassName}`}>
+                            {approvalRequestedLabel}
+                          </div>
                         ) : null}
+                        {showAging ? (
+                          <div className={`${styles.contractAging} ${agingToneClassName}`}>
+                            {formatDashboardAgingLabel(contract.agingBusinessDays)}
+                          </div>
+                        ) : null}
+                        {tatBreachLabel ? <div className={styles.tatBreachLabel}>{tatBreachLabel}</div> : null}
                       </div>
-                      <div className={styles.contractMeta}>
-                        Created by {contract.uploadedByEmail || contract.uploadedByEmployeeId}
-                      </div>
-                      <div className={styles.contractMeta}>
-                        {dashboardTimestampFormatter.format(new Date(contract.createdAt))}
-                      </div>
-                    </div>
-                    <div className={styles.contractActions}>
-                      <ContractStatusBadge status={contract.status} displayLabel={contract.displayStatusLabel} />
-                      {session.role !== contractWorkflowRoles.hod && contract.isAssignedToMe ? (
-                        <span className={styles.assignedTag}>Assigned to you</span>
-                      ) : null}
-                      {contract.isAdditionalApproverActionable ? (
-                        <span className={styles.approverNeededTag}>Your approval needed</span>
-                      ) : null}
-                      <button
-                        type="button"
-                        className={`${styles.contractActionButton} ${styles.contractActionPrimary}`}
-                        onClick={() =>
-                          router.push(
-                            contractsClient.resolveProtectedContractPath(contract.id, {
-                              from: 'dashboard',
-                              filter: activeFilter,
-                            })
-                          )
-                        }
-                      >
-                        Open
-                      </button>
-                      {session.role === contractWorkflowRoles.hod ? (
-                        <>
-                          {contract.canHodApprove ? (
-                            <button
-                              type="button"
-                              className={styles.contractActionButton}
-                              disabled={Boolean(mutatingContractId)}
-                              onClick={() => openApproveDialog(contract.id)}
-                            >
-                              Approve
-                            </button>
-                          ) : null}
-                          {contract.canHodReject ? (
-                            <button
-                              type="button"
-                              className={styles.contractActionButton}
-                              disabled={Boolean(mutatingContractId)}
-                              onClick={() => openRejectDialog(contract.id)}
-                            >
-                              Reject
-                            </button>
-                          ) : null}
-                        </>
-                      ) : (
+                      <div className={styles.contractActions}>
+                        <ContractStatusBadge status={contract.status} displayLabel={contract.displayStatusLabel} />
+                        {session.role !== contractWorkflowRoles.hod && contract.isAssignedToMe ? (
+                          <span className={styles.assignedTag}>Assigned to you</span>
+                        ) : null}
+                        {contract.isAdditionalApproverActionable ? (
+                          <span className={styles.approverNeededTag}>Your approval needed</span>
+                        ) : null}
                         <button
                           type="button"
-                          className={styles.contractActionButton}
-                          disabled={downloadingContractId === contract.id}
-                          onClick={async () => {
-                            setDownloadingContractId(contract.id)
-                            const response = await contractsClient.download(contract.id)
-
-                            if (response.ok && response.data?.signedUrl) {
-                              window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
-                              toast.success('Document download started')
-                            } else {
-                              toast.error(response.error?.message ?? 'Failed to download document')
-                            }
-
-                            setDownloadingContractId(null)
-                          }}
+                          className={`${styles.contractActionButton} ${styles.contractActionPrimary}`}
+                          onClick={() =>
+                            router.push(
+                              contractsClient.resolveProtectedContractPath(contract.id, {
+                                from: 'dashboard',
+                                filter: activeFilter,
+                              })
+                            )
+                          }
                         >
-                          <span className={styles.buttonContent}>
-                            {downloadingContractId === contract.id ? <Spinner size={14} /> : null}
-                            {downloadingContractId === contract.id ? 'Downloading…' : 'Download'}
-                          </span>
+                          Open
                         </button>
-                      )}
+                        {session.role === contractWorkflowRoles.hod ? (
+                          <>
+                            {contract.canHodApprove ? (
+                              <button
+                                type="button"
+                                className={styles.contractActionButton}
+                                disabled={Boolean(mutatingContractId)}
+                                onClick={() => openApproveDialog(contract.id)}
+                              >
+                                Approve
+                              </button>
+                            ) : null}
+                            {contract.canHodReject ? (
+                              <button
+                                type="button"
+                                className={styles.contractActionButton}
+                                disabled={Boolean(mutatingContractId)}
+                                onClick={() => openRejectDialog(contract.id)}
+                              >
+                                Reject
+                              </button>
+                            ) : null}
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className={styles.contractActionButton}
+                            disabled={downloadingContractId === contract.id}
+                            onClick={async () => {
+                              setDownloadingContractId(contract.id)
+                              const response = await contractsClient.download(contract.id)
+
+                              if (response.ok && response.data?.signedUrl) {
+                                window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+                                toast.success('Document download started')
+                              } else {
+                                toast.error(response.error?.message ?? 'Failed to download document')
+                              }
+
+                              setDownloadingContractId(null)
+                            }}
+                          >
+                            <span className={styles.buttonContent}>
+                              {downloadingContractId === contract.id ? <Spinner size={14} /> : null}
+                              {downloadingContractId === contract.id ? 'Downloading…' : 'Download'}
+                            </span>
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
