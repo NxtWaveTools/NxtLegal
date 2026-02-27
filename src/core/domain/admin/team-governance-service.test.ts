@@ -19,7 +19,18 @@ describe('TeamGovernanceService', () => {
     listDepartments: jest.fn<Promise<DepartmentSummary[]>, [string]>(),
     createDepartment: jest.fn<
       Promise<TeamMutationResult>,
-      [{ tenantId: string; adminUserId: string; name: string; pocEmail: string; hodEmail: string; reason?: string }]
+      [
+        {
+          tenantId: string
+          adminUserId: string
+          name: string
+          pocEmail: string
+          pocName: string
+          hodEmail: string
+          hodName: string
+          reason?: string
+        },
+      ]
     >(),
     updateDepartment: jest.fn<
       Promise<TeamMutationResult>,
@@ -42,6 +53,7 @@ describe('TeamGovernanceService', () => {
           adminUserId: string
           teamId: string
           newEmail: string
+          newName: string
           roleType: 'POC' | 'HOD'
           reason?: string
         },
@@ -78,7 +90,9 @@ describe('TeamGovernanceService', () => {
         },
         name: 'Finance',
         pocEmail: 'finance.poc@nxtwave.co.in',
+        pocName: 'Finance POC',
         hodEmail: 'finance.hod@nxtwave.co.in',
+        hodName: 'Finance HOD',
       })
     ).rejects.toBeInstanceOf(AuthorizationError)
   })
@@ -97,6 +111,7 @@ describe('TeamGovernanceService', () => {
       session: baseSession,
       teamId: '95d8fba8-bf5c-4448-97b4-f6d580a992f2',
       newEmail: 'new.hod@nxtwave.co.in',
+      newName: 'New HOD Owner',
       roleType: 'HOD',
       reason: 'HOD reassignment for continuity',
     })
@@ -107,6 +122,7 @@ describe('TeamGovernanceService', () => {
       adminUserId: baseSession.employeeId,
       teamId: '95d8fba8-bf5c-4448-97b4-f6d580a992f2',
       newEmail: 'new.hod@nxtwave.co.in',
+      newName: 'New HOD Owner',
       roleType: 'HOD',
       reason: 'HOD reassignment for continuity',
     })

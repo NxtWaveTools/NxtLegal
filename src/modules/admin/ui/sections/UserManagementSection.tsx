@@ -1,4 +1,6 @@
 import type { AdminUserOption } from '@/core/client/admin-client'
+import type { FormEvent } from 'react'
+import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
 type UserManagementSectionProps = {
@@ -34,42 +36,47 @@ export default function UserManagementSection({
   onActivateUser,
   onDeactivateUser,
 }: UserManagementSectionProps) {
+  const handleCreateUserSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    onCreateUser()
+  }
+
   return (
     <div className={styles.panel}>
       <h2 className={styles.panelTitle}>User Management</h2>
 
-      <label className={styles.field}>
-        <span className={styles.label}>New User Email</span>
-        <input
-          className={styles.input}
-          value={newUserEmail}
-          onChange={(event) => onNewUserEmailChange(event.target.value)}
-          placeholder="user@yourdomain.com"
-        />
-      </label>
+      <form onSubmit={handleCreateUserSubmit}>
+        <label className={styles.field}>
+          <span className={styles.label}>New User Email</span>
+          <input
+            className={styles.input}
+            value={newUserEmail}
+            onChange={(event) => onNewUserEmailChange(event.target.value)}
+            placeholder="user@yourdomain.com"
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Full Name</span>
-        <input
-          className={styles.input}
-          value={newUserFullName}
-          onChange={(event) => onNewUserFullNameChange(event.target.value)}
-          placeholder="Legal Team Member"
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Full Name</span>
+          <input
+            className={styles.input}
+            value={newUserFullName}
+            onChange={(event) => onNewUserFullNameChange(event.target.value)}
+            placeholder="Legal Team Member"
+          />
+        </label>
 
-      <div className={styles.preview}>Creates a user in the current tenant context.</div>
+        <div className={styles.preview}>Creates a user in the current tenant context.</div>
 
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={`${styles.button} ${styles.buttonPrimary}`}
-          onClick={onCreateUser}
-          disabled={!canCreateUser}
-        >
-          {isSubmittingUserCreate ? 'Creating User...' : 'Create User'}
-        </button>
-      </div>
+        <div className={styles.actions}>
+          <button type="submit" className={`${styles.button} ${styles.buttonPrimary}`} disabled={!canCreateUser}>
+            <span className={styles.buttonContent}>
+              {isSubmittingUserCreate ? <Spinner size={14} /> : null}
+              {isSubmittingUserCreate ? 'Creating User...' : 'Create User'}
+            </span>
+          </button>
+        </div>
+      </form>
 
       <label className={styles.field}>
         <span className={styles.label}>Select Existing User</span>
@@ -93,7 +100,10 @@ export default function UserManagementSection({
           disabled={!selectedUser || isSubmittingStatus || selectedUser.isActive}
           onClick={onActivateUser}
         >
-          Activate User
+          <span className={styles.buttonContent}>
+            {isSubmittingStatus && selectedUser && !selectedUser.isActive ? <Spinner size={14} /> : null}
+            Activate User
+          </span>
         </button>
         <button
           type="button"
@@ -101,7 +111,10 @@ export default function UserManagementSection({
           disabled={!selectedUser || isSubmittingStatus || !selectedUser.isActive}
           onClick={onDeactivateUser}
         >
-          Deactivate User
+          <span className={styles.buttonContent}>
+            {isSubmittingStatus && selectedUser && selectedUser.isActive ? <Spinner size={14} /> : null}
+            Deactivate User
+          </span>
         </button>
       </div>
     </div>

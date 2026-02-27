@@ -1,7 +1,9 @@
 import { randomUUID } from 'crypto'
 import {
+  contractCounterpartyValues,
   contractDocumentMimeTypes,
   contractDocumentUploadRules,
+  contractUploadModes,
   contractDocumentVersioning,
   contractStatuses,
   contractStorage,
@@ -23,6 +25,9 @@ export type UploadContractInput = {
   uploadedByEmployeeId: string
   uploadedByEmail: string
   uploadedByRole: string
+  uploadMode: 'DEFAULT' | 'LEGAL_SEND_FOR_SIGNING'
+  bypassHodApproval?: boolean
+  bypassReason?: string
   title: string
   contractTypeId: string
   signatoryName: string
@@ -84,10 +89,58 @@ export class ContractUploadService {
         input.uploadedByRole as (typeof contractDocumentUploadRules.initialAllowedRoles)[number]
       )
     ) {
-      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only POC can upload initial contracts')
+      throw new AuthorizationError(
+        'CONTRACT_UPLOAD_FORBIDDEN',
+        'Only POC, HOD, or LEGAL_TEAM can upload initial contracts'
+      )
     }
 
-    if (!this.isDocxUpload(input.fileName, input.fileMimeType)) {
+    const isLegalSendForSigning = input.uploadMode === contractUploadModes.legalSendForSigning
+    const isLegalTeamUpload = input.uploadedByRole === 'LEGAL_TEAM'
+
+    if (input.uploadedByRole === 'POC') {
+      const isPocAssignedToDepartment = await this.contractRepository.isPocAssignedToDepartment({
+        tenantId: input.tenantId,
+        pocEmail: input.uploadedByEmail,
+        departmentId: input.departmentId,
+      })
+
+      if (!isPocAssignedToDepartment) {
+        throw new AuthorizationError(
+          'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
+          'You can upload contracts only for departments assigned to your POC account'
+        )
+      }
+    }
+
+    if (input.uploadedByRole === 'HOD') {
+      const isHodAssignedToDepartment = await this.contractRepository.isHodAssignedToDepartment({
+        tenantId: input.tenantId,
+        hodEmail: input.uploadedByEmail,
+        departmentId: input.departmentId,
+      })
+
+      if (!isHodAssignedToDepartment) {
+        throw new AuthorizationError(
+          'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
+          'You can upload contracts only for your assigned HOD department'
+        )
+      }
+    }
+
+    if (isLegalSendForSigning && !isLegalTeamUpload) {
+      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only LEGAL_TEAM can use send-for-signing upload mode')
+    }
+
+    if (isLegalSendForSigning && input.bypassHodApproval && !input.bypassReason?.trim()) {
+      throw new BusinessRuleError('BYPASS_REASON_REQUIRED', 'Bypass reason is required when bypassing HOD approval')
+    }
+
+    if (isLegalSendForSigning) {
+      if (!this.isPdfUpload(input.fileName, input.fileMimeType)) {
+        throw new BusinessRuleError('CONTRACT_FILE_FORMAT_INVALID', 'Legal send-for-signing upload must be a PDF file')
+      }
+    } else if (!this.isDocxUpload(input.fileName, input.fileMimeType)) {
       throw new BusinessRuleError('CONTRACT_FILE_FORMAT_INVALID', 'Initial contract upload must be a DOCX file')
     }
 
@@ -149,6 +202,9 @@ export class ContractUploadService {
         uploadedByEmployeeId: input.uploadedByEmployeeId,
         uploadedByEmail: input.uploadedByEmail,
         uploadedByRole: input.uploadedByRole,
+        uploadMode: input.uploadMode,
+        bypassHodApproval: Boolean(input.bypassHodApproval),
+        bypassReason: input.bypassReason?.trim() || undefined,
         filePath,
         fileName: safeFileName,
         fileSizeBytes: input.fileSizeBytes,
@@ -239,6 +295,11 @@ export class ContractUploadService {
         tenantId: input.tenantId,
         contractId,
         error: String(error),
+      })
+
+      throw new DatabaseError('Failed to persist contract metadata', error as Error, {
+        tenantId: input.tenantId,
+        contractId,
       })
     }
 
@@ -416,7 +477,20 @@ export class ContractUploadService {
     return false
   }
 
+  private isPdfUpload(fileName: string, mimeType: string): boolean {
+    const normalizedMimeType = mimeType.trim().toLowerCase()
+    const normalizedFileName = fileName.trim().toLowerCase()
+
+    return (
+      normalizedMimeType === contractDocumentMimeTypes.pdf ||
+      normalizedFileName.endsWith('.pdf') ||
+      (normalizedMimeType === 'application/octet-stream' && normalizedFileName.endsWith('.pdf'))
+    )
+  }
+
   private validateUploadInput(input: UploadContractInput): void {
+    const isLegalSendForSigning = input.uploadMode === contractUploadModes.legalSendForSigning
+
     if (!input.title.trim()) {
       throw new BusinessRuleError('CONTRACT_TITLE_REQUIRED', 'Contract title is required')
     }
@@ -442,20 +516,22 @@ export class ContractUploadService {
       throw new BusinessRuleError('SIGNATORY_NAME_REQUIRED', 'Signatory name is required')
     }
 
-    if (!input.signatoryDesignation.trim()) {
-      throw new BusinessRuleError('SIGNATORY_DESIGNATION_REQUIRED', 'Signatory designation is required')
-    }
+    if (!isLegalSendForSigning) {
+      if (!input.signatoryDesignation.trim()) {
+        throw new BusinessRuleError('SIGNATORY_DESIGNATION_REQUIRED', 'Signatory designation is required')
+      }
 
-    if (!input.signatoryEmail.trim()) {
-      throw new BusinessRuleError('SIGNATORY_EMAIL_REQUIRED', 'Signatory email is required')
-    }
+      if (!input.signatoryEmail.trim()) {
+        throw new BusinessRuleError('SIGNATORY_EMAIL_REQUIRED', 'Signatory email is required')
+      }
 
-    if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(input.signatoryEmail.trim())) {
-      throw new BusinessRuleError('SIGNATORY_EMAIL_INVALID', 'Signatory email format is invalid')
-    }
+      if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(input.signatoryEmail.trim())) {
+        throw new BusinessRuleError('SIGNATORY_EMAIL_INVALID', 'Signatory email format is invalid')
+      }
 
-    if (!input.backgroundOfRequest.trim()) {
-      throw new BusinessRuleError('BACKGROUND_OF_REQUEST_REQUIRED', 'Background of request is required')
+      if (!input.backgroundOfRequest.trim()) {
+        throw new BusinessRuleError('BACKGROUND_OF_REQUEST_REQUIRED', 'Background of request is required')
+      }
     }
 
     if (!input.departmentId.trim()) {
@@ -476,7 +552,9 @@ export class ContractUploadService {
         throw new BusinessRuleError('COUNTERPARTY_NAME_TOO_LONG', 'Counterparty name exceeds maximum length')
       }
 
-      const requiresSupportingDocs = counterparty.counterpartyName.toUpperCase() !== 'NA'
+      const requiresSupportingDocs =
+        !isLegalSendForSigning &&
+        counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable
       if (requiresSupportingDocs && counterparty.supportingFiles.length === 0) {
         throw new BusinessRuleError(
           'COUNTERPARTY_SUPPORTING_REQUIRED',

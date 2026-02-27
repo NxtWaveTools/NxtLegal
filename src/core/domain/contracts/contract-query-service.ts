@@ -7,10 +7,11 @@ import type {
   ContractSignatoryRecipientType,
   ContractStatus,
 } from '@/core/constants/contracts'
-import { contractStatuses } from '@/core/constants/contracts'
+import { contractStatuses, contractWorkflowRoles } from '@/core/constants/contracts'
 import type {
   AdditionalApproverDecisionHistoryItem,
   ContractActivityReadState,
+  ContractNotificationDeliverySummary,
   ContractNotificationFailure,
   ContractSigningPreparationDraft,
   ContractSigningPreparationDraftField,
@@ -20,6 +21,7 @@ import type {
   DashboardContractFilter,
   ContractDetail,
   ContractDetailView,
+  ContractLegalMetadata,
   ContractListItem,
   ContractQueryRepository,
   RepositoryDateBasis,
@@ -72,6 +74,16 @@ export class ContractQueryService {
     limit: number
   }): Promise<ContractListItem[]> {
     return this.contractRepository.getActionableAdditionalApprovals(params)
+  }
+
+  async getActiveTenantLegalMembers(params: { tenantId: string }): Promise<
+    Array<{
+      id: string
+      email: string
+      fullName?: string | null
+    }>
+  > {
+    return this.contractRepository.listActiveTenantLegalMembers(params.tenantId)
   }
 
   async getAdditionalApproverDecisionHistory(params: {
@@ -408,6 +420,56 @@ export class ContractQueryService {
     })
   }
 
+  async bypassAdditionalApprover(params: {
+    tenantId: string
+    contractId: string
+    approverId: string
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    reason: string
+  }): Promise<ContractDetailView> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'User role is required for approval bypass')
+    }
+
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can bypass approvals')
+    }
+
+    if (!params.actorEmail) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    if (!params.reason.trim()) {
+      throw new BusinessRuleError('REMARK_REQUIRED', 'Remarks are mandatory for this action')
+    }
+
+    await this.contractRepository.bypassAdditionalApprover({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      approverId: params.approverId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      actorEmail: params.actorEmail,
+      reason: params.reason,
+    })
+
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    return this.getContractDetailAfterMutation({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.actorEmployeeId,
+      role: params.actorRole,
+      updatedContract: contract,
+    })
+  }
+
   async manageLegalAssignment(params: {
     tenantId: string
     contractId: string
@@ -415,7 +477,6 @@ export class ContractQueryService {
     actorRole?: string
     actorEmail: string
     operation: ContractLegalAssignmentOperation
-    ownerEmail?: string
     collaboratorEmail?: string
   }): Promise<ContractDetailView> {
     if (!params.actorRole) {
@@ -424,21 +485,6 @@ export class ContractQueryService {
 
     if (!params.actorEmail) {
       throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
-    }
-
-    if (params.operation === 'set_owner') {
-      if (!params.ownerEmail) {
-        throw new BusinessRuleError('OWNER_EMAIL_REQUIRED', 'Owner email is required')
-      }
-
-      await this.contractRepository.setLegalOwnerByEmail({
-        tenantId: params.tenantId,
-        contractId: params.contractId,
-        actorEmployeeId: params.actorEmployeeId,
-        actorRole: params.actorRole,
-        actorEmail: params.actorEmail,
-        ownerEmail: params.ownerEmail,
-      })
     }
 
     if (params.operation === 'add_collaborator') {
@@ -470,6 +516,50 @@ export class ContractQueryService {
         collaboratorEmail: params.collaboratorEmail,
       })
     }
+
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    return this.getContractDetailAfterMutation({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.actorEmployeeId,
+      role: params.actorRole,
+      updatedContract: contract,
+    })
+  }
+
+  async updateLegalMetadata(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    metadata: ContractLegalMetadata
+  }): Promise<ContractDetailView> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_LEGAL_METADATA_FORBIDDEN', 'User role is required for legal metadata')
+    }
+
+    if (params.actorRole !== contractWorkflowRoles.legalTeam) {
+      throw new AuthorizationError('CONTRACT_LEGAL_METADATA_FORBIDDEN', 'Only LEGAL_TEAM can update legal metadata')
+    }
+
+    if (!params.actorEmail) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    await this.contractRepository.updateLegalMetadata({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      actorEmail: params.actorEmail,
+      metadata: params.metadata,
+    })
 
     const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
 
@@ -705,6 +795,15 @@ export class ContractQueryService {
     recipientEmails: string[]
   } | null> {
     return this.contractRepository.getEnvelopeNotificationProfile(params)
+  }
+
+  async getLatestNotificationDelivery(params: {
+    tenantId: string
+    contractId: string
+    recipientEmail: string
+    notificationType: ContractNotificationType
+  }): Promise<ContractNotificationDeliverySummary | null> {
+    return this.contractRepository.getLatestNotificationDelivery(params)
   }
 
   async recordContractNotificationDelivery(params: {

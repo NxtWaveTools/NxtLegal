@@ -45,7 +45,9 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       session,
       name: payload.name,
       pocEmail: payload.pocEmail,
+      pocName: payload.pocName,
       hodEmail: payload.hodEmail,
+      hodName: payload.hodName,
       reason: payload.reason,
     })
 

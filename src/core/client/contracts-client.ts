@@ -1,5 +1,6 @@
 import { routeRegistry } from '@/core/config/route-registry'
 import type { ApiResponse } from '@/core/http/response'
+import type { ContractUploadMode } from '@/core/constants/contracts'
 
 type ContractActionName =
   | 'hod.approve'
@@ -18,6 +19,8 @@ type ContractActionName =
   | 'legal.query.reroute'
   | 'approver.approve'
   | 'approver.reject'
+
+type ContractBypassApprovalActionName = 'BYPASS_APPROVAL'
 
 type ContractRecord = {
   id: string
@@ -46,6 +49,7 @@ type ContractRecord = {
   hodApprovedAt?: string | null
   departmentId?: string
   departmentName?: string
+  uploadMode?: ContractUploadMode
   departmentHodName?: string | null
   departmentHodEmail?: string | null
   assignedToUsers?: string[]
@@ -54,6 +58,10 @@ type ContractRecord = {
   signatoryEmail?: string
   backgroundOfRequest?: string
   budgetApproved?: boolean
+  legalEffectiveDate?: string | null
+  legalTerminationDate?: string | null
+  legalNoticePeriod?: string | null
+  legalAutoRenewal?: boolean | null
   requestCreatedAt?: string
   currentDocumentId?: string | null
   tatDeadlineAt?: string | null
@@ -85,7 +93,7 @@ type ContractDocument = {
   createdAt: string
 }
 
-type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD'
+type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD' | 'ASSIGNED_TO_ME'
 
 type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 type RepositorySortDirection = 'asc' | 'desc'
@@ -112,6 +120,10 @@ type RepositoryExportColumn =
   | 'contract_aging'
   | 'status'
   | 'assigned_to'
+  | 'effective_date'
+  | 'termination_date'
+  | 'notice_period'
+  | 'auto_renewal'
   | 'tat_breached'
   | 'overdue_days'
   | 'contract_title'
@@ -179,8 +191,13 @@ type ContractAdditionalApprover = {
   approverEmployeeId: string
   approverEmail: string
   sequenceOrder: number
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
   approvedAt: string | null
+}
+
+type ContractApproverReminderResponse = {
+  remindedApproverEmail: string
+  remindedApproverRole: 'HOD' | 'ADDITIONAL'
 }
 
 type ContractLegalCollaborator = {
@@ -247,9 +264,15 @@ type ContractDetailResponse = {
 }
 
 type LegalAssignmentPayload =
-  | { operation: 'set_owner'; ownerEmail: string }
   | { operation: 'add_collaborator'; collaboratorEmail: string }
   | { operation: 'remove_collaborator'; collaboratorEmail: string }
+
+type LegalMetadataPayload = {
+  effectiveDate: string | null
+  terminationDate: string | null
+  noticePeriod: string | null
+  autoRenewal: boolean | null
+}
 
 type ContractListResponse = {
   contracts: ContractRecord[]
@@ -299,6 +322,12 @@ type DepartmentOption = {
 type ContractTypeOption = {
   id: string
   name: string
+}
+
+type LegalTeamMemberOption = {
+  id: string
+  email: string
+  fullName?: string | null
 }
 
 async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
@@ -363,6 +392,16 @@ export const contractsClient = {
     })
 
     return parseApiResponse<{ departments: DepartmentOption[] }>(response)
+  },
+
+  async legalTeamMembers(): Promise<ApiResponse<{ members: LegalTeamMemberOption[] }>> {
+    const response = await fetch(routeRegistry.api.contracts.legalTeamMembers, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    })
+
+    return parseApiResponse<{ members: LegalTeamMemberOption[] }>(response)
   },
 
   async list(params?: { cursor?: string; limit?: number }): Promise<ApiResponse<ContractListResponse>> {
@@ -711,6 +750,9 @@ export const contractsClient = {
     backgroundOfRequest?: string
     departmentId?: string
     budgetApproved?: boolean
+    uploadMode?: ContractUploadMode
+    bypassHodApproval?: boolean
+    bypassReason?: string
     file: File
     supportingFiles?: File[]
     idempotencyKey: string
@@ -735,6 +777,15 @@ export const contractsClient = {
     }
     if (typeof params.budgetApproved === 'boolean') {
       formData.set('budgetApproved', String(params.budgetApproved))
+    }
+    if (params.uploadMode) {
+      formData.set('uploadMode', params.uploadMode)
+    }
+    if (typeof params.bypassHodApproval === 'boolean') {
+      formData.set('bypassHodApproval', String(params.bypassHodApproval))
+    }
+    if (params.bypassReason?.trim()) {
+      formData.set('bypassReason', params.bypassReason.trim())
     }
     if (params.counterpartyName?.trim()) {
       formData.set('counterpartyName', params.counterpartyName.trim())
@@ -801,7 +852,12 @@ export const contractsClient = {
     return parseApiResponse<{ document: ContractDocument }>(response)
   },
 
-  async action(contractId: string, payload: { action: ContractActionName; noteText?: string }) {
+  async action(
+    contractId: string,
+    payload:
+      | { action: ContractActionName; noteText?: string }
+      | { action: ContractBypassApprovalActionName; approverId: string; reason: string }
+  ) {
     const response = await fetch(resolveContractPath(routeRegistry.api.contracts.action, contractId), {
       method: 'POST',
       credentials: 'include',
@@ -840,8 +896,34 @@ export const contractsClient = {
     return parseApiResponse<ContractDetailResponse>(response)
   },
 
+  async remindApprover(contractId: string, payload?: { approverEmail?: string }) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.approverReminder, contractId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ approverEmail: payload?.approverEmail }),
+    })
+
+    return parseApiResponse<ContractApproverReminderResponse>(response)
+  },
+
   async manageAssignment(contractId: string, payload: LegalAssignmentPayload) {
     const response = await fetch(resolveContractPath(routeRegistry.api.contracts.assignments, contractId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    return parseApiResponse<ContractDetailResponse>(response)
+  },
+
+  async updateLegalMetadata(contractId: string, payload: LegalMetadataPayload) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.legalMetadata, contractId), {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -974,12 +1056,14 @@ export type {
   ContractRecord,
   ContractDocument,
   DepartmentOption,
+  LegalTeamMemberOption,
   ContractTypeOption,
   ContractTimelineEvent,
   ContractActivityReadState,
   ContractActionName,
   ContractAllowedAction,
   ContractAdditionalApprover,
+  ContractApproverReminderResponse,
   ContractLegalCollaborator,
   ContractSignatory,
   ContractSigningPreparationDraft,

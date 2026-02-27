@@ -742,6 +742,10 @@ export type Database = {
           file_size_bytes: number | null
           hod_approved_at: string | null
           id: string
+          legal_auto_renewal: boolean | null
+          legal_effective_date: string | null
+          legal_notice_period: string | null
+          legal_termination_date: string | null
           legal_approved_at: string | null
           request_created_at: string
           row_version: number
@@ -776,6 +780,10 @@ export type Database = {
           file_size_bytes?: number | null
           hod_approved_at?: string | null
           id?: string
+          legal_auto_renewal?: boolean | null
+          legal_effective_date?: string | null
+          legal_notice_period?: string | null
+          legal_termination_date?: string | null
           legal_approved_at?: string | null
           request_created_at?: string
           row_version?: number
@@ -810,6 +818,10 @@ export type Database = {
           file_size_bytes?: number | null
           hod_approved_at?: string | null
           id?: string
+          legal_auto_renewal?: boolean | null
+          legal_effective_date?: string | null
+          legal_notice_period?: string | null
+          legal_termination_date?: string | null
           legal_approved_at?: string | null
           request_created_at?: string
           row_version?: number
@@ -1492,10 +1504,12 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           hod_email: string | null
+          hod_name: string | null
           id: string
           is_active: boolean
           name: string
           poc_email: string | null
+          poc_name: string | null
           tenant_id: string
           updated_at: string
         }
@@ -1503,10 +1517,12 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           hod_email?: string | null
+          hod_name?: string | null
           id?: string
           is_active?: boolean
           name: string
           poc_email?: string | null
+          poc_name?: string | null
           tenant_id: string
           updated_at?: string
         }
@@ -1514,10 +1530,12 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           hod_email?: string | null
+          hod_name?: string | null
           id?: string
           is_active?: boolean
           name?: string
           poc_email?: string | null
+          poc_name?: string | null
           tenant_id?: string
           updated_at?: string
         }
@@ -1909,6 +1927,8 @@ export type Database = {
       create_contract_with_audit: {
         Args: {
           p_background_of_request: string
+          p_bypass_hod_approval: boolean
+          p_bypass_reason: string | null
           p_budget_approved: boolean
           p_contract_id: string
           p_contract_type_id: string
@@ -1922,6 +1942,7 @@ export type Database = {
           p_signatory_name: string
           p_tenant_id: string
           p_title: string
+          p_upload_mode: string
           p_uploaded_by_email: string
           p_uploaded_by_employee_id: string
           p_uploaded_by_role: string
@@ -1986,6 +2007,7 @@ export type Database = {
         | "CONTRACT_APPROVER_APPROVED"
         | "TEAM_MEMBER_REASSIGNED"
         | "CONTRACT_APPROVER_REJECTED"
+        | "CONTRACT_APPROVER_BYPASSED"
         | "CONTRACT_SIGNATORY_ADDED"
         | "CONTRACT_SIGNATORY_SENT"
         | "CONTRACT_SIGNATORY_DELIVERED"
@@ -2135,6 +2157,7 @@ export const Constants = {
         "CONTRACT_APPROVER_APPROVED",
         "TEAM_MEMBER_REASSIGNED",
         "CONTRACT_APPROVER_REJECTED",
+        "CONTRACT_APPROVER_BYPASSED",
         "CONTRACT_SIGNATORY_ADDED",
         "CONTRACT_SIGNATORY_SENT",
         "CONTRACT_SIGNATORY_DELIVERED",

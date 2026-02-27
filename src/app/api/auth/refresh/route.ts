@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { refreshSession } from '@/core/infra/session/jwt-session-store'
+import { getAuditLogger } from '@/core/registry/service-registry'
 import { withCorrelationId } from '@/core/http/with-correlation-id'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { authErrorCodes, authErrorMessages } from '@/core/constants/auth-errors'
@@ -94,6 +95,22 @@ const handleRefresh = async (request: NextRequest, correlationId: string) => {
       employeeId: session.employeeId,
       tenantId: session.tenantId,
     })
+
+    if (session.tenantId && session.employeeId) {
+      const auditLogger = getAuditLogger()
+      await auditLogger.logAction({
+        tenantId: session.tenantId,
+        userId: session.employeeId,
+        action: 'auth.token_refresh',
+        resourceType: 'auth_session',
+        resourceId: session.employeeId,
+        metadata: {
+          event: 'auth.session.refreshed',
+          correlationId,
+        },
+      })
+    }
+
     return NextResponse.json(okResponse({ session }))
   } catch (error) {
     logger.error('Refresh endpoint error', { correlationId, error: String(error) })

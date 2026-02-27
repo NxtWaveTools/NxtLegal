@@ -3,7 +3,7 @@ import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
-import { getContractQueryService } from '@/core/registry/service-registry'
+import { getContractApprovalNotificationService, getContractQueryService } from '@/core/registry/service-registry'
 import { contractApproverSchema } from '@/core/domain/contracts/schemas'
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
@@ -25,6 +25,15 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       actorEmployeeId: session.employeeId,
       actorRole: session.role,
       actorEmail: session.email ?? '',
+      approverEmail: payload.approverEmail,
+    })
+
+    const contractApprovalNotificationService = getContractApprovalNotificationService()
+    await contractApprovalNotificationService.notifyAdditionalApproverAdded({
+      tenantId: session.tenantId,
+      contractId,
+      actorEmployeeId: session.employeeId,
+      actorRole: session.role,
       approverEmail: payload.approverEmail,
     })
 

@@ -267,6 +267,31 @@ class SupabaseAdminQueryRepository implements IAdminQueryRepository {
       })
     }
 
+    const { error: auditError } = await this.supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.adminUserId,
+        action: 'admin.user.created',
+        actor_email: null,
+        actor_role: null,
+        resource_type: 'user',
+        resource_id: userId,
+        target_email: normalizedEmail,
+        metadata: {
+          full_name: params.fullName?.trim() || null,
+          role: params.role,
+          is_active: params.isActive,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write user creation audit event', undefined, {
+        errorCode: auditError.code,
+        errorMessage: auditError.message,
+      })
+    }
+
     const users = await this.listUsers(params.tenantId)
     const createdUser = users.find((user) => user.id === userId)
     if (!createdUser) {
@@ -284,11 +309,11 @@ class SupabaseAdminQueryRepository implements IAdminQueryRepository {
   }): Promise<AdminUserOption> {
     const { data: user, error: userError } = await this.supabase
       .from('users')
-      .select('id, token_version')
+      .select('id, email, is_active, token_version')
       .eq('tenant_id', params.tenantId)
       .eq('id', params.userId)
       .is('deleted_at', null)
-      .maybeSingle<{ id: string; token_version: number | null }>()
+      .maybeSingle<{ id: string; email: string; is_active: boolean; token_version: number | null }>()
 
     if (userError) {
       throw new DatabaseError('Failed to resolve target user', undefined, {
@@ -317,6 +342,32 @@ class SupabaseAdminQueryRepository implements IAdminQueryRepository {
       throw new DatabaseError('Failed to update user status', undefined, {
         errorCode: updateError.code,
         errorMessage: updateError.message,
+      })
+    }
+
+    const { error: auditError } = await this.supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.adminUserId,
+        action: 'admin.user.status.updated',
+        actor_email: null,
+        actor_role: null,
+        resource_type: 'user',
+        resource_id: params.userId,
+        target_email: user.email,
+        metadata: {
+          previous_is_active: user.is_active,
+          next_is_active: params.isActive,
+          token_version_before: tokenVersion,
+          token_version_after: tokenVersion + 1,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write user status audit event', undefined, {
+        errorCode: auditError.code,
+        errorMessage: auditError.message,
       })
     }
 
@@ -561,6 +612,30 @@ class SupabaseAdminQueryRepository implements IAdminQueryRepository {
       throw new DatabaseError('Failed to assign department role mapping', undefined, {
         errorCode: error.code,
         errorMessage: error.message,
+      })
+    }
+
+    const { error: auditError } = await this.supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.adminUserId,
+        action: 'team.primary_role.assigned_legacy',
+        actor_email: null,
+        actor_role: null,
+        resource_type: 'team_role_mappings',
+        resource_id: params.departmentId,
+        target_email: normalizedEmail,
+        metadata: {
+          department_id: params.departmentId,
+          department_role: params.departmentRole,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write legacy primary-role assignment audit event', undefined, {
+        errorCode: auditError.code,
+        errorMessage: auditError.message,
       })
     }
   }

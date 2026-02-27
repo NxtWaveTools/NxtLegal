@@ -128,6 +128,10 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
+[data-sonner-toaster] {
+  z-index: 9999 !important;
+}
+
 /* ── Global Animation Keyframes ── */
 
 @keyframes shimmer {

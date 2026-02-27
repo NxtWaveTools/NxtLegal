@@ -1,4 +1,5 @@
 import type { ContractTimelineEvent } from '@/core/client/contracts-client'
+import { contractStatusLabels, type ContractStatus } from '@/core/constants/contracts'
 
 type CanonicalContractLogEventType =
   | 'CONTRACT_CREATED'
@@ -20,6 +21,7 @@ type CanonicalContractLogEventType =
   | 'ADDITIONAL_APPROVER_ADDED'
   | 'ADDITIONAL_APPROVED'
   | 'ADDITIONAL_REJECTED'
+  | 'ADDITIONAL_BYPASSED'
 
 type FormattedContractLogEvent = {
   id: string
@@ -51,6 +53,18 @@ const eventTemplates: Record<CanonicalContractLogEventType, string> = {
   ADDITIONAL_APPROVER_ADDED: '{actor} added {target} as an additional approver.',
   ADDITIONAL_APPROVED: '{actor} approved as additional approver.',
   ADDITIONAL_REJECTED: '{actor} rejected as additional approver.',
+  ADDITIONAL_BYPASSED: '{actor} bypassed {target} as an additional approver.',
+}
+
+const actionMessageOverrides: Record<string, string> = {
+  'contract.signatory.added': '{actor} added a signatory.',
+  'contract.signatory.sent': '{actor} sent the contract for signing.',
+  'contract.signatory.delivered': '{actor} recorded signatory delivery.',
+  'contract.signatory.viewed': '{actor} recorded that a signatory viewed the contract.',
+  'contract.signatory.signed': '{actor} recorded that a signatory signed the contract.',
+  'contract.signatory.completed': '{actor} recorded signing completion.',
+  'contract.signatory.declined': '{actor} recorded signatory decline.',
+  'contract.signatory.expired': '{actor} recorded signatory expiry.',
 }
 
 const absoluteTimestampFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -80,6 +94,8 @@ function normalizeEventType(rawType?: string | null): CanonicalContractLogEventT
       return 'ADDITIONAL_APPROVED'
     case 'CONTRACT_APPROVER_REJECTED':
       return 'ADDITIONAL_REJECTED'
+    case 'CONTRACT_APPROVER_BYPASSED':
+      return 'ADDITIONAL_BYPASSED'
     case 'CONTRACT_BYPASSED':
       return 'HOD_BYPASSED'
     case 'CONTRACT_ASSIGNEE_SET':
@@ -140,6 +156,8 @@ function normalizeFromAction(rawAction: string): CanonicalContractLogEventType |
       return 'ADDITIONAL_APPROVED'
     case 'contract.approver.rejected':
       return 'ADDITIONAL_REJECTED'
+    case 'contract.approver.bypassed':
+      return 'ADDITIONAL_BYPASSED'
     default:
       return null
   }
@@ -235,12 +253,96 @@ function formatMessage(template: string, actor: string, target: string | null): 
   return template.replace('{actor}', actor).replace('{target}', target ?? 'an additional approver')
 }
 
-function formatRemark(remark: string | null): string | null {
+function toStatusLabel(status: unknown): string | null {
+  if (typeof status !== 'string') {
+    return null
+  }
+
+  const normalizedStatus = status.trim().toUpperCase()
+  if (!(normalizedStatus in contractStatusLabels)) {
+    return null
+  }
+
+  return contractStatusLabels[normalizedStatus as ContractStatus]
+}
+
+function resolveStatusTransitionMessage(event: ContractTimelineEvent, actor: string): string | null {
+  const fromStatusLabel = toStatusLabel(event.metadata?.from_status)
+  const toStatusLabelValue = toStatusLabel(event.metadata?.to_status)
+
+  if (fromStatusLabel && toStatusLabelValue && fromStatusLabel !== toStatusLabelValue) {
+    return `${actor} changed status from ${fromStatusLabel} to ${toStatusLabelValue}.`
+  }
+
+  if (toStatusLabelValue) {
+    return `${actor} changed status to ${toStatusLabelValue}.`
+  }
+
+  return null
+}
+
+function humanizeAction(action: string): string {
+  return action
+    .replace(/^contract\./, '')
+    .replace(/[._]/g, ' ')
+    .trim()
+}
+
+function resolveActionFallbackMessage(action: string | null | undefined, actor: string): string | null {
+  if (!action) {
+    return null
+  }
+
+  const overrideTemplate = actionMessageOverrides[action]
+  if (overrideTemplate) {
+    return overrideTemplate.replace('{actor}', actor)
+  }
+
+  const humanized = humanizeAction(action)
+  if (!humanized) {
+    return null
+  }
+
+  return `${actor} performed ${humanized}.`
+}
+
+function formatRemark(remark: string | null, canonicalType: CanonicalContractLogEventType | null): string | null {
   if (!remark) {
     return null
   }
 
+  if (canonicalType === 'NOTE_ADDED') {
+    return `Note: ${remark}`
+  }
+
+  if (canonicalType === 'ACTIVITY_MESSAGE_ADDED') {
+    return `Message: ${remark}`
+  }
+
   return `Reason: ${remark}`
+}
+
+function resolveLogMessage(
+  event: ContractTimelineEvent,
+  canonicalType: CanonicalContractLogEventType | null,
+  actorLabel: string,
+  target: string | null
+): string {
+  const transitionMessage = resolveStatusTransitionMessage(event, actorLabel)
+  if (transitionMessage) {
+    return transitionMessage
+  }
+
+  if (canonicalType) {
+    return formatMessage(eventTemplates[canonicalType], actorLabel, target)
+  }
+
+  const fallbackActionMessage = resolveActionFallbackMessage(event.action, actorLabel)
+  if (fallbackActionMessage) {
+    return fallbackActionMessage
+  }
+
+  return 'An action was recorded on this contract.'
 }
 
 function formatContractLogEvent(event: ContractTimelineEvent, now: Date = new Date()): FormattedContractLogEvent {
@@ -248,10 +350,7 @@ function formatContractLogEvent(event: ContractTimelineEvent, now: Date = new Da
   const target = event.targetEmail?.trim() || null
   const remarkSource = event.noteText?.trim() || null
   const canonicalType = resolveCanonicalType(event)
-
-  const message = canonicalType
-    ? formatMessage(eventTemplates[canonicalType], actorLabel, target)
-    : 'An action was recorded on this contract.'
+  const message = resolveLogMessage(event, canonicalType, actorLabel, target)
 
   const timestamp = toValidDate(event.createdAt)
 
@@ -261,7 +360,7 @@ function formatContractLogEvent(event: ContractTimelineEvent, now: Date = new Da
     actorLabel,
     relativeTimestamp: formatRelativeTimestamp(timestamp, now),
     absoluteTimestamp: formatAbsoluteTimestamp(timestamp),
-    remark: formatRemark(remarkSource),
+    remark: formatRemark(remarkSource, canonicalType),
     target,
   }
 }

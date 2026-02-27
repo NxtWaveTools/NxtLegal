@@ -1,8 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { contractsClient, type ContractTypeOption, type DepartmentOption } from '@/core/client/contracts-client'
+import {
+  contractCounterpartyValues,
+  contractUploadModes,
+  contractWorkflowRoles,
+  type ContractUploadMode,
+} from '@/core/constants/contracts'
 import WorkflowSidebar from './WorkflowSidebar'
 import ChooseFilesStep from './steps/ChooseFilesStep'
 import AdditionalDataStep from './steps/AdditionalDataStep'
@@ -13,10 +20,12 @@ import styles from './third-party-upload.module.css'
 type ThirdPartyUploadSidebarProps = {
   isOpen: boolean
   onClose: () => void
+  mode?: ContractUploadMode
+  actorRole?: string
   onUploaded?: () => Promise<void> | void
 }
 
-const COUNTERPARTIES = ['NA', 'Acme Corp', 'Orion Systems', 'Northwind Traders']
+const COUNTERPARTIES = [contractCounterpartyValues.notApplicable, 'Acme Corp', 'Orion Systems', 'Northwind Traders']
 const ORGANIZATION_ENTITY = 'NxtWave Disruptive Technologies Pvt Ltd'
 
 type CounterpartyEntry = {
@@ -24,12 +33,20 @@ type CounterpartyEntry = {
   supportingFiles: File[]
 }
 
-export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }: ThirdPartyUploadSidebarProps) {
+export default function ThirdPartyUploadSidebar({
+  isOpen,
+  onClose,
+  mode = contractUploadModes.default,
+  actorRole,
+  onUploaded,
+}: ThirdPartyUploadSidebarProps) {
   const router = useRouter()
+  const isLegalSendForSigningMode = mode === contractUploadModes.legalSendForSigning
+  const acceptedFileTypes = isLegalSendForSigningMode ? '.pdf' : '.docx'
+  const acceptedExtensionsLabel = isLegalSendForSigningMode ? 'PDF (.pdf)' : 'Word (.docx)'
   const steps = useMemo(() => ['Choose Files', 'Additional Data', 'Review', 'Upload'], [])
   const [activeStep, setActiveStep] = useState(0)
   const [mainFile, setMainFile] = useState<File | null>(null)
-  const [mainFileError, setMainFileError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [contractType, setContractType] = useState('')
   const [counterpartyEntries, setCounterpartyEntries] = useState<CounterpartyEntry[]>([
@@ -45,15 +62,17 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
   const [contractTypesLoaded, setContractTypesLoaded] = useState(false)
   const [departments, setDepartments] = useState<DepartmentOption[]>([])
   const [departmentsLoaded, setDepartmentsLoaded] = useState(false)
-  const [stepError, setStepError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
   const [uploadIdempotencyKey, setUploadIdempotencyKey] = useState<string | null>(null)
+  const [bypassHodApproval, setBypassHodApproval] = useState(false)
+  const [bypassReason, setBypassReason] = useState('')
 
   const showCounterpartyModal = counterpartyEntries.some(
     (entry) => entry.counterpartyName.trim() !== '' && !COUNTERPARTIES.includes(entry.counterpartyName.trim())
   )
+  const isLegalActor = actorRole === contractWorkflowRoles.legalTeam
+  const effectiveDepartmentId = departmentId
   const selectedDepartmentName = departments.find((item) => item.id === departmentId)?.name ?? ''
   const selectedContractTypeName = contractTypes.find((item) => item.id === contractType)?.name ?? ''
 
@@ -94,7 +113,6 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
   const resetAll = () => {
     setActiveStep(0)
     setMainFile(null)
-    setMainFileError(null)
     setContractType('')
     setCounterpartyEntries([{ counterpartyName: '', supportingFiles: [] }])
     setSignatoryName('')
@@ -103,29 +121,35 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
     setBackgroundOfRequest('')
     setDepartmentId('')
     setBudgetApproved(false)
-    setStepError(null)
-    setUploadError(null)
     setUploadSuccess(null)
     setIsSubmitting(false)
     setUploadIdempotencyKey(null)
+    setBypassHodApproval(false)
+    setBypassReason('')
   }
 
   const handleMainFile = (file: File) => {
-    const isDocx = file.name.toLowerCase().endsWith('.docx')
-    if (!isDocx) {
+    const isValidFile = isLegalSendForSigningMode
+      ? file.name.toLowerCase().endsWith('.pdf')
+      : file.name.toLowerCase().endsWith('.docx')
+
+    if (!isValidFile) {
       setMainFile(null)
-      setMainFileError('Only Word (.docx) files allowed.')
+      toast.error(isLegalSendForSigningMode ? 'Only PDF (.pdf) files allowed.' : 'Only Word (.docx) files allowed.')
       return
     }
 
     setMainFile(file)
-    setMainFileError(null)
   }
 
   const handleNext = () => {
     if (activeStep === 0) {
       if (!mainFile) {
-        setMainFileError('Please upload a .docx contract to continue.')
+        toast.error(
+          isLegalSendForSigningMode
+            ? 'Please upload a .pdf contract to continue.'
+            : 'Please upload a .docx contract to continue.'
+        )
         return
       }
     }
@@ -138,43 +162,60 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
         }))
         .filter((entry) => entry.counterpartyName.length > 0)
 
-      if (
-        !contractType ||
-        normalizedCounterparties.length === 0 ||
-        !signatoryName.trim() ||
-        !signatoryDesignation.trim() ||
-        !signatoryEmail.trim() ||
-        !backgroundOfRequest.trim() ||
-        !departmentId
-      ) {
-        setStepError('Please complete the required fields before continuing.')
-        return
-      }
+      if (isLegalSendForSigningMode) {
+        if (!contractType || !signatoryName.trim() || !effectiveDepartmentId) {
+          toast.error('Please complete the required fields before continuing.')
+          return
+        }
+      } else {
+        if (
+          !contractType ||
+          normalizedCounterparties.length === 0 ||
+          !signatoryName.trim() ||
+          !signatoryDesignation.trim() ||
+          !signatoryEmail.trim() ||
+          !backgroundOfRequest.trim() ||
+          !effectiveDepartmentId
+        ) {
+          toast.error('Please complete the required fields before continuing.')
+          return
+        }
 
-      if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(signatoryEmail.trim())) {
-        setStepError('Please enter a valid signatory email address.')
-        return
+        if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(signatoryEmail.trim())) {
+          toast.error('Please enter a valid signatory email address.')
+          return
+        }
       }
 
       if (departments.length === 0) {
-        setStepError('No departments are configured for this tenant.')
+        toast.error('No departments are configured for this tenant.')
         return
       }
 
-      for (const counterparty of normalizedCounterparties) {
-        if (counterparty.counterpartyName.toUpperCase() !== 'NA' && counterparty.supportingFiles.length === 0) {
-          setStepError(`Supporting documents are required for counterparty ${counterparty.counterpartyName}.`)
+      if (isLegalSendForSigningMode) {
+        if (!isLegalActor) {
+          toast.error('Only Legal Team can use Send for Signing mode.')
           return
+        }
+      }
+
+      if (!isLegalSendForSigningMode) {
+        for (const counterparty of normalizedCounterparties) {
+          if (
+            counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable &&
+            counterparty.supportingFiles.length === 0
+          ) {
+            toast.error(`Supporting documents are required for counterparty ${counterparty.counterpartyName}.`)
+            return
+          }
         }
       }
     }
 
-    setStepError(null)
     setActiveStep((current) => Math.min(current + 1, steps.length - 1))
   }
 
   const handleBack = () => {
-    setStepError(null)
     setActiveStep((current) => Math.max(current - 1, 0))
   }
 
@@ -184,16 +225,33 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
     }
 
     if (!mainFile) {
-      setUploadError('Please upload a contract file before submitting.')
+      toast.error('Please upload a contract file before submitting.')
       return
     }
 
-    const primaryCounterpartyName =
-      counterpartyEntries.find((entry) => entry.counterpartyName.trim().length > 0)?.counterpartyName.trim() ??
-      'Counterparty'
-    const generatedTitle = `${selectedContractTypeName || 'Contract'} - ${primaryCounterpartyName}`
+    const normalizedCounterparties = counterpartyEntries
+      .map((entry) => ({
+        counterpartyName: entry.counterpartyName.trim(),
+        supportingFiles: entry.supportingFiles,
+      }))
+      .filter((entry) => entry.counterpartyName.length > 0)
 
-    setUploadError(null)
+    const effectiveCounterparties = isLegalSendForSigningMode
+      ? signatoryName.trim()
+        ? [
+            {
+              counterpartyName: signatoryName.trim(),
+              supportingFiles: [] as File[],
+            },
+          ]
+        : []
+      : normalizedCounterparties
+
+    const primaryCounterpartyName = effectiveCounterparties[0]?.counterpartyName ?? 'Counterparty'
+    const generatedCounterpartySuffix =
+      effectiveCounterparties.map((entry) => entry.counterpartyName).join(', ') || primaryCounterpartyName
+    const generatedTitle = `${selectedContractTypeName || 'Contract'} - ${generatedCounterpartySuffix}`
+
     setUploadSuccess(null)
     setIsSubmitting(true)
 
@@ -202,44 +260,68 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
       setUploadIdempotencyKey(idempotencyKey)
     }
 
-    const response = await contractsClient.upload({
-      title: generatedTitle,
-      contractTypeId: contractType,
-      counterpartyName: primaryCounterpartyName,
-      counterparties: counterpartyEntries
-        .map((entry) => ({
-          counterpartyName: entry.counterpartyName.trim(),
-          supportingFiles: entry.supportingFiles,
-        }))
-        .filter((entry) => entry.counterpartyName.length > 0),
-      signatoryName: signatoryName.trim(),
-      signatoryDesignation: signatoryDesignation.trim(),
-      signatoryEmail: signatoryEmail.trim().toLowerCase(),
-      backgroundOfRequest: backgroundOfRequest.trim(),
-      departmentId,
-      budgetApproved,
-      file: mainFile,
-      idempotencyKey,
-    })
+    try {
+      const response = await contractsClient.upload({
+        title: generatedTitle,
+        contractTypeId: contractType,
+        counterpartyName: primaryCounterpartyName,
+        counterparties: effectiveCounterparties,
+        signatoryName: signatoryName.trim(),
+        signatoryDesignation: isLegalSendForSigningMode ? undefined : signatoryDesignation.trim(),
+        signatoryEmail: isLegalSendForSigningMode ? undefined : signatoryEmail.trim().toLowerCase(),
+        backgroundOfRequest: isLegalSendForSigningMode ? undefined : backgroundOfRequest.trim(),
+        departmentId: effectiveDepartmentId,
+        budgetApproved: isLegalSendForSigningMode ? undefined : budgetApproved,
+        uploadMode: mode,
+        bypassHodApproval: false,
+        bypassReason: undefined,
+        file: mainFile,
+        idempotencyKey,
+      })
 
-    if (!response.ok || !response.data?.contract) {
+      if (!response.ok || !response.data?.contract) {
+        const failureMessage = response.error?.message ?? 'Failed to upload contract'
+        toast.error(failureMessage)
+        return
+      }
+
+      const successMessage = `Uploaded ${response.data.contract.title} successfully.`
+      setUploadSuccess(successMessage)
+      toast.success(successMessage)
+      setUploadIdempotencyKey(null)
+
+      if (onUploaded) {
+        await onUploaded()
+      }
+
+      onClose()
+      resetAll()
+      router.push('/dashboard')
+      router.refresh()
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
+    } finally {
       setIsSubmitting(false)
-      setUploadError(response.error?.message ?? 'Failed to upload contract')
+    }
+  }
+
+  const handleStepKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' || event.defaultPrevented || activeStep >= steps.length - 1) {
       return
     }
 
-    setIsSubmitting(false)
-    setUploadSuccess(`Uploaded ${response.data.contract.title} successfully.`)
-    setUploadIdempotencyKey(null)
-
-    if (onUploaded) {
-      await onUploaded()
+    const target = event.target
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) {
+      return
     }
 
-    onClose()
-    resetAll()
-    router.push('/dashboard')
-    router.refresh()
+    if (target instanceof HTMLInputElement && (target.type === 'file' || target.type === 'checkbox')) {
+      return
+    }
+
+    event.preventDefault()
+    handleNext()
   }
 
   const stepContent = () => {
@@ -247,12 +329,12 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
       return (
         <ChooseFilesStep
           mainFile={mainFile}
-          errorMessage={mainFileError}
           isDragging={isDragging}
+          acceptedFileTypes={acceptedFileTypes}
+          acceptedExtensionsLabel={acceptedExtensionsLabel}
           onFileSelected={handleMainFile}
           onFileRemoved={() => {
             setMainFile(null)
-            setMainFileError(null)
           }}
           onDragOver={(event) => {
             event.preventDefault()
@@ -273,120 +355,142 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
 
     if (activeStep === 1) {
       return (
-        <>
-          {stepError && <div className={styles.errorText}>{stepError}</div>}
-          <AdditionalDataStep
-            mainFileName={mainFile?.name || null}
-            contractType={contractType}
-            contractTypes={contractTypes}
-            counterparties={counterpartyEntries}
-            counterpartyOptions={COUNTERPARTIES}
-            showCounterpartyModal={showCounterpartyModal}
-            onContractTypeChange={(value) => {
-              setContractType(value)
-              setStepError(null)
-            }}
-            onCounterpartyNameChange={(index, value) => {
-              setCounterpartyEntries((current) =>
-                current.map((entry, currentIndex) =>
-                  currentIndex === index
-                    ? {
-                        ...entry,
-                        counterpartyName: value,
-                      }
-                    : entry
-                )
+        <AdditionalDataStep
+          isSendForSigningFlow={isLegalSendForSigningMode}
+          mainFileName={mainFile?.name || null}
+          contractType={contractType}
+          contractTypes={contractTypes}
+          counterparties={counterpartyEntries}
+          counterpartyOptions={COUNTERPARTIES}
+          showCounterpartyModal={showCounterpartyModal}
+          onContractTypeChange={(value) => {
+            setContractType(value)
+          }}
+          onCounterpartyNameChange={(index, value) => {
+            setCounterpartyEntries((current) =>
+              current.map((entry, currentIndex) =>
+                currentIndex === index
+                  ? {
+                      ...entry,
+                      counterpartyName: value,
+                    }
+                  : entry
               )
-              setStepError(null)
-            }}
-            onAddCounterparty={() => {
-              setCounterpartyEntries((current) => [...current, { counterpartyName: '', supportingFiles: [] }])
-              setStepError(null)
-            }}
-            signatoryName={signatoryName}
-            signatoryDesignation={signatoryDesignation}
-            signatoryEmail={signatoryEmail}
-            backgroundOfRequest={backgroundOfRequest}
-            departmentId={departmentId}
-            departments={departments}
-            budgetApproved={budgetApproved}
-            onSignatoryNameChange={(value) => {
-              setSignatoryName(value)
-              setStepError(null)
-            }}
-            onSignatoryDesignationChange={(value) => {
-              setSignatoryDesignation(value)
-              setStepError(null)
-            }}
-            onSignatoryEmailChange={(value) => {
-              setSignatoryEmail(value)
-              setStepError(null)
-            }}
-            onBackgroundOfRequestChange={(value) => {
-              setBackgroundOfRequest(value)
-              setStepError(null)
-            }}
-            onDepartmentIdChange={(value) => {
-              setDepartmentId(value)
-              setStepError(null)
-            }}
-            onBudgetApprovedChange={(value) => {
-              setBudgetApproved(value)
-              setStepError(null)
-            }}
-            onSupportingFilesSelected={(counterpartyIndex, files) => {
-              setCounterpartyEntries((current) =>
-                current.map((entry, currentIndex) =>
-                  currentIndex === counterpartyIndex
-                    ? {
-                        ...entry,
-                        supportingFiles: [...entry.supportingFiles, ...files],
-                      }
-                    : entry
-                )
+            )
+          }}
+          onAddCounterparty={() => {
+            setCounterpartyEntries((current) => [...current, { counterpartyName: '', supportingFiles: [] }])
+          }}
+          onRemoveCounterparty={(indexToRemove) => {
+            setCounterpartyEntries((current) => {
+              const next = current.filter((_, index) => index !== indexToRemove)
+              if (next.length === 0) {
+                return [{ counterpartyName: '', supportingFiles: [] }]
+              }
+
+              return next
+            })
+          }}
+          signatoryName={signatoryName}
+          signatoryDesignation={signatoryDesignation}
+          signatoryEmail={signatoryEmail}
+          backgroundOfRequest={backgroundOfRequest}
+          departmentId={effectiveDepartmentId}
+          departments={departments}
+          isDepartmentLocked={false}
+          budgetApproved={budgetApproved}
+          bypassHodApproval={bypassHodApproval}
+          bypassReason={bypassReason}
+          onSignatoryNameChange={setSignatoryName}
+          onSignatoryDesignationChange={setSignatoryDesignation}
+          onSignatoryEmailChange={setSignatoryEmail}
+          onBackgroundOfRequestChange={setBackgroundOfRequest}
+          onDepartmentIdChange={setDepartmentId}
+          onBudgetApprovedChange={setBudgetApproved}
+          onBypassHodApprovalChange={
+            isLegalSendForSigningMode
+              ? (value) => {
+                  setBypassHodApproval(value)
+                  if (!value) {
+                    setBypassReason('')
+                  }
+                }
+              : undefined
+          }
+          onBypassReasonChange={
+            isLegalSendForSigningMode
+              ? (value) => {
+                  setBypassReason(value)
+                }
+              : undefined
+          }
+          onSupportingFilesSelected={(counterpartyIndex, files) => {
+            setCounterpartyEntries((current) =>
+              current.map((entry, currentIndex) =>
+                currentIndex === counterpartyIndex
+                  ? {
+                      ...entry,
+                      supportingFiles: [...entry.supportingFiles, ...files],
+                    }
+                  : entry
               )
-              setStepError(null)
-            }}
-            onSupportingFileRemoved={(counterpartyIndex, fileIndex) =>
-              setCounterpartyEntries((current) =>
-                current.map((entry, currentIndex) =>
-                  currentIndex === counterpartyIndex
-                    ? {
-                        ...entry,
-                        supportingFiles: entry.supportingFiles.filter((_, index) => index !== fileIndex),
-                      }
-                    : entry
-                )
+            )
+          }}
+          onSupportingFileRemoved={(counterpartyIndex, fileIndex) =>
+            setCounterpartyEntries((current) =>
+              current.map((entry, currentIndex) =>
+                currentIndex === counterpartyIndex
+                  ? {
+                      ...entry,
+                      supportingFiles: entry.supportingFiles.filter((_, index) => index !== fileIndex),
+                    }
+                  : entry
               )
-            }
-          />
-        </>
+            )
+          }
+        />
       )
     }
 
     if (activeStep === 2) {
       return (
         <ReviewStep
+          isSendForSigningFlow={isLegalSendForSigningMode}
           mainFileName={mainFile?.name || null}
           contractType={selectedContractTypeName}
-          counterparties={counterpartyEntries
-            .map((entry) => ({
-              counterpartyName: entry.counterpartyName.trim(),
-              supportingCount: entry.supportingFiles.length,
-            }))
-            .filter((entry) => entry.counterpartyName.length > 0)}
+          counterparties={
+            isLegalSendForSigningMode
+              ? signatoryName.trim()
+                ? [
+                    {
+                      counterpartyName: signatoryName.trim(),
+                      supportingCount: 0,
+                      supportingFileNames: [],
+                    },
+                  ]
+                : []
+              : counterpartyEntries
+                  .map((entry) => ({
+                    counterpartyName: entry.counterpartyName.trim(),
+                    supportingCount: entry.supportingFiles.length,
+                    supportingFileNames: entry.supportingFiles.map((file) => file.name),
+                  }))
+                  .filter((entry) => entry.counterpartyName.length > 0)
+          }
           departmentName={selectedDepartmentName}
           signatoryName={signatoryName}
           signatoryDesignation={signatoryDesignation}
           signatoryEmail={signatoryEmail}
           backgroundOfRequest={backgroundOfRequest}
           budgetApproved={budgetApproved}
+          bypassHodApproval={false}
+          bypassReason={undefined}
           organizationEntity={ORGANIZATION_ENTITY}
         />
       )
     }
 
-    return <UploadStep isSubmitting={isSubmitting} errorMessage={uploadError} successMessage={uploadSuccess} />
+    return <UploadStep isSubmitting={isSubmitting} successMessage={uploadSuccess} />
   }
 
   const footer = (
@@ -422,14 +526,14 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
   return (
     <WorkflowSidebar
       isOpen={isOpen}
-      title="Upload third party contract"
+      title={isLegalSendForSigningMode ? 'Send for signing' : 'Upload third party contract'}
       steps={steps}
       activeStep={activeStep}
       onStepChange={(stepIndex) => setActiveStep(stepIndex)}
       onClose={onClose}
       footer={footer}
     >
-      {stepContent()}
+      <div onKeyDown={handleStepKeyDown}>{stepContent()}</div>
     </WorkflowSidebar>
   )
 }

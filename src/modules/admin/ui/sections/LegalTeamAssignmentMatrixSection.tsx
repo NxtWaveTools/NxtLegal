@@ -1,4 +1,5 @@
 import type { AdminDepartmentOption, AdminDepartmentUserGroup, AdminUserOption } from '@/core/client/admin-client'
+import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
 type LegalTeamAssignmentMatrixSectionProps = {
@@ -62,7 +63,10 @@ export default function LegalTeamAssignmentMatrixSection({
 
       <div className={styles.actions}>
         <button type="button" className={styles.button} onClick={onAssignLegalMatrix} disabled={!canAssignLegalMatrix}>
-          {isSubmittingLegalMatrix ? 'Updating Legal Matrix...' : 'Add Selected User To Legal Matrix'}
+          <span className={styles.buttonContent}>
+            {isSubmittingLegalMatrix ? <Spinner size={14} /> : null}
+            {isSubmittingLegalMatrix ? 'Updating Legal Matrix...' : 'Add Selected User To Legal Matrix'}
+          </span>
         </button>
       </div>
 

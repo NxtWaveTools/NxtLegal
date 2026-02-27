@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { createServiceSupabase } from '@/lib/supabase/service'
+import { contractWorkflowIdentities } from '@/core/constants/contracts'
 import { DatabaseError, NotFoundError } from '@/core/http/errors'
 import type {
   DepartmentSummary,
@@ -15,6 +16,8 @@ type TeamRow = {
   id: string
   name: string
   is_active: boolean | null
+  poc_name: string | null
+  hod_name: string | null
 }
 
 type TeamRoleMappingRow = {
@@ -38,6 +41,8 @@ type TeamRpcRow = {
   team_id: string
   department_name: string
   is_active: boolean
+  poc_name?: string | null
+  hod_name?: string | null
   poc_email: string | null
   hod_email: string | null
   before_state_snapshot: Record<string, unknown> | null
@@ -283,7 +288,7 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
   async listDepartments(tenantId: string): Promise<DepartmentSummary[]> {
     const { data: teams, error: teamsError } = await this.supabase
       .from('teams')
-      .select('id, name, is_active')
+      .select('id, name, is_active, poc_name, hod_name')
       .eq('tenant_id', tenantId)
       .is('deleted_at', null)
       .order('name', { ascending: true })
@@ -406,6 +411,51 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
       })
     }
 
+    const legalDepartment = teamRows.find(
+      (team) => team.name.trim().toLowerCase() === contractWorkflowIdentities.legalDepartmentName.trim().toLowerCase()
+    )
+
+    if (legalDepartment) {
+      const { data: legalRoleUsers, error: legalRoleUsersError } = await this.supabase
+        .from('users')
+        .select('id, email, full_name')
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .is('deleted_at', null)
+        .eq('role', 'LEGAL_TEAM')
+        .order('full_name', { ascending: true })
+        .order('email', { ascending: true })
+
+      if (legalRoleUsersError) {
+        throw new DatabaseError('Failed to load legal department users by role fallback', undefined, {
+          errorCode: legalRoleUsersError.code,
+          errorMessage: legalRoleUsersError.message,
+        })
+      }
+
+      const existingAssignments = legalByTeamId.get(legalDepartment.id) ?? []
+      const deduplicatedAssignments = new Map<string, LegalAssignment>()
+
+      for (const assignment of existingAssignments) {
+        deduplicatedAssignments.set(assignment.userId, assignment)
+      }
+
+      for (const user of ((legalRoleUsers ?? []) as UserRow[]).filter((item) => Boolean(item.id))) {
+        if (!deduplicatedAssignments.has(user.id)) {
+          deduplicatedAssignments.set(user.id, {
+            userId: user.id,
+            email: user.email,
+            fullName: user.full_name,
+          })
+        }
+      }
+
+      legalByTeamId.set(
+        legalDepartment.id,
+        Array.from(deduplicatedAssignments.values()).sort((left, right) => left.email.localeCompare(right.email))
+      )
+    }
+
     return teamRows.map((team) => {
       const primary = primaryMap.get(team.id)
 
@@ -413,6 +463,8 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
         id: team.id,
         name: team.name,
         isActive: team.is_active !== false,
+        pocName: team.poc_name,
+        hodName: team.hod_name,
         hodUserId: primary?.hodUserId ?? null,
         hodEmail: primary?.hodEmail ?? null,
         pocUserId: primary?.pocUserId ?? null,
@@ -427,7 +479,9 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
     adminUserId: string
     name: string
     pocEmail: string
+    pocName: string
     hodEmail: string
+    hodName: string
     reason?: string
   }): Promise<TeamMutationResult> {
     const { data, error } = await this.supabase.rpc('admin_create_department_with_emails', {
@@ -451,10 +505,53 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
       throw new DatabaseError('Department create RPC returned no result')
     }
 
+    const { error: updateNamesError } = await this.supabase
+      .from('teams')
+      .update({
+        poc_name: params.pocName,
+        hod_name: params.hodName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('tenant_id', params.tenantId)
+      .eq('id', row.team_id)
+      .is('deleted_at', null)
+
+    if (updateNamesError) {
+      throw new DatabaseError('Failed to persist department owner names', undefined, {
+        errorCode: updateNamesError.code,
+        errorMessage: updateNamesError.message,
+      })
+    }
+
+    const { error: ownerNameAuditError } = await this.supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.adminUserId,
+        action: 'team.owner_names.updated',
+        actor_email: null,
+        actor_role: null,
+        resource_type: 'team',
+        resource_id: row.team_id,
+        metadata: {
+          poc_name: params.pocName,
+          hod_name: params.hodName,
+        },
+      },
+    ])
+
+    if (ownerNameAuditError) {
+      throw new DatabaseError('Failed to write department owner-names audit event', undefined, {
+        errorCode: ownerNameAuditError.code,
+        errorMessage: ownerNameAuditError.message,
+      })
+    }
+
     return {
       teamId: row.team_id,
       departmentName: row.department_name,
       isActive: row.is_active,
+      pocName: row.poc_name ?? params.pocName,
+      hodName: row.hod_name ?? params.hodName,
       pocEmail: row.poc_email,
       hodEmail: row.hod_email,
       beforeStateSnapshot: row.before_state_snapshot ?? {},
@@ -500,6 +597,8 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
       teamId: row.team_id,
       departmentName: row.department_name,
       isActive: row.is_active,
+      pocName: row.poc_name ?? null,
+      hodName: row.hod_name ?? null,
       pocEmail: row.poc_email,
       hodEmail: row.hod_email,
       beforeStateSnapshot: row.before_state_snapshot ?? {},
@@ -512,6 +611,7 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
     adminUserId: string
     teamId: string
     newEmail: string
+    newName: string
     roleType: 'POC' | 'HOD'
     reason?: string
   }): Promise<PrimaryRoleMutationResult> {
@@ -520,6 +620,7 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
       p_admin_user_id: params.adminUserId,
       p_team_id: params.teamId,
       p_new_email: params.newEmail,
+      p_new_name: params.newName,
       p_role_type: params.roleType,
       p_reason: params.reason ?? null,
     })

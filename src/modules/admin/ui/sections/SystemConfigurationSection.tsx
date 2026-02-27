@@ -1,3 +1,5 @@
+import type { FormEvent } from 'react'
+import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
 type SystemConfigurationSectionProps = {
@@ -51,114 +53,119 @@ export default function SystemConfigurationSection({
     )
   }
 
+  const handleSaveSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    onSave()
+  }
+
   return (
     <div className={styles.panel}>
       <h2 className={styles.panelTitle}>System Configuration</h2>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Enable Admin Governance</span>
-        <select
-          className={styles.select}
-          value={String(config.featureFlags.enableAdminGovernance)}
-          onChange={(event) => onToggleFlag('enableAdminGovernance', event.target.value === 'true')}
-        >
-          <option value="true">true</option>
-          <option value="false">false</option>
-        </select>
-      </label>
+      <form onSubmit={handleSaveSubmit}>
+        <label className={styles.field}>
+          <span className={styles.label}>Enable Admin Governance</span>
+          <select
+            className={styles.select}
+            value={String(config.featureFlags.enableAdminGovernance)}
+            onChange={(event) => onToggleFlag('enableAdminGovernance', event.target.value === 'true')}
+          >
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Enable Contract Workflow</span>
-        <select
-          className={styles.select}
-          value={String(config.featureFlags.enableContractWorkflow)}
-          onChange={(event) => onToggleFlag('enableContractWorkflow', event.target.value === 'true')}
-        >
-          <option value="true">true</option>
-          <option value="false">false</option>
-        </select>
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Enable Contract Workflow</span>
+          <select
+            className={styles.select}
+            value={String(config.featureFlags.enableContractWorkflow)}
+            onChange={(event) => onToggleFlag('enableContractWorkflow', event.target.value === 'true')}
+          >
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Access Token Days</span>
-        <input
-          type="number"
-          min={1}
-          max={30}
-          className={styles.input}
-          value={config.securitySessionPolicies.accessTokenDays}
-          onChange={(event) => onSecurityPolicyChange('accessTokenDays', Number(event.target.value))}
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Access Token Days</span>
+          <input
+            type="number"
+            min={1}
+            max={30}
+            className={styles.input}
+            value={config.securitySessionPolicies.accessTokenDays}
+            onChange={(event) => onSecurityPolicyChange('accessTokenDays', Number(event.target.value))}
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Refresh Token Days</span>
-        <input
-          type="number"
-          min={1}
-          max={60}
-          className={styles.input}
-          value={config.securitySessionPolicies.refreshTokenDays}
-          onChange={(event) => onSecurityPolicyChange('refreshTokenDays', Number(event.target.value))}
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Refresh Token Days</span>
+          <input
+            type="number"
+            min={1}
+            max={60}
+            className={styles.input}
+            value={config.securitySessionPolicies.refreshTokenDays}
+            onChange={(event) => onSecurityPolicyChange('refreshTokenDays', Number(event.target.value))}
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Max Login Attempts</span>
-        <input
-          type="number"
-          min={1}
-          max={20}
-          className={styles.input}
-          value={config.securitySessionPolicies.maxLoginAttempts}
-          onChange={(event) => onSecurityPolicyChange('maxLoginAttempts', Number(event.target.value))}
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Max Login Attempts</span>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            className={styles.input}
+            value={config.securitySessionPolicies.maxLoginAttempts}
+            onChange={(event) => onSecurityPolicyChange('maxLoginAttempts', Number(event.target.value))}
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Default Department Role</span>
-        <select
-          className={styles.select}
-          value={config.defaults.defaultDepartmentRole}
-          onChange={(event) => onDefaultChange('defaultDepartmentRole', event.target.value as 'POC' | 'HOD')}
-        >
-          <option value="POC">POC</option>
-          <option value="HOD">HOD</option>
-        </select>
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Default Department Role</span>
+          <select
+            className={styles.select}
+            value={config.defaults.defaultDepartmentRole}
+            onChange={(event) => onDefaultChange('defaultDepartmentRole', event.target.value as 'POC' | 'HOD')}
+          >
+            <option value="POC">POC</option>
+            <option value="HOD">HOD</option>
+          </select>
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Default User Role</span>
-        <select
-          className={styles.select}
-          value={config.defaults.defaultUserRole}
-          onChange={(event) => onDefaultChange('defaultUserRole', event.target.value as 'USER' | 'LEGAL_TEAM')}
-        >
-          <option value="USER">USER</option>
-          <option value="LEGAL_TEAM">LEGAL_TEAM</option>
-        </select>
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Default User Role</span>
+          <select
+            className={styles.select}
+            value={config.defaults.defaultUserRole}
+            onChange={(event) => onDefaultChange('defaultUserRole', event.target.value as 'USER' | 'LEGAL_TEAM')}
+          >
+            <option value="USER">USER</option>
+            <option value="LEGAL_TEAM">LEGAL_TEAM</option>
+          </select>
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Reason</span>
-        <textarea
-          className={styles.textarea}
-          value={reason}
-          onChange={(event) => onReasonChange(event.target.value)}
-          placeholder="Describe why this change is required"
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Reason</span>
+          <textarea
+            className={styles.textarea}
+            value={reason}
+            onChange={(event) => onReasonChange(event.target.value)}
+            placeholder="Describe why this change is required"
+          />
+        </label>
 
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={`${styles.button} ${styles.buttonPrimary}`}
-          onClick={onSave}
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? 'Saving...' : 'Save Configuration'}
-        </button>
-      </div>
+        <div className={styles.actions}>
+          <button type="submit" className={`${styles.button} ${styles.buttonPrimary}`} disabled={isSubmitting}>
+            <span className={styles.buttonContent}>
+              {isSubmitting ? <Spinner size={14} /> : null}
+              {isSubmitting ? 'Saving...' : 'Save Configuration'}
+            </span>
+          </button>
+        </div>
+      </form>
 
       <div className={styles.preview}>
         Last updated: {config.updatedAt ?? 'Never'}

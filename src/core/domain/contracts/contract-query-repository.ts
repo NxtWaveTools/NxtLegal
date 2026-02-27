@@ -1,4 +1,5 @@
 import type {
+  ContractUploadMode,
   ContractRepositoryStatus,
   ContractNotificationChannel,
   ContractNotificationStatus,
@@ -39,12 +40,23 @@ export type ContractListItem = {
   requestCreatedAt?: string | null
   departmentId?: string | null
   departmentName?: string | null
+  uploadMode?: ContractUploadMode
   assignedToUsers?: string[]
+  legalEffectiveDate?: string | null
+  legalTerminationDate?: string | null
+  legalNoticePeriod?: string | null
+  legalAutoRenewal?: boolean | null
   createdAt: string
   updatedAt: string
 }
 
-export type DashboardContractFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD'
+export type DashboardContractFilter =
+  | 'ALL'
+  | 'HOD_PENDING'
+  | 'UNDER_REVIEW'
+  | 'COMPLETED'
+  | 'ON_HOLD'
+  | 'ASSIGNED_TO_ME'
 
 export type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 export type RepositorySortDirection = 'asc' | 'desc'
@@ -69,6 +81,10 @@ export type RepositoryExportColumn =
   | 'contract_aging'
   | 'status'
   | 'assigned_to'
+  | 'effective_date'
+  | 'termination_date'
+  | 'notice_period'
+  | 'auto_renewal'
   | 'tat_breached'
   | 'overdue_days'
   | 'contract_title'
@@ -109,6 +125,10 @@ export type ContractDetail = ContractListItem & {
   signatoryEmail: string
   backgroundOfRequest: string
   budgetApproved: boolean
+  legalEffectiveDate?: string | null
+  legalTerminationDate?: string | null
+  legalNoticePeriod?: string | null
+  legalAutoRenewal?: boolean | null
   requestCreatedAt: string
   currentDocumentId?: string | null
   fileName: string
@@ -116,6 +136,13 @@ export type ContractDetail = ContractListItem & {
   fileMimeType: string
   filePath: string
   rowVersion: number
+}
+
+export type ContractLegalMetadata = {
+  effectiveDate: string | null
+  terminationDate: string | null
+  noticePeriod: string | null
+  autoRenewal: boolean | null
 }
 
 export type ContractCounterparty = {
@@ -170,7 +197,7 @@ export type ContractAdditionalApprover = {
   approverEmployeeId: string
   approverEmail: string
   sequenceOrder: number
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
   approvedAt: string | null
 }
 
@@ -179,6 +206,12 @@ export type ContractLegalCollaborator = {
   collaboratorEmployeeId: string
   collaboratorEmail: string
   createdAt: string
+}
+
+export type ContractLegalTeamMember = {
+  id: string
+  email: string
+  fullName?: string | null
 }
 
 export type ContractSignatory = {
@@ -254,6 +287,12 @@ export type ContractNotificationFailure = {
   lastError: string | null
   createdAt: string
   updatedAt: string
+}
+
+export type ContractNotificationDeliverySummary = {
+  id: string
+  createdAt: string
+  status: ContractNotificationStatus
 }
 
 export type AdditionalApproverDecisionHistoryItem = {
@@ -351,6 +390,7 @@ export interface ContractQueryRepository {
   getTimeline(tenantId: string, contractId: string, limit: number): Promise<ContractTimelineEvent[]>
   getAdditionalApprovers(tenantId: string, contractId: string): Promise<ContractAdditionalApprover[]>
   getLegalCollaborators(tenantId: string, contractId: string): Promise<ContractLegalCollaborator[]>
+  listActiveTenantLegalMembers(tenantId: string): Promise<ContractLegalTeamMember[]>
   isLegalCollaborator(tenantId: string, contractId: string, employeeId: string): Promise<boolean>
   getSignatories(tenantId: string, contractId: string): Promise<ContractSignatory[]>
   canAccessContract(params: {
@@ -381,6 +421,23 @@ export interface ContractQueryRepository {
     actorRole: string
     actorEmail: string
     approverEmail: string
+  }): Promise<void>
+  updateLegalMetadata(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    metadata: ContractLegalMetadata
+  }): Promise<void>
+  bypassAdditionalApprover(params: {
+    tenantId: string
+    contractId: string
+    approverId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    reason: string
   }): Promise<void>
   setLegalOwnerByEmail(params: {
     tenantId: string
@@ -484,6 +541,12 @@ export interface ContractQueryRepository {
     contractTitle: string
     recipientEmails: string[]
   } | null>
+  getLatestNotificationDelivery(params: {
+    tenantId: string
+    contractId: string
+    recipientEmail: string
+    notificationType: ContractNotificationType
+  }): Promise<ContractNotificationDeliverySummary | null>
   recordContractNotificationDelivery(params: {
     tenantId: string
     contractId: string

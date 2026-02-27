@@ -386,6 +386,24 @@
   color: var(--color-text);
 }
 
+.legalMetadataForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.legalMetadataField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legalMetadataField > span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 /* ── Tabs ── */
 
 .tabColumn {
@@ -519,6 +537,17 @@
 .button:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.buttonContent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .buttonPrimary {
@@ -774,6 +803,102 @@
   margin-top: 2px;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.approvalTimeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.approvalStep {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 10px;
+}
+
+.approvalStepRail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.approvalStepNumber {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.approvalStepConnector {
+  width: 1px;
+  flex: 1;
+  min-height: 36px;
+  margin-top: 6px;
+  background: var(--color-border);
+}
+
+.approvalStepCard {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  padding: 10px 12px;
+}
+
+.approvalStepHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.approvalStepRole {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.approvalStatusBadge {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.approvalStatusPending {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.approvalStatusApproved {
+  border-color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  color: var(--color-success);
+}
+
+.approvalStatusNotSent {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.approvalStepMeta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+.approvalStepActions {
+  margin-top: 8px;
 }
 
 .multilineValue {

@@ -312,7 +312,23 @@
   justify-content: space-between;
 }
 
+.counterpartyActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .counterpartyAddButton {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+}
+
+.counterpartyRemoveButton {
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-surface);

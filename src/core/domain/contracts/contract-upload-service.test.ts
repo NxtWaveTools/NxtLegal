@@ -1,5 +1,6 @@
 import { ContractUploadService } from '@/core/domain/contracts/contract-upload-service'
 import { AuthorizationError, BusinessRuleError } from '@/core/http/errors'
+import { contractUploadModes } from '@/core/constants/contracts'
 
 const logger = {
   info: jest.fn(),
@@ -173,5 +174,431 @@ describe('ContractUploadService signing source regression', () => {
     ).rejects.toMatchObject<Partial<AuthorizationError>>({
       code: 'CONTRACT_READ_FORBIDDEN',
     })
+  })
+
+  it('blocks upload when POC is not assigned to selected department', async () => {
+    const contractRepository = {
+      isPocAssignedToDepartment: jest.fn().mockResolvedValue(false),
+      createWithAudit: jest.fn(),
+      createCounterparties: jest.fn(),
+      setCounterpartyName: jest.fn(),
+      createDocument: jest.fn(),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn(),
+      remove: jest.fn(),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.uploadContract({
+        tenantId: 'tenant-1',
+        uploadedByEmployeeId: 'poc-1',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+        uploadedByRole: 'POC',
+        uploadMode: contractUploadModes.default,
+        title: 'MSA',
+        contractTypeId: 'type-1',
+        signatoryName: 'Signer',
+        signatoryDesignation: 'Manager',
+        signatoryEmail: 'signer@example.com',
+        backgroundOfRequest: 'Need legal review',
+        departmentId: 'dept-unassigned',
+        budgetApproved: false,
+        counterpartyName: 'NA',
+        fileName: 'contract.docx',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        fileBytes: new Uint8Array([1, 2, 3]),
+      })
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
+    })
+
+    expect(contractRepository.isPocAssignedToDepartment).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      pocEmail: 'poc@nxtwave.co.in',
+      departmentId: 'dept-unassigned',
+    })
+    expect(contractStorageRepository.upload).not.toHaveBeenCalled()
+  })
+
+  it('blocks upload when HOD is not assigned to selected department', async () => {
+    const contractRepository = {
+      isHodAssignedToDepartment: jest.fn().mockResolvedValue(false),
+      createWithAudit: jest.fn(),
+      createCounterparties: jest.fn(),
+      setCounterpartyName: jest.fn(),
+      createDocument: jest.fn(),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn(),
+      remove: jest.fn(),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.uploadContract({
+        tenantId: 'tenant-1',
+        uploadedByEmployeeId: 'hod-1',
+        uploadedByEmail: 'hod@nxtwave.co.in',
+        uploadedByRole: 'HOD',
+        title: 'MSA',
+        contractTypeId: 'type-1',
+        signatoryName: 'Signer',
+        signatoryDesignation: 'Manager',
+        signatoryEmail: 'signer@example.com',
+        backgroundOfRequest: 'Need legal review',
+        departmentId: 'dept-unassigned',
+        budgetApproved: false,
+        counterpartyName: 'NA',
+        fileName: 'contract.docx',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        fileBytes: new Uint8Array([1, 2, 3]),
+      })
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
+    })
+
+    expect(contractRepository.isHodAssignedToDepartment).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      hodEmail: 'hod@nxtwave.co.in',
+      departmentId: 'dept-unassigned',
+    })
+    expect(contractStorageRepository.upload).not.toHaveBeenCalled()
+  })
+
+  it('allows upload when HOD is assigned to selected department', async () => {
+    const contractRepository = {
+      isHodAssignedToDepartment: jest.fn().mockResolvedValue(true),
+      createWithAudit: jest.fn().mockResolvedValue({
+        id: 'contract-1',
+        tenantId: 'tenant-1',
+        title: 'MSA',
+        contractTypeId: 'type-1',
+        signatoryName: 'Signer',
+        signatoryDesignation: 'Manager',
+        signatoryEmail: 'signer@example.com',
+        backgroundOfRequest: 'Need legal review',
+        departmentId: 'dept-1',
+        budgetApproved: false,
+        requestCreatedAt: new Date().toISOString(),
+        uploadedByEmployeeId: 'hod-1',
+        uploadedByEmail: 'hod@nxtwave.co.in',
+        currentAssigneeEmployeeId: 'hod-1',
+        currentAssigneeEmail: 'hod@nxtwave.co.in',
+        status: 'HOD_PENDING',
+        filePath: 'tenant-1/contract-1/contract.docx',
+        fileName: 'contract.docx',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }),
+      createCounterparties: jest.fn().mockResolvedValue([
+        {
+          id: 'counterparty-1',
+          tenantId: 'tenant-1',
+          contractId: 'contract-1',
+          counterpartyName: 'NA',
+          sequenceOrder: 1,
+        },
+      ]),
+      setCounterpartyName: jest.fn().mockResolvedValue(undefined),
+      createDocument: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.uploadContract({
+        tenantId: 'tenant-1',
+        uploadedByEmployeeId: 'hod-1',
+        uploadedByEmail: 'hod@nxtwave.co.in',
+        uploadedByRole: 'HOD',
+        title: 'MSA',
+        contractTypeId: 'type-1',
+        signatoryName: 'Signer',
+        signatoryDesignation: 'Manager',
+        signatoryEmail: 'signer@example.com',
+        backgroundOfRequest: 'Need legal review',
+        departmentId: 'dept-1',
+        budgetApproved: false,
+        counterpartyName: 'NA',
+        fileName: 'contract.docx',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        fileBytes: new Uint8Array([1, 2, 3]),
+      })
+    ).resolves.toBeDefined()
+
+    expect(contractRepository.isHodAssignedToDepartment).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      hodEmail: 'hod@nxtwave.co.in',
+      departmentId: 'dept-1',
+    })
+    expect(contractStorageRepository.upload).toHaveBeenCalled()
+    expect(contractRepository.createWithAudit).toHaveBeenCalled()
+  })
+})
+
+describe('ContractUploadService legal send-for-signing validations', () => {
+  const buildUploadInput = (overrides?: Record<string, unknown>) => ({
+    tenantId: 'tenant-1',
+    uploadedByEmployeeId: 'employee-1',
+    uploadedByEmail: 'legal@nxtwave.co.in',
+    uploadedByRole: 'LEGAL_TEAM',
+    uploadMode: contractUploadModes.legalSendForSigning,
+    bypassHodApproval: false,
+    bypassReason: undefined,
+    title: 'NDA',
+    contractTypeId: 'contract-type-1',
+    signatoryName: 'Vendor Signatory',
+    signatoryDesignation: 'Director',
+    signatoryEmail: 'vendor@example.com',
+    backgroundOfRequest: 'Need contract execution',
+    departmentId: 'department-1',
+    budgetApproved: true,
+    counterpartyName: 'NA',
+    fileName: 'agreement.pdf',
+    fileSizeBytes: 1024,
+    fileMimeType: 'application/pdf',
+    fileBytes: new Uint8Array([1, 2, 3]),
+    supportingFiles: [],
+    ...overrides,
+  })
+
+  it('rejects legal send-for-signing uploads when file is not PDF', async () => {
+    const contractRepository = {
+      createWithAudit: jest.fn(),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn(),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.uploadContract(
+        buildUploadInput({
+          fileName: 'agreement.docx',
+          fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        }) as never
+      )
+    ).rejects.toMatchObject<Partial<BusinessRuleError>>({
+      code: 'CONTRACT_FILE_FORMAT_INVALID',
+    })
+
+    expect(contractStorageRepository.upload).not.toHaveBeenCalled()
+    expect(contractRepository.createWithAudit).not.toHaveBeenCalled()
+  })
+
+  it('requires bypass reason when bypass HOD approval is enabled', async () => {
+    const contractRepository = {
+      createWithAudit: jest.fn(),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn(),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.uploadContract(
+        buildUploadInput({
+          bypassHodApproval: true,
+          bypassReason: '   ',
+        }) as never
+      )
+    ).rejects.toMatchObject<Partial<BusinessRuleError>>({
+      code: 'BYPASS_REASON_REQUIRED',
+    })
+
+    expect(contractStorageRepository.upload).not.toHaveBeenCalled()
+    expect(contractRepository.createWithAudit).not.toHaveBeenCalled()
+  })
+
+  it('passes bypass metadata into repository in legal send-for-signing mode', async () => {
+    const contractRepository = {
+      createWithAudit: jest.fn().mockResolvedValue({
+        id: 'contract-1',
+        tenantId: 'tenant-1',
+        title: 'NDA',
+        contractTypeId: 'contract-type-1',
+        signatoryName: 'Vendor Signatory',
+        signatoryDesignation: 'Director',
+        signatoryEmail: 'vendor@example.com',
+        backgroundOfRequest: 'Need contract execution',
+        departmentId: 'department-1',
+        budgetApproved: true,
+        requestCreatedAt: new Date().toISOString(),
+        uploadedByEmployeeId: 'employee-1',
+        uploadedByEmail: 'legal@nxtwave.co.in',
+        currentAssigneeEmployeeId: 'employee-1',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        status: 'COMPLETED',
+        filePath: 'tenant-1/contract-1/agreement.pdf',
+        fileName: 'agreement.pdf',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/pdf',
+      }),
+      createCounterparties: jest.fn().mockResolvedValue([
+        {
+          id: 'counterparty-1',
+          tenantId: 'tenant-1',
+          contractId: 'contract-1',
+          counterpartyName: 'NA',
+          sequenceOrder: 1,
+        },
+      ]),
+      setCounterpartyName: jest.fn().mockResolvedValue(undefined),
+      createDocument: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await service.uploadContract(
+      buildUploadInput({
+        bypassHodApproval: true,
+        bypassReason: 'Urgent legal override for immediate execution',
+      }) as never
+    )
+
+    expect(contractRepository.createWithAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadMode: contractUploadModes.legalSendForSigning,
+        bypassHodApproval: true,
+        bypassReason: 'Urgent legal override for immediate execution',
+      })
+    )
+  })
+
+  it('allows blank designation, email, and background in legal send-for-signing mode', async () => {
+    const contractRepository = {
+      createWithAudit: jest.fn().mockResolvedValue({
+        id: 'contract-1',
+        tenantId: 'tenant-1',
+        title: 'NDA',
+        contractTypeId: 'contract-type-1',
+        signatoryName: 'Vendor Signatory',
+        signatoryDesignation: '',
+        signatoryEmail: '',
+        backgroundOfRequest: '',
+        departmentId: 'department-1',
+        budgetApproved: false,
+        requestCreatedAt: new Date().toISOString(),
+        uploadedByEmployeeId: 'employee-1',
+        uploadedByEmail: 'legal@nxtwave.co.in',
+        currentAssigneeEmployeeId: 'employee-1',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        status: 'COMPLETED',
+        filePath: 'tenant-1/contract-1/agreement.pdf',
+        fileName: 'agreement.pdf',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/pdf',
+      }),
+      createCounterparties: jest.fn().mockResolvedValue([
+        {
+          id: 'counterparty-1',
+          tenantId: 'tenant-1',
+          contractId: 'contract-1',
+          counterpartyName: 'NA',
+          sequenceOrder: 1,
+        },
+      ]),
+      setCounterpartyName: jest.fn().mockResolvedValue(undefined),
+      createDocument: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.uploadContract(
+        buildUploadInput({
+          signatoryDesignation: '   ',
+          signatoryEmail: '   ',
+          backgroundOfRequest: '   ',
+          budgetApproved: false,
+        }) as never
+      )
+    ).resolves.toBeTruthy()
+
+    expect(contractRepository.createWithAudit).toHaveBeenCalled()
+  })
+
+  it('allows send-for-signing without supporting documents for non-NA counterparty', async () => {
+    const contractRepository = {
+      createWithAudit: jest.fn().mockResolvedValue({
+        id: 'contract-1',
+        tenantId: 'tenant-1',
+        title: 'NDA',
+        contractTypeId: 'contract-type-1',
+        signatoryName: 'Vendor Signatory',
+        signatoryDesignation: 'Director',
+        signatoryEmail: 'vendor@example.com',
+        backgroundOfRequest: 'Need contract execution',
+        departmentId: 'department-1',
+        budgetApproved: true,
+        requestCreatedAt: new Date().toISOString(),
+        uploadedByEmployeeId: 'employee-1',
+        uploadedByEmail: 'legal@nxtwave.co.in',
+        currentAssigneeEmployeeId: 'employee-1',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        status: 'COMPLETED',
+        filePath: 'tenant-1/contract-1/agreement.pdf',
+        fileName: 'agreement.pdf',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/pdf',
+      }),
+      createCounterparties: jest.fn().mockResolvedValue([
+        {
+          id: 'counterparty-1',
+          tenantId: 'tenant-1',
+          contractId: 'contract-1',
+          counterpartyName: 'Acme Corp',
+          sequenceOrder: 1,
+        },
+      ]),
+      setCounterpartyName: jest.fn().mockResolvedValue(undefined),
+      createDocument: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.uploadContract(
+        buildUploadInput({
+          counterpartyName: 'Acme Corp',
+          supportingFiles: [],
+        }) as never
+      )
+    ).resolves.toBeTruthy()
+
+    expect(contractRepository.createWithAudit).toHaveBeenCalled()
   })
 })

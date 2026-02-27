@@ -1,3 +1,5 @@
+import type { FormEvent } from 'react'
+import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
 type TeamManagementSectionProps = {
@@ -33,64 +35,69 @@ export default function TeamManagementSection({
   onReasonChange,
   onCreateTeam,
 }: TeamManagementSectionProps) {
+  const handleCreateTeamSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    onCreateTeam()
+  }
+
   return (
     <div className={styles.panel}>
       <h2 className={styles.panelTitle}>Team Management</h2>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Team Name</span>
-        <input
-          className={styles.input}
-          value={teamName}
-          onChange={(event) => onTeamNameChange(event.target.value)}
-          placeholder="Enter department/team name"
-        />
-      </label>
+      <form onSubmit={handleCreateTeamSubmit}>
+        <label className={styles.field}>
+          <span className={styles.label}>Team Name</span>
+          <input
+            className={styles.input}
+            value={teamName}
+            onChange={(event) => onTeamNameChange(event.target.value)}
+            placeholder="Enter department/team name"
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>POC Microsoft Email</span>
-        <input
-          className={styles.input}
-          value={pocEmail}
-          onChange={(event) => onPocEmailChange(event.target.value)}
-          placeholder="poc@yourdomain.com"
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>POC Microsoft Email</span>
+          <input
+            className={styles.input}
+            value={pocEmail}
+            onChange={(event) => onPocEmailChange(event.target.value)}
+            placeholder="poc@yourdomain.com"
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>HOD Microsoft Email</span>
-        <input
-          className={styles.input}
-          value={hodEmail}
-          onChange={(event) => onHodEmailChange(event.target.value)}
-          placeholder="hod@yourdomain.com"
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>HOD Microsoft Email</span>
+          <input
+            className={styles.input}
+            value={hodEmail}
+            onChange={(event) => onHodEmailChange(event.target.value)}
+            placeholder="hod@yourdomain.com"
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Reason</span>
-        <textarea
-          className={styles.textarea}
-          value={reason}
-          onChange={(event) => onReasonChange(event.target.value)}
-          placeholder="Add optional governance reason"
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Reason</span>
+          <textarea
+            className={styles.textarea}
+            value={reason}
+            onChange={(event) => onReasonChange(event.target.value)}
+            placeholder="Add optional governance reason"
+          />
+        </label>
 
-      {!arePrimaryEmailsDifferent && normalizedPocEmail && normalizedHodEmail ? (
-        <div className={styles.warning}>POC and HOD must use different email addresses.</div>
-      ) : null}
+        {!arePrimaryEmailsDifferent && normalizedPocEmail && normalizedHodEmail ? (
+          <div className={styles.warning}>POC and HOD must use different email addresses.</div>
+        ) : null}
 
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={`${styles.button} ${styles.buttonPrimary}`}
-          onClick={onCreateTeam}
-          disabled={!canCreate}
-        >
-          {isSubmittingCreate ? 'Creating...' : 'Create Team'}
-        </button>
-      </div>
+        <div className={styles.actions}>
+          <button type="submit" className={`${styles.button} ${styles.buttonPrimary}`} disabled={!canCreate}>
+            <span className={styles.buttonContent}>
+              {isSubmittingCreate ? <Spinner size={14} /> : null}
+              {isSubmittingCreate ? 'Creating...' : 'Create Team'}
+            </span>
+          </button>
+        </div>
+      </form>
 
       <div className={styles.preview}>Access will be granted when this email logs in via Microsoft SSO.</div>
     </div>

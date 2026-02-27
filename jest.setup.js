@@ -2,6 +2,8 @@
 
 require('@testing-library/jest-dom')
 
+jest.mock('canvas-confetti', () => jest.fn())
+
 // Mock Supabase client for tests
 jest.mock('@/lib/supabase/client', () => ({
   createClient: jest.fn(() => ({

@@ -6,22 +6,54 @@ import { adminErrorResponse } from '@/core/http/admin-response'
 import { isAppError } from '@/core/http/errors'
 import { auditViewerExportQuerySchema } from '@/core/domain/admin/schemas'
 import { getAuditViewerService } from '@/core/registry/service-registry'
+import {
+  formatAuditAction,
+  formatAuditActor,
+  formatAuditDate,
+  formatAuditMetadataEntries,
+  formatAuditResource,
+  type AuditLogFormatInput,
+} from '@/modules/admin/lib/audit-log-formatters'
 
-const buildCsv = (rows: Array<Record<string, unknown>>): string => {
-  const header = ['id', 'createdAt', 'userId', 'action', 'resourceType', 'resourceId', 'changes', 'metadata']
-  const escaped = (value: unknown): string => {
-    const raw = typeof value === 'string' ? value : JSON.stringify(value ?? '')
-    const normalized = raw.replace(/"/g, '""')
-    return `"${normalized}"`
-  }
+const header = [
+  'id',
+  'createdAt',
+  'createdAtFormatted',
+  'actor',
+  'action',
+  'actionLabel',
+  'resource',
+  'eventType',
+  'noteText',
+  'metadataSummary',
+]
 
-  const body = rows.map((row) =>
-    [row.id, row.createdAt, row.userId, row.action, row.resourceType, row.resourceId, row.changes, row.metadata]
-      .map((value) => escaped(value))
-      .join(',')
-  )
+const escaped = (value: unknown): string => {
+  const raw = typeof value === 'string' ? value : JSON.stringify(value ?? '')
+  const normalized = raw.replace(/"/g, '""')
+  return `"${normalized}"`
+}
 
-  return [header.join(','), ...body].join('\n')
+const toCsvRow = (row: AuditLogFormatInput): string => {
+  const metadataSummary = formatAuditMetadataEntries(row)
+    .map((entry) => `${entry.label}: ${entry.value}`)
+    .join(' | ')
+  const resource = formatAuditResource(row)
+
+  return [
+    row.id,
+    row.createdAt,
+    formatAuditDate(row.createdAt),
+    formatAuditActor(row),
+    row.action,
+    formatAuditAction(row.action),
+    resource.display,
+    row.eventType ?? '',
+    row.noteText ?? '',
+    metadataSummary,
+  ]
+    .map((value) => escaped(value))
+    .join(',')
 }
 
 const GETHandler = withAuth(async (request: NextRequest, { session }) => {
@@ -43,22 +75,92 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
     })
 
     const auditViewerService = getAuditViewerService()
-    const result = await auditViewerService.listLogs({
-      session,
-      filters: {
-        action: query.action,
-        resourceType: query.resourceType,
-        userId: query.userId,
-        query: query.query,
-        from: query.from,
-        to: query.to,
+    const encoder = new TextEncoder()
+    const filters = {
+      action: query.action,
+      resourceType: query.resourceType,
+      userId: query.userId,
+      query: query.query,
+      from: query.from,
+      to: query.to,
+    }
+
+    let isAborted = request.signal.aborted
+    const abortListener = () => {
+      isAborted = true
+    }
+    request.signal.addEventListener('abort', abortListener)
+
+    const stream = new ReadableStream<Uint8Array>({
+      start: async (controller) => {
+        try {
+          if (isAborted) {
+            controller.close()
+            return
+          }
+
+          controller.enqueue(encoder.encode('\uFEFF'))
+          controller.enqueue(encoder.encode(`${header.join(',')}\n`))
+
+          let cursor = query.cursor
+
+          while (true) {
+            if (isAborted) {
+              break
+            }
+
+            const chunk = await auditViewerService.listLogsExportChunk({
+              session,
+              filters,
+              cursor,
+              limit: query.limit,
+            })
+
+            if (isAborted) {
+              break
+            }
+
+            if (chunk.items.length === 0) {
+              break
+            }
+
+            const csvChunk = `${chunk.items.map((item) => toCsvRow(item)).join('\n')}\n`
+            controller.enqueue(encoder.encode(csvChunk))
+
+            if (!chunk.cursor) {
+              break
+            }
+
+            cursor = chunk.cursor
+          }
+
+          controller.close()
+        } catch (streamError) {
+          const isAbortError =
+            isAborted ||
+            (streamError instanceof DOMException && streamError.name === 'AbortError') ||
+            (streamError instanceof Error && streamError.name === 'AbortError')
+
+          if (isAbortError) {
+            try {
+              controller.close()
+            } catch {
+              return
+            }
+            return
+          }
+
+          controller.error(streamError)
+        } finally {
+          request.signal.removeEventListener('abort', abortListener)
+        }
       },
-      limit: query.limit,
+      cancel: () => {
+        isAborted = true
+      },
     })
 
-    const csv = buildCsv(result.items)
-
-    return new NextResponse(csv, {
+    return new NextResponse(stream, {
       status: 200,
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',

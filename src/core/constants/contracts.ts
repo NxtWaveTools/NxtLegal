@@ -45,12 +45,21 @@ export const contractWorkflowRoles = {
   system: 'SYSTEM',
 } as const
 
+export const contractUploadModes = {
+  default: 'DEFAULT',
+  legalSendForSigning: 'LEGAL_SEND_FOR_SIGNING',
+} as const
+
+export type ContractUploadMode = (typeof contractUploadModes)[keyof typeof contractUploadModes]
+
+export const contractWorkflowIdentities = {
+  legalDepartmentName: 'Legal and Compliance',
+  legalHodEmail: 'legalhod@nxtwave.co.in',
+} as const
+
 export type ContractWorkflowRole = (typeof contractWorkflowRoles)[keyof typeof contractWorkflowRoles]
 
-export const contractLegalAssignmentAllowedRoles = [
-  contractWorkflowRoles.legalTeam,
-  contractWorkflowRoles.admin,
-] as const
+export const contractLegalAssignmentAllowedRoles = [contractWorkflowRoles.legalTeam] as const
 
 export const contractLegalAssignmentEditableStatuses: ContractStatus[] = [
   contractStatuses.underReview,
@@ -98,10 +107,14 @@ export const contractDocumentVersioning = {
 } as const
 
 export const contractDocumentUploadRules = {
-  initialAllowedRoles: [contractWorkflowRoles.poc] as const,
+  initialAllowedRoles: [contractWorkflowRoles.poc, contractWorkflowRoles.legalTeam, contractWorkflowRoles.hod] as const,
   replacementAllowedRoles: [contractWorkflowRoles.legalTeam] as const,
   initialAllowedMimeTypes: [contractDocumentMimeTypes.docx] as const,
   replacementAllowedMimeTypes: [contractDocumentMimeTypes.docx, contractDocumentMimeTypes.pdf] as const,
+} as const
+
+export const contractCounterpartyValues = {
+  notApplicable: 'NA',
 } as const
 
 export const contractSignatoryStatuses = {
@@ -154,6 +167,14 @@ export type ContractNotificationChannel =
 export const contractNotificationTypes = {
   signatoryLink: 'SIGNATORY_LINK',
   signingCompleted: 'SIGNING_COMPLETED',
+  hodApprovalRequested: 'HOD_APPROVAL_REQUESTED',
+  approvalReminder: 'APPROVAL_REMINDER',
+  additionalApproverAdded: 'ADDITIONAL_APPROVER_ADDED',
+  legalInternalAssignment: 'LEGAL_INTERNAL_ASSIGNMENT',
+  legalApprovalReceivedHod: 'LEGAL_APPROVAL_RECEIVED_HOD',
+  legalApprovalReceivedAdditional: 'LEGAL_APPROVAL_RECEIVED_ADDITIONAL',
+  legalReturnedToHod: 'LEGAL_RETURNED_TO_HOD',
+  legalContractRejected: 'LEGAL_CONTRACT_REJECTED',
 } as const
 
 export type ContractNotificationType = (typeof contractNotificationTypes)[keyof typeof contractNotificationTypes]
@@ -169,6 +190,7 @@ export type ContractNotificationStatus =
 export const contractNotificationPolicy = {
   maxRetries: 2,
   retryBaseDelayMinutes: 1,
+  approvalReminderCooldownHours: 24,
 } as const
 
 export const contractAuditEvents = {
@@ -180,6 +202,7 @@ export const contractAuditEvents = {
   signatoryCompleted: 'CONTRACT_SIGNATORY_COMPLETED',
   signatoryDeclined: 'CONTRACT_SIGNATORY_DECLINED',
   signatoryExpired: 'CONTRACT_SIGNATORY_EXPIRED',
+  approverBypassed: 'CONTRACT_APPROVER_BYPASSED',
 } as const
 
 export const contractAuditActions = {
@@ -191,6 +214,7 @@ export const contractAuditActions = {
   signatoryCompleted: 'contract.signatory.completed',
   signatoryDeclined: 'contract.signatory.declined',
   signatoryExpired: 'contract.signatory.expired',
+  approverBypassed: 'contract.approver.bypassed',
 } as const
 
 export const contractStatusLabels: Record<ContractStatus, string> = {
@@ -301,6 +325,10 @@ export const contractRepositoryExportColumns = {
   contractAging: 'contract_aging',
   status: 'status',
   assignedTo: 'assigned_to',
+  effectiveDate: 'effective_date',
+  terminationDate: 'termination_date',
+  noticePeriod: 'notice_period',
+  autoRenewal: 'auto_renewal',
   tatBreached: 'tat_breached',
   overdueDays: 'overdue_days',
   contractTitle: 'contract_title',
@@ -319,6 +347,10 @@ export const contractRepositoryExportColumnLabels: Record<
   [contractRepositoryExportColumns.contractAging]: 'Contract Aging',
   [contractRepositoryExportColumns.status]: 'Status',
   [contractRepositoryExportColumns.assignedTo]: 'Assigned To',
+  [contractRepositoryExportColumns.effectiveDate]: 'Effective Date',
+  [contractRepositoryExportColumns.terminationDate]: 'Termination Date',
+  [contractRepositoryExportColumns.noticePeriod]: 'Notice Period',
+  [contractRepositoryExportColumns.autoRenewal]: 'Auto-renewal',
   [contractRepositoryExportColumns.tatBreached]: 'TAT Breached',
   [contractRepositoryExportColumns.overdueDays]: 'Overdue Days',
   [contractRepositoryExportColumns.contractTitle]: 'Contract',

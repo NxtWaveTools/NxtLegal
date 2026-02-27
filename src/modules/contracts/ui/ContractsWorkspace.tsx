@@ -1,7 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
+import type { FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
 import {
   contractsClient,
   type ContractAllowedAction,
@@ -15,11 +18,30 @@ import {
   contractStatuses,
   contractTransitionActions,
 } from '@/core/constants/contracts'
+import Spinner from '@/components/ui/Spinner'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import ContractDocumentsPanel from '@/modules/contracts/ui/ContractDocumentsPanel'
+import ApprovalsTab from '@/modules/contracts/ui/ApprovalsTab'
 import { formatContractLogEvents, isContractNoteEvent } from '@/modules/contracts/ui/formatContractLogEvent'
-import PrepareForSigningModal from '@/modules/contracts/ui/PrepareForSigningModal'
+import { triggerContractStatusConfetti } from '@/modules/contracts/ui/contract-status-confetti'
 import styles from './contracts-workspace.module.css'
+
+const PrepareForSigningModal = dynamic(() => import('@/modules/contracts/ui/PrepareForSigningModal'), {
+  ssr: false,
+})
+
+const htmlPreviewExtensions = new Set(['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'tsv', 'txt'])
+
+const resolveFileExtension = (fileName: string): string => {
+  const normalizedName = fileName.trim().toLowerCase()
+  const lastDotIndex = normalizedName.lastIndexOf('.')
+
+  if (lastDotIndex <= 0 || lastDotIndex === normalizedName.length - 1) {
+    return ''
+  }
+
+  return normalizedName.slice(lastDotIndex + 1)
+}
 
 type ContractsWorkspaceProps = {
   session: {
@@ -35,6 +57,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     { id: 'activity', label: 'Activity' },
     { id: 'notes', label: 'Notes' },
     { id: 'documents', label: 'Documents' },
+    { id: 'approvals', label: 'Approvals' },
   ] as const
 
   type TabId = (typeof tabs)[number]['id']
@@ -57,15 +80,19 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [documents, setDocuments] = useState<ContractDocument[]>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
-  const [signatoryEmail, setSignatoryEmail] = useState('')
-  const [ownerEmail, setOwnerEmail] = useState('')
   const [collaboratorEmail, setCollaboratorEmail] = useState('')
   const [activityMessageText, setActivityMessageText] = useState('')
+  const [legalEffectiveDate, setLegalEffectiveDate] = useState('')
+  const [legalTerminationDate, setLegalTerminationDate] = useState('')
+  const [legalNoticePeriod, setLegalNoticePeriod] = useState('')
+  const [legalAutoRenewal, setLegalAutoRenewal] = useState<'unknown' | 'yes' | 'no'>('unknown')
   const [isGeneratingLinkFor, setIsGeneratingLinkFor] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [isActivityComposerOpen, setIsActivityComposerOpen] = useState(false)
   const [isSubmittingActivity, setIsSubmittingActivity] = useState(false)
+  const [isAddingCollaborator, setIsAddingCollaborator] = useState(false)
   const [isMarkingActivitySeen, setIsMarkingActivitySeen] = useState(false)
+  const [isSavingLegalMetadata, setIsSavingLegalMetadata] = useState(false)
   const [isIntakeOpen, setIsIntakeOpen] = useState(false)
   const [isPrepareForSigningOpen, setIsPrepareForSigningOpen] = useState(false)
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set())
@@ -84,13 +111,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [viewerExternalUrl, setViewerExternalUrl] = useState<string | null>(null)
   const [viewerMimeType, setViewerMimeType] = useState<string>('')
   const [viewerFileName, setViewerFileName] = useState<string>('')
-  const [error, setError] = useState<string | null>(null)
-
   // Pagination state
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [totalContracts, setTotalContracts] = useState(0)
+  const knownContractStatusesRef = useRef<Map<string, ContractRecord['status']>>(new Map())
+  const executedCelebratedContractIdsRef = useRef<Set<string>>(new Set())
+  const pendingCompletedCelebrationContractIdRef = useRef<string | null>(null)
 
   const PAGE_SIZE = 15
 
@@ -98,7 +126,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     const response = await contractsClient.list({ cursor, limit: PAGE_SIZE })
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to load contracts')
+      toast.error(response.error?.message ?? 'Failed to load contracts')
       if (!cursor) {
         setContracts([])
       }
@@ -111,7 +139,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setNextCursor(pagination.cursor)
     setHasMore(pagination.cursor !== null)
     setTotalContracts(pagination.total)
-    setError(null)
 
     if (!cursor) {
       setSelectedContractId((current) => {
@@ -123,15 +150,58 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
   }, [])
 
+  const maybeCelebrateExecutedTransition = useCallback((contract: ContractRecord) => {
+    const normalizedCurrentStatus = (contract.status ?? '').toUpperCase()
+    const normalizedPreviousStatus = (knownContractStatusesRef.current.get(contract.id) ?? '').toUpperCase()
+    const previousStatus = knownContractStatusesRef.current.get(contract.id)
+    const hasTransitionedToCompleted =
+      previousStatus !== undefined &&
+      normalizedPreviousStatus !== contractStatuses.completed &&
+      normalizedCurrentStatus === contractStatuses.completed
+    const hasTransitionedToExecuted =
+      previousStatus !== undefined &&
+      normalizedPreviousStatus !== contractStatuses.executed &&
+      normalizedCurrentStatus === contractStatuses.executed
+
+    if (hasTransitionedToCompleted && pendingCompletedCelebrationContractIdRef.current === contract.id) {
+      triggerContractStatusConfetti()
+      pendingCompletedCelebrationContractIdRef.current = null
+    }
+
+    if (hasTransitionedToExecuted && !executedCelebratedContractIdsRef.current.has(contract.id)) {
+      triggerContractStatusConfetti()
+      executedCelebratedContractIdsRef.current.add(contract.id)
+    }
+
+    knownContractStatusesRef.current.set(contract.id, contract.status)
+  }, [])
+
+  const resetLegalMetadataDraft = () => {
+    setLegalEffectiveDate('')
+    setLegalTerminationDate('')
+    setLegalNoticePeriod('')
+    setLegalAutoRenewal('unknown')
+  }
+
   const applyContractView = (contractView: ContractDetailResponse) => {
+    maybeCelebrateExecutedTransition(contractView.contract)
     setSelectedContract(contractView.contract)
+    setLegalEffectiveDate(contractView.contract.legalEffectiveDate ?? '')
+    setLegalTerminationDate(contractView.contract.legalTerminationDate ?? '')
+    setLegalNoticePeriod(contractView.contract.legalNoticePeriod ?? '')
+    setLegalAutoRenewal(
+      contractView.contract.legalAutoRenewal === true
+        ? 'yes'
+        : contractView.contract.legalAutoRenewal === false
+          ? 'no'
+          : 'unknown'
+    )
     setCounterparties(contractView.counterparties ?? [])
     setDocuments(contractView.documents ?? [])
     setAvailableActions(contractView.availableActions)
     setApprovers(contractView.additionalApprovers)
     setLegalCollaborators(contractView.legalCollaborators)
     setSignatories(contractView.signatories ?? [])
-    setOwnerEmail(contractView.contract.currentAssigneeEmail)
   }
 
   const syncContractReadState = useCallback((contractId: string, hasUnreadActivity: boolean) => {
@@ -147,8 +217,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     ])
 
     if (!detailResponse.ok || !detailResponse.data?.contract) {
-      setError(detailResponse.error?.message ?? 'Failed to load contract detail')
+      toast.error(detailResponse.error?.message ?? 'Failed to load contract detail')
       setSelectedContract(null)
+      resetLegalMetadataDraft()
       setTimeline([])
       setCounterparties([])
       setDocuments([])
@@ -197,8 +268,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       }
 
       if (!detailResponse.ok || !detailResponse.data?.contract) {
-        setError(detailResponse.error?.message ?? 'Failed to load contract detail')
+        toast.error(detailResponse.error?.message ?? 'Failed to load contract detail')
         setSelectedContract(null)
+        resetLegalMetadataDraft()
         setTimeline([])
         setCounterparties([])
         setDocuments([])
@@ -262,28 +334,54 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         return false
       }
 
+      const loadingToastId = `contract-action-${actionItem.action}`
+      toast.loading(`Applying ${actionItem.label}...`, { id: loadingToastId })
+
       setActiveAction(actionItem.action)
-      const response = await contractsClient.action(selectedContractId, {
-        action: actionItem.action,
-        noteText: remark,
-      })
-      setActiveAction(null)
+      try {
+        let shouldTriggerCelebration = false
 
-      if (response.ok !== true) {
-        if (response.error?.code) {
-          setError(response.error.message ?? 'Failed to apply contract action')
+        const response = await contractsClient.action(selectedContractId, {
+          action: actionItem.action,
+          noteText: remark,
+        })
+
+        if (response.ok !== true) {
+          toast.error(response.error?.message ?? `Failed to apply ${actionItem.label}`, { id: loadingToastId })
+          return false
         }
+
+        if (response.data) {
+          const normalizedStatus = (response.data.contract.status ?? '').toUpperCase()
+          applyContractView(response.data)
+
+          if (normalizedStatus === contractStatuses.completed) {
+            shouldTriggerCelebration = true
+            pendingCompletedCelebrationContractIdRef.current = null
+          } else {
+            pendingCompletedCelebrationContractIdRef.current = selectedContractId
+          }
+        }
+
+        await loadContracts()
+        await loadContractContext(selectedContractId)
+        router.refresh()
+        toast.success(`${actionItem.label} completed successfully`, { id: loadingToastId })
+
+        if (shouldTriggerCelebration) {
+          window.setTimeout(() => {
+            triggerContractStatusConfetti()
+          }, 220)
+        }
+
+        return true
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : `Failed to apply ${actionItem.label}`
+        toast.error(errorMessage, { id: loadingToastId })
         return false
+      } finally {
+        setActiveAction(null)
       }
-
-      if (response.data) {
-        applyContractView(response.data)
-      }
-
-      await loadContracts()
-      await loadContractContext(selectedContractId)
-      router.refresh()
-      return true
     },
     [loadContractContext, loadContracts, router, selectedContractId]
   )
@@ -295,14 +393,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     if (actionItem.action.includes('approve')) {
       setConfirmActionItem(actionItem)
-      setError(null)
       return
     }
 
     if (actionItem.requiresRemark) {
       setRemarkActionItem(actionItem)
       setRemarkDraft('')
-      setError(null)
       return
     }
 
@@ -351,7 +447,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     const remark = remarkDraft.trim()
     if (!remark) {
-      setError('Remarks are required for this action')
+      toast.error('Remarks are required for this action')
       return
     }
 
@@ -431,7 +527,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       }
 
       setConfirmActionItem(actionItem)
-      setError(null)
       setSelectedLegalAction('')
     },
     [legalStatusActions]
@@ -447,7 +542,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     })
 
     if (!response.ok || !response.data?.signedUrl) {
-      setError(response.error?.message ?? 'Failed to generate download link')
+      toast.error(response.error?.message ?? 'Failed to generate download link')
       return
     }
 
@@ -464,20 +559,45 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     })
 
     if (!response.ok || !response.data?.signedUrl) {
-      setError(response.error?.message ?? 'Failed to generate document view link')
+      toast.error(response.error?.message ?? 'Failed to generate document view link')
       return
     }
 
     const resolvedFileName =
       response.data.fileName ?? document?.displayName ?? selectedContract?.fileName ?? 'Contract document'
-    const resolvedMimeType = document?.fileMimeType ?? ''
+    const resolvedMimeType = (document?.fileMimeType ?? '').trim().toLowerCase()
+    const resolvedExtension = resolveFileExtension(resolvedFileName)
     const isDocx =
       resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      resolvedFileName.toLowerCase().endsWith('.docx')
+      resolvedExtension === 'docx'
+    const isSpreadsheet =
+      resolvedExtension === 'xls' ||
+      resolvedExtension === 'xlsx' ||
+      resolvedMimeType.includes('spreadsheetml') ||
+      resolvedMimeType.includes('ms-excel')
+    const isTextPreview =
+      resolvedExtension === 'csv' ||
+      resolvedExtension === 'tsv' ||
+      resolvedExtension === 'txt' ||
+      resolvedMimeType.startsWith('text/') ||
+      resolvedMimeType.includes('csv')
+    const isPresentation =
+      resolvedExtension === 'ppt' ||
+      resolvedExtension === 'pptx' ||
+      resolvedMimeType.includes('ms-powerpoint') ||
+      resolvedMimeType.includes('presentationml')
+    const isLegacyDoc = resolvedExtension === 'doc' || resolvedMimeType.includes('application/msword')
+    const renderAsHtml =
+      isDocx ||
+      isLegacyDoc ||
+      isPresentation ||
+      isSpreadsheet ||
+      isTextPreview ||
+      htmlPreviewExtensions.has(resolvedExtension)
 
     const previewUrl = contractsClient.previewUrl(selectedContractId, {
       documentId: document?.id,
-      renderAs: isDocx ? 'html' : 'binary',
+      renderAs: renderAsHtml ? 'html' : 'binary',
     })
 
     setViewerUrl(previewUrl)
@@ -519,7 +639,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsMutating(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to add note')
+      toast.error(response.error?.message ?? 'Failed to add note')
       return
     }
 
@@ -530,8 +650,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }
 
   const handleAddApprover = async () => {
-    if (!selectedContractId || !approverEmail.trim()) {
-      return
+    if (!selectedContractId) {
+      throw new Error('No contract selected')
+    }
+
+    if (!approverEmail.trim()) {
+      throw new Error('Approver email is required')
     }
 
     setIsMutating(true)
@@ -541,8 +665,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsMutating(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to add additional approver')
-      return
+      throw new Error(response.error?.message ?? 'Failed to add additional approver')
     }
 
     setApproverEmail('')
@@ -577,46 +700,94 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
   }
 
-  const handleSetOwner = async () => {
-    if (!selectedContractId || !ownerEmail.trim()) {
+  const handleRemindApprover = async (approverEmailToRemind?: string) => {
+    if (!selectedContractId) {
+      throw new Error('No contract selected')
+    }
+
+    if (recipientType !== 'INTERNAL') {
+      setError('Signing link can only be generated for internal recipients')
       return
+    }
+    setIsGeneratingLinkFor(recipientEmail)
+    try {
+      const response = await fetch(
+        `/api/contracts/${selectedContractId}/signatories/link?email=${encodeURIComponent(recipientEmail)}`,
+        { method: 'GET' }
+      )
+      const json = await response.json()
+      if (!response.ok || !json?.ok || !json.data?.signing_url) {
+        throw new Error(json?.error?.message ?? 'Failed to generate signing link')
+      }
+      await navigator.clipboard.writeText(json.data.signing_url)
+      setError(null)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to generate signing link')
+    } finally {
+      setIsGeneratingLinkFor(null)
+    }
+  }
+
+  const handleRemindApprover = async (approverEmailToRemind?: string) => {
+    if (!selectedContractId) {
+      throw new Error('No contract selected')
     }
 
     setIsMutating(true)
-    const response = await contractsClient.manageAssignment(selectedContractId, {
-      operation: 'set_owner',
-      ownerEmail: ownerEmail.trim().toLowerCase(),
+    const response = await contractsClient.remindApprover(selectedContractId, {
+      approverEmail: approverEmailToRemind,
+    })
+    setIsMutating(false)
+
+    if (!response.ok) {
+      throw new Error(response.error?.message ?? 'Failed to send reminder')
+    }
+  }
+
+  const handleBypassApprover = async (approverId: string, reason: string) => {
+    if (!selectedContractId) {
+      throw new Error('No contract selected')
+    }
+
+    setIsMutating(true)
+    const response = await contractsClient.action(selectedContractId, {
+      action: 'BYPASS_APPROVAL',
+      approverId,
+      reason: reason.trim(),
     })
     setIsMutating(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to update legal owner')
-      return
+      throw new Error(response.error?.message ?? 'Failed to bypass approval')
     }
 
     applyContractView(response.data)
+    await loadContractContext(selectedContractId)
     await loadContracts()
+    router.refresh()
   }
-
   const handleAddCollaborator = async () => {
-    if (!selectedContractId || !collaboratorEmail.trim()) {
+    if (!selectedContractId || !collaboratorEmail.trim() || isAddingCollaborator) {
       return
     }
 
+    setIsAddingCollaborator(true)
     setIsMutating(true)
     const response = await contractsClient.manageAssignment(selectedContractId, {
       operation: 'add_collaborator',
       collaboratorEmail: collaboratorEmail.trim().toLowerCase(),
     })
     setIsMutating(false)
+    setIsAddingCollaborator(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to add legal collaborator')
+      toast.error(response.error?.message ?? 'Failed to add legal collaborator')
       return
     }
 
     setCollaboratorEmail('')
     applyContractView(response.data)
+    toast.success('Collaborator added successfully')
   }
 
   const handleRemoveCollaborator = async (email: string) => {
@@ -632,7 +803,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsMutating(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to remove legal collaborator')
+      toast.error(response.error?.message ?? 'Failed to remove legal collaborator')
       return
     }
 
@@ -651,7 +822,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsSubmittingActivity(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to post activity message')
+      toast.error(response.error?.message ?? 'Failed to post activity message')
       return
     }
 
@@ -661,6 +832,56 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     await loadContractContext(selectedContractId)
     await loadContracts()
     syncContractReadState(selectedContractId, false)
+  }
+
+  const handleSaveLegalMetadata = async () => {
+    if (!selectedContractId || session.role !== 'LEGAL_TEAM' || isSavingLegalMetadata) {
+      return
+    }
+
+    setIsSavingLegalMetadata(true)
+
+    const response = await contractsClient.updateLegalMetadata(selectedContractId, {
+      effectiveDate: legalEffectiveDate.trim() ? legalEffectiveDate : null,
+      terminationDate: legalTerminationDate.trim() ? legalTerminationDate : null,
+      noticePeriod: legalNoticePeriod.trim() ? legalNoticePeriod.trim() : null,
+      autoRenewal: legalAutoRenewal === 'yes' ? true : legalAutoRenewal === 'no' ? false : null,
+    })
+
+    setIsSavingLegalMetadata(false)
+
+    if (!response.ok || !response.data) {
+      toast.error(response.error?.message ?? 'Failed to save legal metadata')
+      return
+    }
+
+    applyContractView(response.data)
+    toast.success('Legal metadata saved')
+  }
+
+  const handleAddCollaboratorSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void handleAddCollaborator()
+  }
+
+  const handleAddNoteSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void handleAddNote()
+  }
+
+  const handleAddActivitySubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void handleAddActivityMessage()
+  }
+
+  const handleLegalMetadataSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void handleSaveLegalMetadata()
+  }
+
+  const handleRemarkDialogSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void submitRemarkDialog()
   }
 
   const noteEvents = useMemo(() => timeline.filter((event) => isContractNoteEvent(event)), [timeline])
@@ -746,7 +967,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     return metadata
   }, [selectedContract])
   const canManageLegalWorkSharing = useMemo(() => {
-    if (!(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN')) {
+    if (session.role !== 'LEGAL_TEAM') {
       return false
     }
 
@@ -758,6 +979,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       selectedContract.status as (typeof contractLegalAssignmentEditableStatuses)[number]
     )
   }, [selectedContract, session.role])
+  const canManageLegalMetadata = session.role === 'LEGAL_TEAM'
   const selectedContractListRow = useMemo(
     () => contracts.find((contract) => contract.id === selectedContractId) ?? null,
     [contracts, selectedContractId]
@@ -973,7 +1195,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 disabled={Boolean(activeAction) || isMutating}
                 onClick={() => void executeAction(item)}
               >
-                {activeAction === item.action ? 'Processing…' : item.label}
+                {activeAction === item.action ? (
+                  <span className={styles.buttonContent}>
+                    <Spinner size={14} />
+                    Processing…
+                  </span>
+                ) : (
+                  item.label
+                )}
               </button>
             ))}
           </div>
@@ -1070,6 +1299,68 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                   </div>
                 ))}
               </div>
+
+              {canManageLegalMetadata ? (
+                <div className={styles.sectionBlock}>
+                  <div className={styles.sectionLabel}>Legal Metadata</div>
+                  <form className={styles.legalMetadataForm} onSubmit={handleLegalMetadataSubmit}>
+                    <div className={styles.legalMetadataField}>
+                      <span>Effective Date</span>
+                      <input
+                        type="date"
+                        className={styles.input}
+                        value={legalEffectiveDate}
+                        onChange={(event) => setLegalEffectiveDate(event.target.value)}
+                        disabled={isSavingLegalMetadata || isMutating}
+                      />
+                    </div>
+                    <div className={styles.legalMetadataField}>
+                      <span>Termination Date</span>
+                      <input
+                        type="date"
+                        className={styles.input}
+                        value={legalTerminationDate}
+                        onChange={(event) => setLegalTerminationDate(event.target.value)}
+                        disabled={isSavingLegalMetadata || isMutating}
+                      />
+                    </div>
+                    <div className={styles.legalMetadataField}>
+                      <span>Notice Period</span>
+                      <input
+                        type="text"
+                        className={styles.input}
+                        value={legalNoticePeriod}
+                        onChange={(event) => setLegalNoticePeriod(event.target.value)}
+                        placeholder="e.g. 30 days"
+                        disabled={isSavingLegalMetadata || isMutating}
+                      />
+                    </div>
+                    <div className={styles.legalMetadataField}>
+                      <span>Auto-renewal</span>
+                      <select
+                        className={styles.input}
+                        value={legalAutoRenewal}
+                        onChange={(event) => setLegalAutoRenewal(event.target.value as 'unknown' | 'yes' | 'no')}
+                        disabled={isSavingLegalMetadata || isMutating}
+                      >
+                        <option value="unknown">Not set</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
+                    </div>
+                    <button
+                      type="submit"
+                      className={styles.button}
+                      disabled={isSavingLegalMetadata || isMutating || !selectedContractId}
+                    >
+                      <span className={styles.buttonContent}>
+                        {isSavingLegalMetadata ? <Spinner size={14} /> : null}
+                        {isSavingLegalMetadata ? 'Saving…' : 'Save Legal Metadata'}
+                      </span>
+                    </button>
+                  </form>
+                </div>
+              ) : null}
             </aside>
 
             {/* ── Tab Column ── */}
@@ -1180,40 +1471,21 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                     {canManageLegalWorkSharing && (
                       <div className={styles.card}>
                         <div className={styles.sectionTitle}>Legal Work Sharing</div>
-                        <div className={styles.inlineForm}>
+                        <form className={styles.inlineForm} onSubmit={handleAddCollaboratorSubmit}>
                           <input
                             type="email"
                             className={styles.input}
-                            placeholder="owner@nxtwave.co.in"
-                            value={ownerEmail}
-                            onChange={(event) => setOwnerEmail(event.target.value)}
-                          />
-                          <button
-                            type="button"
-                            className={styles.button}
-                            disabled={isMutating}
-                            onClick={() => void handleSetOwner()}
-                          >
-                            Set Owner
-                          </button>
-                        </div>
-                        <div className={styles.inlineForm}>
-                          <input
-                            type="email"
-                            className={styles.input}
-                            placeholder="collaborator@nxtwave.co.in"
+                            placeholder="legalmember@nxtwave.co.in"
                             value={collaboratorEmail}
                             onChange={(event) => setCollaboratorEmail(event.target.value)}
                           />
-                          <button
-                            type="button"
-                            className={styles.button}
-                            disabled={isMutating}
-                            onClick={() => void handleAddCollaborator()}
-                          >
-                            Add Collaborator
+                          <button type="submit" className={styles.button} disabled={isMutating || isAddingCollaborator}>
+                            <span className={styles.buttonContent}>
+                              {isAddingCollaborator ? <Spinner size={14} /> : null}
+                              {isAddingCollaborator ? 'Adding Collaborator…' : 'Add Collaborator'}
+                            </span>
                           </button>
-                        </div>
+                        </form>
                         <div className={styles.timeline}>
                           {legalCollaborators.length === 0 ? (
                             <div className={styles.eventMeta}>No collaborators assigned.</div>
@@ -1238,37 +1510,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
                     {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN') && (
                       <>
-                        <div className={styles.card}>
-                          <div className={styles.sectionTitle}>Additional Approvers</div>
-                          <div className={styles.inlineForm}>
-                            <input
-                              type="email"
-                              className={styles.input}
-                              placeholder="approver@nxtwave.co.in"
-                              value={approverEmail}
-                              onChange={(event) => setApproverEmail(event.target.value)}
-                            />
-                            <button
-                              type="button"
-                              className={styles.button}
-                              disabled={isMutating}
-                              onClick={() => void handleAddApprover()}
-                            >
-                              Add Approver
-                            </button>
-                          </div>
-                          <div className={styles.timeline}>
-                            {approvers.map((approver) => (
-                              <div key={approver.id} className={styles.event}>
-                                <div>
-                                  #{approver.sequenceOrder} {approver.approverEmail}
-                                </div>
-                                <div className={styles.eventMeta}>{approver.status}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
                         <div className={styles.card}>
                           <div className={styles.sectionTitle}>Signatories</div>
                           {selectedContract.status === contractStatuses.completed ? (
@@ -1332,7 +1573,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       </div>
 
                       {isActivityComposerOpen ? (
-                        <div className={styles.activityComposer}>
+                        <form className={styles.activityComposer} onSubmit={handleAddActivitySubmit}>
                           <textarea
                             className={styles.textarea}
                             placeholder="Discuss this contract. Use @email to tag someone."
@@ -1342,15 +1583,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                           />
                           <div className={styles.activityComposerActions}>
                             <button
-                              type="button"
+                              type="submit"
                               className={styles.button}
                               disabled={isSubmittingActivity || isMutating}
-                              onClick={() => void handleAddActivityMessage()}
                             >
                               {isSubmittingActivity ? 'Posting…' : 'Post'}
                             </button>
                           </div>
-                        </div>
+                        </form>
                       ) : null}
 
                       <div className={styles.logContainer}>
@@ -1410,7 +1650,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                   <div className={styles.tabSection}>
                     <div className={styles.card}>
                       <div className={styles.sectionTitle}>Notes</div>
-                      <div className={styles.inlineForm}>
+                      <form className={styles.inlineForm} onSubmit={handleAddNoteSubmit}>
                         <input
                           type="text"
                           className={styles.input}
@@ -1418,15 +1658,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                           value={noteText}
                           onChange={(event) => setNoteText(event.target.value)}
                         />
-                        <button
-                          type="button"
-                          className={styles.button}
-                          disabled={isMutating}
-                          onClick={() => void handleAddNote()}
-                        >
+                        <button type="submit" className={styles.button} disabled={isMutating}>
                           Add Note
                         </button>
-                      </div>
+                      </form>
                       <div className={styles.timeline}>
                         {noteEvents.map((event) => (
                           <div key={event.id} className={styles.event}>
@@ -1455,12 +1690,25 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                     }}
                   />
                 )}
+
+                {activeTab === 'approvals' && (
+                  <ApprovalsTab
+                    contract={selectedContract}
+                    approvers={approvers}
+                    isMutating={isMutating}
+                    canManageApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
+                    canBypassApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
+                    approverEmail={approverEmail}
+                    onApproverEmailChange={setApproverEmail}
+                    onAddApprover={handleAddApprover}
+                    onRemindApprover={handleRemindApprover}
+                    onBypassApprover={handleBypassApprover}
+                  />
+                )}
               </div>
             </div>
           </div>
         )}
-
-        {error && <div className={styles.error}>{error}</div>}
       </section>
 
       {isViewerOpen && viewerUrl ? (
@@ -1486,14 +1734,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               {viewerMimeType.startsWith('image/') ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={viewerUrl} alt={viewerFileName} className={styles.viewerFrame} />
-              ) : viewerMimeType.includes('pdf') ||
-                viewerFileName.toLowerCase().endsWith('.pdf') ||
-                viewerFileName.toLowerCase().endsWith('.docx') ? (
-                <iframe src={viewerUrl} title={viewerFileName} className={styles.viewerFrame} />
+              ) : viewerMimeType.startsWith('video/') ? (
+                <video src={viewerUrl} className={styles.viewerFrame} controls />
+              ) : viewerMimeType.startsWith('audio/') ? (
+                <audio src={viewerUrl} controls />
               ) : (
-                <div className={styles.placeholderRow}>
-                  Preview is not supported for this file type. Use Open in New Tab.
-                </div>
+                <iframe src={viewerUrl} title={viewerFileName} className={styles.viewerFrame} />
               )}
             </div>
             <div className={styles.viewerFooter}>
@@ -1512,7 +1758,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
       {remarkActionItem ? (
         <div className={styles.actionRemarkOverlay} role="dialog" aria-modal="true" aria-label="Provide action remarks">
-          <div className={styles.actionRemarkModal}>
+          <form className={styles.actionRemarkModal} onSubmit={handleRemarkDialogSubmit}>
             <div className={styles.sectionTitle}>Remarks Required</div>
             <div className={styles.eventMeta}>Provide remarks for: {remarkActionItem.label}</div>
             <textarea
@@ -1533,17 +1779,21 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 Cancel
               </button>
               <button
-                type="button"
+                type="submit"
                 className={`${styles.button} ${styles.buttonPrimary}`}
-                onClick={() => {
-                  void submitRemarkDialog()
-                }}
                 disabled={Boolean(activeAction)}
               >
-                {activeAction === remarkActionItem.action ? 'Processing…' : 'Submit Remarks'}
+                {activeAction === remarkActionItem.action ? (
+                  <span className={styles.buttonContent}>
+                    <Spinner size={14} />
+                    Processing…
+                  </span>
+                ) : (
+                  'Submit Remarks'
+                )}
               </button>
             </div>
-          </div>
+          </form>
         </div>
       ) : null}
 
@@ -1569,7 +1819,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 }}
                 disabled={Boolean(activeAction)}
               >
-                {activeAction === confirmActionItem.action ? 'Processing…' : 'Confirm'}
+                {activeAction === confirmActionItem.action ? (
+                  <span className={styles.buttonContent}>
+                    <Spinner size={14} />
+                    Processing…
+                  </span>
+                ) : (
+                  'Confirm'
+                )}
               </button>
             </div>
           </div>

@@ -1,19 +1,16 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
 import { authClient } from '@/core/client/auth-client'
 import { authErrorCodes, authErrorMessages } from '@/core/constants/auth-errors'
 import { routeRegistry } from '@/core/config/route-registry'
 
-type LoginPageState = {
-  error: string
-}
-
-export const useLoginPage = (): LoginPageState => {
+export const useLoginPage = (): void => {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [error, setError] = useState('')
+  const lastErrorMessageRef = useRef('')
 
   const errorMap = useMemo(() => authErrorMessages, [])
 
@@ -60,10 +57,14 @@ export const useLoginPage = (): LoginPageState => {
       }
     }
 
-    // This is a valid use case: syncing external state (URL params) with internal state
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setError(errorMessage)
-  }, [searchParams, errorMap])
+    if (errorMessage && errorMessage !== lastErrorMessageRef.current) {
+      toast.error(errorMessage)
+      lastErrorMessageRef.current = errorMessage
+      return
+    }
 
-  return { error }
+    if (!errorMessage && lastErrorMessageRef.current) {
+      lastErrorMessageRef.current = ''
+    }
+  }, [searchParams, errorMap])
 }

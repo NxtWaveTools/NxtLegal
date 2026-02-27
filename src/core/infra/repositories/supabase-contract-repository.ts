@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { createServiceSupabase } from '@/lib/supabase/service'
-import { contractStatuses, type ContractStatus } from '@/core/constants/contracts'
+import { contractStatuses, contractUploadModes, type ContractStatus } from '@/core/constants/contracts'
 import { DatabaseError } from '@/core/http/errors'
 import type { ContractRepository } from '@/core/domain/contracts/contract-repository'
 import type {
@@ -39,6 +39,7 @@ type ContractRow = {
   file_size_bytes: number | null
   file_mime_type: string | null
   counterparty_name: string | null
+  upload_mode?: string | null
   created_at: string
 }
 
@@ -145,6 +146,9 @@ class SupabaseContractRepository implements ContractRepository {
       p_uploaded_by_employee_id: input.uploadedByEmployeeId,
       p_uploaded_by_email: input.uploadedByEmail,
       p_uploaded_by_role: input.uploadedByRole,
+      p_upload_mode: input.uploadMode,
+      p_bypass_hod_approval: input.bypassHodApproval,
+      p_bypass_reason: input.bypassReason ?? null,
       p_file_path: input.filePath,
       p_file_name: input.fileName,
       p_file_size_bytes: input.fileSizeBytes,
@@ -158,7 +162,27 @@ class SupabaseContractRepository implements ContractRepository {
       })
     }
 
+    const { error: uploadModeError } = await supabase
+      .from('contracts')
+      .update({
+        upload_mode: input.uploadMode,
+      })
+      .eq('tenant_id', input.tenantId)
+      .eq('id', input.contractId)
+      .is('deleted_at', null)
+
+    if (uploadModeError && !this.isMissingUploadModeColumnError(uploadModeError)) {
+      throw new DatabaseError('Failed to persist contract upload mode marker', new Error(uploadModeError.message), {
+        code: uploadModeError.code,
+      })
+    }
+
     const createdContract = await this.loadCreatedContract(input.contractId, input.tenantId)
+
+    if (input.uploadMode === contractUploadModes.legalSendForSigning) {
+      return createdContract
+    }
+
     return this.ensureCurrentHodAssignee(createdContract)
   }
 
@@ -168,7 +192,7 @@ class SupabaseContractRepository implements ContractRepository {
     const { data, error } = await supabase
       .from('contracts')
       .select(
-        'id, tenant_id, title, contract_type_id, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, status, current_document_id, file_path, file_name, file_size_bytes, file_mime_type, counterparty_name, created_at'
+        'id, tenant_id, title, contract_type_id, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, status, current_document_id, file_path, file_name, file_size_bytes, file_mime_type, counterparty_name, upload_mode, created_at'
       )
       .eq('id', contractId)
       .eq('tenant_id', tenantId)
@@ -480,6 +504,37 @@ class SupabaseContractRepository implements ContractRepository {
       throw new DatabaseError('Primary document replacement did not return a document id')
     }
 
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: input.tenantId,
+        user_id: input.uploadedByEmployeeId,
+        event_type: null,
+        action: 'contract.primary_document.replaced',
+        actor_email: input.uploadedByEmail,
+        actor_role: input.uploadedByRole,
+        resource_type: 'contract',
+        resource_id: input.contractId,
+        metadata: {
+          document_id: payload.document_id,
+          replaced_document_id: payload.replaced_document_id,
+          version_number: Number(payload.version_number),
+          file_name: input.fileName,
+          file_mime_type: input.fileMimeType,
+          file_size_bytes: input.fileSizeBytes,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError(
+        'Failed to write primary document replacement audit event',
+        new Error(auditError.message),
+        {
+          code: auditError.code,
+        }
+      )
+    }
+
     return {
       id: payload.document_id,
       tenantId: input.tenantId,
@@ -495,6 +550,110 @@ class SupabaseContractRepository implements ContractRepository {
       replacedDocumentId: payload.replaced_document_id,
       createdAt: new Date().toISOString(),
     }
+  }
+
+  async isPocAssignedToDepartment(params: {
+    tenantId: string
+    pocEmail: string
+    departmentId: string
+  }): Promise<boolean> {
+    const supabase = createServiceSupabase()
+    const normalizedPocEmail = params.pocEmail.trim().toLowerCase()
+
+    const { data: mappings, error: mappingsError } = await supabase
+      .from('team_role_mappings')
+      .select('id')
+      .eq('tenant_id', params.tenantId)
+      .eq('team_id', params.departmentId)
+      .eq('role_type', 'POC')
+      .eq('email', normalizedPocEmail)
+      .eq('active_flag', true)
+      .is('deleted_at', null)
+      .limit(1)
+
+    if (mappingsError) {
+      throw new DatabaseError('Failed to resolve POC assignment for department', new Error(mappingsError.message), {
+        code: mappingsError.code,
+      })
+    }
+
+    if ((mappings ?? []).length > 0) {
+      return true
+    }
+
+    const { data: fallbackTeam, error: fallbackTeamError } = await supabase
+      .from('teams')
+      .select('id')
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.departmentId)
+      .eq('poc_email', normalizedPocEmail)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .limit(1)
+
+    if (fallbackTeamError) {
+      throw new DatabaseError(
+        'Failed to resolve fallback POC assignment for department',
+        new Error(fallbackTeamError.message),
+        {
+          code: fallbackTeamError.code,
+        }
+      )
+    }
+
+    return (fallbackTeam ?? []).length > 0
+  }
+
+  async isHodAssignedToDepartment(params: {
+    tenantId: string
+    hodEmail: string
+    departmentId: string
+  }): Promise<boolean> {
+    const supabase = createServiceSupabase()
+    const normalizedHodEmail = params.hodEmail.trim().toLowerCase()
+
+    const { data: mappings, error: mappingsError } = await supabase
+      .from('team_role_mappings')
+      .select('id')
+      .eq('tenant_id', params.tenantId)
+      .eq('team_id', params.departmentId)
+      .eq('role_type', 'HOD')
+      .eq('email', normalizedHodEmail)
+      .eq('active_flag', true)
+      .is('deleted_at', null)
+      .limit(1)
+
+    if (mappingsError) {
+      throw new DatabaseError('Failed to resolve HOD assignment for department', new Error(mappingsError.message), {
+        code: mappingsError.code,
+      })
+    }
+
+    if ((mappings ?? []).length > 0) {
+      return true
+    }
+
+    const { data: fallbackTeam, error: fallbackTeamError } = await supabase
+      .from('teams')
+      .select('id')
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.departmentId)
+      .eq('hod_email', normalizedHodEmail)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .limit(1)
+
+    if (fallbackTeamError) {
+      throw new DatabaseError(
+        'Failed to resolve fallback HOD assignment for department',
+        new Error(fallbackTeamError.message),
+        {
+          code: fallbackTeamError.code,
+        }
+      )
+    }
+
+    return (fallbackTeam ?? []).length > 0
   }
 
   async isUploaderInActorTeam(params: {
@@ -572,6 +731,15 @@ class SupabaseContractRepository implements ContractRepository {
       fileMimeType: row.file_mime_type ?? '',
       createdAt: row.created_at,
     }
+  }
+
+  private isMissingUploadModeColumnError(error: { code?: string | null; message?: string | null }): boolean {
+    if (error.code === '42703') {
+      return true
+    }
+
+    const message = (error.message ?? '').toLowerCase()
+    return message.includes('upload_mode') && message.includes('column') && message.includes('does not exist')
   }
 }
 

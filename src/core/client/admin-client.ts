@@ -37,6 +37,8 @@ export type AdminDepartmentOption = {
   id: string
   name: string
   isActive: boolean
+  pocName: string | null
+  hodName: string | null
   hodUserId: string | null
   hodEmail: string | null
   pocUserId: string | null
@@ -63,6 +65,7 @@ export type DepartmentUpdateRequest = {
 export type AssignPrimaryRoleRequest = {
   roleType: 'POC' | 'HOD'
   newEmail: string
+  newName: string
   reason?: string
 }
 
@@ -93,6 +96,8 @@ export type DepartmentMutationResponse = {
   teamId: string
   departmentName: string
   isActive: boolean
+  pocName: string | null
+  hodName: string | null
   pocEmail: string | null
   hodEmail: string | null
   beforeStateSnapshot: Record<string, unknown>
@@ -130,6 +135,13 @@ export type AdminAuditLogItem = {
   id: string
   userId: string
   action: string
+  eventType: string | null
+  actorEmail: string | null
+  actorRole: string | null
+  targetEmail: string | null
+  noteText: string | null
+  actorName: string | null
+  actorResolvedEmail: string | null
   resourceType: string
   resourceId: string
   changes: Record<string, unknown> | null
@@ -294,7 +306,9 @@ export const adminClient = {
   async createDepartment(payload: {
     name: string
     pocEmail: string
+    pocName: string
     hodEmail: string
+    hodName: string
     reason?: string
   }): Promise<ApiResponse<{ department: DepartmentMutationResponse }>> {
     const response = await fetch(routeRegistry.api.adminSections.teamManagement.teams, {

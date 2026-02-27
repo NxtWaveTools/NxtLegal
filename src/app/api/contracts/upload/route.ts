@@ -1,62 +1,104 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { getContractUploadService, getIdempotencyService } from '@/core/registry/service-registry'
+import {
+  getContractApprovalNotificationService,
+  getContractUploadService,
+  getIdempotencyService,
+} from '@/core/registry/service-registry'
 import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { logger } from '@/core/infra/logging/logger'
 import { isAppError } from '@/core/http/errors'
+import { contractUploadModes, contractWorkflowRoles } from '@/core/constants/contracts'
 import { z } from 'zod'
 
-const uploadContractFormSchema = z.object({
-  title: z.string().trim().min(1, 'Contract title is required').max(200, 'Contract title exceeds maximum length'),
-  contractTypeId: z.string().trim().uuid('Valid contractTypeId is required'),
-  signatoryName: z.string().trim().min(1, 'Signatory name is required').max(200, 'Signatory name is too long'),
-  signatoryDesignation: z
-    .string()
-    .trim()
-    .min(1, 'Signatory designation is required')
-    .max(200, 'Signatory designation is too long'),
-  signatoryEmail: z.string().trim().toLowerCase().email('Valid signatory email is required'),
-  backgroundOfRequest: z
-    .string()
-    .trim()
-    .min(1, 'Background of request is required')
-    .max(4000, 'Background of request exceeds maximum length'),
-  departmentId: z.string().trim().uuid('Valid departmentId is required'),
-  budgetApproved: z
-    .enum(['true', 'false'])
-    .optional()
-    .transform((value) => value === 'true'),
-  counterpartyName: z.string().trim().max(200, 'Counterparty name is too long').optional(),
-  counterparties: z
-    .string()
-    .optional()
-    .transform((value) => {
-      if (!value) {
-        return undefined
-      }
+const uploadContractFormSchema = z
+  .object({
+    title: z.string().trim().min(1, 'Contract title is required').max(200, 'Contract title exceeds maximum length'),
+    contractTypeId: z.string().trim().uuid('Valid contractTypeId is required'),
+    signatoryName: z.string().trim().min(1, 'Signatory name is required').max(200, 'Signatory name is too long'),
+    signatoryDesignation: z.string().trim().max(200, 'Signatory designation is too long').optional(),
+    signatoryEmail: z.string().trim().toLowerCase().optional(),
+    backgroundOfRequest: z.string().trim().max(4000, 'Background of request exceeds maximum length').optional(),
+    departmentId: z.string().trim().optional(),
+    budgetApproved: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((value) => (value === undefined ? undefined : value === 'true')),
+    uploadMode: z
+      .enum([contractUploadModes.default, contractUploadModes.legalSendForSigning])
+      .optional()
+      .default(contractUploadModes.default),
+    bypassHodApproval: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((value) => value === 'true'),
+    bypassReason: z.string().trim().max(2000, 'Bypass reason exceeds maximum length').optional(),
+    counterpartyName: z.string().trim().max(200, 'Counterparty name is too long').optional(),
+    counterparties: z
+      .string()
+      .optional()
+      .transform((value) => {
+        if (!value) {
+          return undefined
+        }
 
-      let parsedValue: unknown
-      try {
-        parsedValue = JSON.parse(value) as unknown
-      } catch {
-        return z.NEVER
-      }
+        let parsedValue: unknown
+        try {
+          parsedValue = JSON.parse(value) as unknown
+        } catch {
+          return z.NEVER
+        }
 
-      const counterpartiesSchema = z.array(
-        z.object({
-          counterpartyName: z.string().trim().min(1).max(200),
-          supportingFileIndices: z.array(z.number().int().nonnegative()).default([]),
-        })
-      )
+        const counterpartiesSchema = z.array(
+          z.object({
+            counterpartyName: z.string().trim().min(1).max(200),
+            supportingFileIndices: z.array(z.number().int().nonnegative()).default([]),
+          })
+        )
 
-      const parsedCounterparties = counterpartiesSchema.safeParse(parsedValue)
-      if (!parsedCounterparties.success) {
-        return z.NEVER
-      }
+        const parsedCounterparties = counterpartiesSchema.safeParse(parsedValue)
+        if (!parsedCounterparties.success) {
+          return z.NEVER
+        }
 
-      return parsedCounterparties.data
-    }),
-})
+        return parsedCounterparties.data
+      }),
+  })
+  .superRefine((data, context) => {
+    if (data.uploadMode === contractUploadModes.legalSendForSigning) {
+      return
+    }
+
+    if (!data.signatoryDesignation?.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Signatory designation is required',
+        path: ['signatoryDesignation'],
+      })
+    }
+
+    if (!data.signatoryEmail?.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Valid signatory email is required',
+        path: ['signatoryEmail'],
+      })
+    } else if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(data.signatoryEmail.trim())) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Valid signatory email is required',
+        path: ['signatoryEmail'],
+      })
+    }
+
+    if (!data.backgroundOfRequest?.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Background of request is required',
+        path: ['backgroundOfRequest'],
+      })
+    }
+  })
 
 const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
   let shouldReleaseClaim = false
@@ -84,11 +126,18 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       title: String(formData.get('title') ?? ''),
       contractTypeId: String(formData.get('contractTypeId') ?? ''),
       signatoryName: String(formData.get('signatoryName') ?? ''),
-      signatoryDesignation: String(formData.get('signatoryDesignation') ?? ''),
-      signatoryEmail: String(formData.get('signatoryEmail') ?? ''),
-      backgroundOfRequest: String(formData.get('backgroundOfRequest') ?? ''),
+      signatoryDesignation: formData.get('signatoryDesignation')
+        ? String(formData.get('signatoryDesignation'))
+        : undefined,
+      signatoryEmail: formData.get('signatoryEmail') ? String(formData.get('signatoryEmail')) : undefined,
+      backgroundOfRequest: formData.get('backgroundOfRequest')
+        ? String(formData.get('backgroundOfRequest'))
+        : undefined,
       departmentId: String(formData.get('departmentId') ?? ''),
       budgetApproved: formData.get('budgetApproved') ? String(formData.get('budgetApproved')) : undefined,
+      uploadMode: formData.get('uploadMode') ? String(formData.get('uploadMode')) : undefined,
+      bypassHodApproval: formData.get('bypassHodApproval') ? String(formData.get('bypassHodApproval')) : undefined,
+      bypassReason: formData.get('bypassReason') ? String(formData.get('bypassReason')) : undefined,
       counterpartyName: formData.get('counterpartyName') ? String(formData.get('counterpartyName')) : undefined,
       counterparties: formData.get('counterparties') ? String(formData.get('counterparties')) : undefined,
     })
@@ -154,6 +203,32 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       }, []),
     }))
 
+    const isLegalSendForSigningMode = parsedForm.data.uploadMode === contractUploadModes.legalSendForSigning
+    if (isLegalSendForSigningMode && session.role !== contractWorkflowRoles.legalTeam) {
+      return NextResponse.json(errorResponse('CONTRACT_UPLOAD_FORBIDDEN', 'Only LEGAL_TEAM can use send for signing'), {
+        status: 403,
+      })
+    }
+
+    if (isLegalSendForSigningMode && parsedForm.data.bypassHodApproval && !parsedForm.data.bypassReason?.trim()) {
+      return NextResponse.json(errorResponse('BYPASS_REASON_REQUIRED', 'Bypass reason is required'), {
+        status: 400,
+      })
+    }
+
+    const parsedDepartmentId = z.string().uuid('Valid departmentId is required').safeParse(parsedForm.data.departmentId)
+    if (!parsedDepartmentId.success) {
+      return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Valid departmentId is required'), {
+        status: 400,
+      })
+    }
+
+    const resolvedDepartmentId = parsedDepartmentId.data
+
+    const fallbackSignatoryDesignation = 'Not provided'
+    const fallbackSignatoryEmail = session.email
+    const fallbackBackgroundOfRequest = 'Send for signing workflow'
+
     const contractUploadService = getContractUploadService()
     const contract = await contractUploadService.uploadContract({
       tenantId: session.tenantId,
@@ -163,11 +238,18 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       title: parsedForm.data.title,
       contractTypeId: parsedForm.data.contractTypeId,
       signatoryName: parsedForm.data.signatoryName,
-      signatoryDesignation: parsedForm.data.signatoryDesignation,
-      signatoryEmail: parsedForm.data.signatoryEmail,
-      backgroundOfRequest: parsedForm.data.backgroundOfRequest,
-      departmentId: parsedForm.data.departmentId,
-      budgetApproved: parsedForm.data.budgetApproved,
+      signatoryDesignation: isLegalSendForSigningMode
+        ? fallbackSignatoryDesignation
+        : (parsedForm.data.signatoryDesignation ?? ''),
+      signatoryEmail: isLegalSendForSigningMode ? fallbackSignatoryEmail : (parsedForm.data.signatoryEmail ?? ''),
+      backgroundOfRequest: isLegalSendForSigningMode
+        ? fallbackBackgroundOfRequest
+        : (parsedForm.data.backgroundOfRequest ?? ''),
+      departmentId: resolvedDepartmentId,
+      budgetApproved: parsedForm.data.budgetApproved ?? false,
+      uploadMode: parsedForm.data.uploadMode,
+      bypassHodApproval: parsedForm.data.bypassHodApproval,
+      bypassReason: parsedForm.data.bypassReason,
       counterpartyName: parsedForm.data.counterpartyName,
       counterparties,
       fileName: uploadedFile.name,
@@ -176,6 +258,16 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       fileBytes,
       supportingFiles,
     })
+
+    if (!parsedForm.data.bypassHodApproval) {
+      const contractApprovalNotificationService = getContractApprovalNotificationService()
+      await contractApprovalNotificationService.notifyHodOnContractUpload({
+        tenantId: session.tenantId,
+        contractId: contract.id,
+        actorEmployeeId: session.employeeId,
+        actorRole: session.role,
+      })
+    }
 
     logger.info('Contract uploaded successfully', {
       tenantId: session.tenantId,

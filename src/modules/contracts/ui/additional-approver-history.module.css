@@ -137,6 +137,21 @@
   color: var(--color-text-muted);
 }
 
+.openButton {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  text-decoration: none;
+}
+
+.openButton:hover {
+  background: var(--color-surface-muted);
+}
+
 .pagination {
   display: flex;
   align-items: center;

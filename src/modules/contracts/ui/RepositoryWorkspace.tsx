@@ -1,11 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
+import { toast } from 'sonner'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
+import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import {
+  contractUploadModes,
   contractRepositoryExportColumnLabels,
   contractRepositoryExportColumns,
   contractRepositoryStatusLabels,
@@ -13,6 +16,7 @@ import {
 import {
   contractsClient,
   type ContractRecord,
+  type LegalTeamMemberOption,
   type RepositoryDateBasis,
   type RepositoryExportColumn,
   type RepositoryStatusFilter,
@@ -47,6 +51,23 @@ const timestampFormatter = new Intl.DateTimeFormat('en-GB', {
   minute: '2-digit',
   hour12: true,
 })
+
+const legalDateFormatter = new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+})
+
+const resolveFileExtension = (fileName: string): string => {
+  const normalizedFileName = fileName.trim().toLowerCase()
+  const lastDotIndex = normalizedFileName.lastIndexOf('.')
+
+  if (lastDotIndex <= 0 || lastDotIndex === normalizedFileName.length - 1) {
+    return ''
+  }
+
+  return normalizedFileName.slice(lastDotIndex + 1)
+}
 
 const sortableColumnMap: Record<string, RepositorySortBy> = {
   title: 'title',
@@ -197,6 +218,19 @@ function formatOverdueLabel(record: ContractRecord): string | null {
   return `Overdue by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`
 }
 
+function formatLegalDate(value?: string | null): string {
+  if (!value) {
+    return '-'
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return '-'
+  }
+
+  return legalDateFormatter.format(parsed).replace(/\//g, '-')
+}
+
 function resolveAssignedToDisplay(record: ContractRecord): {
   visibleAssignees: string
   hiddenCount: number
@@ -224,17 +258,31 @@ function resolveAssignedToDisplay(record: ContractRecord): {
   }
 }
 
+function toFallbackDisplayName(email: string): string {
+  const localPart = email.split('@')[0] ?? email
+  const normalized = localPart.replace(/[._-]+/g, ' ').trim()
+
+  if (!normalized) {
+    return email
+  }
+
+  return normalized
+    .split(' ')
+    .map((segment) => (segment.length > 0 ? `${segment[0].toUpperCase()}${segment.slice(1)}` : segment))
+    .join(' ')
+}
+
 export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProps) {
   const router = useRouter()
   const normalizedRole = (session.role ?? '').toUpperCase()
+  const isLegalTeamRole = normalizedRole === 'LEGAL_TEAM'
   const canAccessRepositoryReporting =
-    normalizedRole === 'LEGAL_TEAM' ||
+    isLegalTeamRole ||
     normalizedRole === 'LEGAL_ADMIN' ||
     normalizedRole === 'ADMIN' ||
     normalizedRole === 'SUPER_ADMIN'
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<RepositoryStatusFilter | ''>('')
   const [dateBasis, setDateBasis] = useState<RepositoryDateBasis>('request_created_at')
@@ -257,7 +305,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     statusMetrics: Array<{ key: string; label: string; count: number }>
   } | null>(null)
   const [isReportLoading, setIsReportLoading] = useState(false)
-  const [reportError, setReportError] = useState<string | null>(null)
   const [selectedExportColumns, setSelectedExportColumns] = useState<RepositoryExportColumn[]>(defaultExportColumns)
   const [activeExportFormat, setActiveExportFormat] = useState<'csv' | 'excel' | null>(null)
   const [activePreview, setActivePreview] = useState<{
@@ -266,8 +313,79 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     fileMimeType: string
     externalUrl: string
   } | null>(null)
+  const [isUploadOpen, setIsUploadOpen] = useState(false)
+  const [legalTeamMembers, setLegalTeamMembers] = useState<LegalTeamMemberOption[]>([])
+  const [legalTeamMembersError, setLegalTeamMembersError] = useState<string | null>(null)
+  const [openAssignmentDropdownContractId, setOpenAssignmentDropdownContractId] = useState<string | null>(null)
+  const [assignmentSavingByContractId, setAssignmentSavingByContractId] = useState<Record<string, boolean>>({})
+  const [assignmentErrorByContractId, setAssignmentErrorByContractId] = useState<Record<string, string>>({})
+  const tableWrapRef = useRef<HTMLElement | null>(null)
+  const tableAutoScrollFrameRef = useRef<number | null>(null)
+  const tableAutoScrollVelocityRef = useRef(0)
   const savedViews = useMemo(() => resolveSavedViews(session.role), [session.role])
   const [activeSavedViewId, setActiveSavedViewId] = useState<string>('custom')
+
+  const stopTableAutoScroll = useCallback(() => {
+    tableAutoScrollVelocityRef.current = 0
+    if (tableAutoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(tableAutoScrollFrameRef.current)
+      tableAutoScrollFrameRef.current = null
+    }
+  }, [])
+
+  const runTableAutoScroll = useCallback(() => {
+    const tableWrap = tableWrapRef.current
+    if (!tableWrap) {
+      stopTableAutoScroll()
+      return
+    }
+
+    const velocity = tableAutoScrollVelocityRef.current
+    if (Math.abs(velocity) < 0.1) {
+      stopTableAutoScroll()
+      return
+    }
+
+    tableWrap.scrollLeft += velocity
+    tableAutoScrollFrameRef.current = window.requestAnimationFrame(runTableAutoScroll)
+  }, [stopTableAutoScroll])
+
+  const handleTableWrapMouseMove = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => {
+      const tableWrap = event.currentTarget
+      if (tableWrap.scrollWidth <= tableWrap.clientWidth) {
+        stopTableAutoScroll()
+        return
+      }
+
+      const bounds = tableWrap.getBoundingClientRect()
+      const edgeThreshold = Math.min(96, bounds.width * 0.2)
+      const maxSpeed = 14
+
+      let velocity = 0
+      const distanceFromLeftEdge = event.clientX - bounds.left
+      const distanceFromRightEdge = bounds.right - event.clientX
+
+      if (distanceFromLeftEdge <= edgeThreshold) {
+        const ratio = (edgeThreshold - distanceFromLeftEdge) / edgeThreshold
+        velocity = -Math.max(1, maxSpeed * ratio)
+      } else if (distanceFromRightEdge <= edgeThreshold) {
+        const ratio = (edgeThreshold - distanceFromRightEdge) / edgeThreshold
+        velocity = Math.max(1, maxSpeed * ratio)
+      }
+
+      tableAutoScrollVelocityRef.current = velocity
+
+      if (velocity !== 0 && tableAutoScrollFrameRef.current === null) {
+        tableAutoScrollFrameRef.current = window.requestAnimationFrame(runTableAutoScroll)
+      }
+
+      if (velocity === 0) {
+        stopTableAutoScroll()
+      }
+    },
+    [runTableAutoScroll, stopTableAutoScroll]
+  )
 
   const activeCursor = cursorHistory[cursorHistory.length - 1]
 
@@ -278,31 +396,35 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const loadContracts = useCallback(async () => {
     setIsLoading(true)
 
-    const response = await contractsClient.repositoryList({
-      cursor: activeCursor,
-      limit: 15,
-      search,
-      repositoryStatus: statusFilter || undefined,
-      sortBy,
-      sortDirection,
-      dateBasis,
-      datePreset: datePreset || undefined,
-      fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
-      toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
-    })
+    try {
+      const response = await contractsClient.repositoryList({
+        cursor: activeCursor,
+        limit: 15,
+        search,
+        repositoryStatus: statusFilter || undefined,
+        sortBy,
+        sortDirection,
+        dateBasis,
+        datePreset: datePreset || undefined,
+        fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
+        toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
+      })
 
-    if (!response.ok || !response.data) {
-      setContracts([])
-      setError(response.error?.message ?? 'Failed to load repository contracts')
-      setNextCursor(null)
+      if (!response.ok || !response.data) {
+        setContracts([])
+        setNextCursor(null)
+        toast.error(response.error?.message ?? 'Failed to load repository contracts')
+        return
+      }
+
+      setContracts(response.data.contracts)
+      setNextCursor(response.data.pagination.cursor)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
+    } finally {
       setIsLoading(false)
-      return
     }
-
-    setContracts(response.data.contracts)
-    setNextCursor(response.data.pagination.cursor)
-    setError(null)
-    setIsLoading(false)
   }, [activeCursor, customFromDate, customToDate, dateBasis, datePreset, search, statusFilter, sortBy, sortDirection])
 
   useEffect(() => {
@@ -312,7 +434,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   useEffect(() => {
     if (!canAccessRepositoryReporting) {
       setReportMetrics(null)
-      setReportError(null)
       return
     }
 
@@ -329,19 +450,41 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       })
 
       if (!response.ok || !response.data) {
-        setReportError(response.error?.message ?? 'Failed to load repository report')
+        toast.error(response.error?.message ?? 'Failed to load repository report')
         setReportMetrics(null)
         setIsReportLoading(false)
         return
       }
 
       setReportMetrics(response.data.report)
-      setReportError(null)
       setIsReportLoading(false)
     }
 
     void loadReport()
   }, [canAccessRepositoryReporting, customFromDate, customToDate, dateBasis, datePreset, search, statusFilter])
+
+  useEffect(() => {
+    if (!isLegalTeamRole) {
+      setLegalTeamMembers([])
+      setLegalTeamMembersError(null)
+      return
+    }
+
+    const loadLegalTeamMembers = async () => {
+      const response = await contractsClient.legalTeamMembers()
+
+      if (!response.ok || !response.data) {
+        setLegalTeamMembers([])
+        setLegalTeamMembersError(response.error?.message ?? 'Failed to load legal team members')
+        return
+      }
+
+      setLegalTeamMembers(response.data.members)
+      setLegalTeamMembersError(null)
+    }
+
+    void loadLegalTeamMembers()
+  }, [isLegalTeamRole])
 
   useEffect(() => {
     setCursorHistory([undefined])
@@ -421,36 +564,140 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [activePreview, closePreview])
 
-  const handleOpenCurrentDocument = useCallback(
-    async (contract: ContractRecord) => {
-      const response = await contractsClient.download(contract.id, {
-        documentId: contract.currentDocumentId ?? undefined,
-      })
+  useEffect(() => () => stopTableAutoScroll(), [stopTableAutoScroll])
 
-      if (!response.ok || !response.data?.signedUrl) {
-        setError(response.error?.message ?? 'Failed to generate document view link')
+  const handleOpenCurrentDocument = useCallback(async (contract: ContractRecord) => {
+    const response = await contractsClient.download(contract.id, {
+      documentId: contract.currentDocumentId ?? undefined,
+    })
+
+    if (!response.ok || !response.data?.signedUrl) {
+      toast.error(response.error?.message ?? 'Failed to generate document view link')
+      return
+    }
+
+    const resolvedFileName = (response.data.fileName ?? contract.fileName?.trim()) || contract.title
+    const resolvedMimeType = (contract.fileMimeType ?? '').trim().toLowerCase()
+    const resolvedExtension = resolveFileExtension(resolvedFileName)
+    const isDocx =
+      resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      resolvedExtension === 'docx'
+    const isSpreadsheet =
+      resolvedExtension === 'xls' ||
+      resolvedExtension === 'xlsx' ||
+      resolvedMimeType.includes('spreadsheetml') ||
+      resolvedMimeType.includes('ms-excel')
+    const isTextPreview =
+      resolvedExtension === 'csv' ||
+      resolvedExtension === 'tsv' ||
+      resolvedExtension === 'txt' ||
+      resolvedMimeType.startsWith('text/') ||
+      resolvedMimeType.includes('csv')
+    const isPresentation =
+      resolvedExtension === 'ppt' ||
+      resolvedExtension === 'pptx' ||
+      resolvedMimeType.includes('ms-powerpoint') ||
+      resolvedMimeType.includes('presentationml')
+    const isLegacyDoc = resolvedExtension === 'doc' || resolvedMimeType.includes('application/msword')
+    const renderAsHtml = isDocx || isLegacyDoc || isPresentation || isSpreadsheet || isTextPreview
+
+    const previewUrl = contractsClient.previewUrl(contract.id, {
+      documentId: contract.currentDocumentId ?? undefined,
+      renderAs: renderAsHtml ? 'html' : 'binary',
+    })
+
+    setActivePreview({
+      url: previewUrl,
+      fileName: resolvedFileName,
+      fileMimeType: resolvedMimeType,
+      externalUrl: response.data.signedUrl,
+    })
+  }, [])
+
+  const resolveContractAssignedEmails = useCallback((contract: ContractRecord): string[] => {
+    const assignees = (contract.assignedToUsers ?? []).map((item) => item.trim().toLowerCase()).filter(Boolean)
+    return Array.from(new Set(assignees))
+  }, [])
+
+  const resolveEmailDisplayName = useCallback(
+    (email: string): string => {
+      const member = legalTeamMembers.find((item) => item.email.toLowerCase() === email.toLowerCase())
+      if (member?.fullName?.trim()) {
+        return member.fullName
+      }
+
+      return toFallbackDisplayName(email)
+    },
+    [legalTeamMembers]
+  )
+
+  const handleContractAssignmentChange = useCallback(
+    async (contractId: string, selectedEmails: string[]) => {
+      if (!isLegalTeamRole) {
         return
       }
 
-      const resolvedFileName = (response.data.fileName ?? contract.fileName?.trim()) || contract.title
-      const resolvedMimeType = contract.fileMimeType ?? ''
-      const isDocx =
-        resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-        resolvedFileName.toLowerCase().endsWith('.docx')
+      const targetContract = contracts.find((contract) => contract.id === contractId)
+      if (!targetContract) {
+        return
+      }
 
-      const previewUrl = contractsClient.previewUrl(contract.id, {
-        documentId: contract.currentDocumentId ?? undefined,
-        renderAs: isDocx ? 'html' : 'binary',
+      const previousEmails = resolveContractAssignedEmails(targetContract)
+      const nextEmails = Array.from(new Set(selectedEmails.map((value) => value.trim().toLowerCase()).filter(Boolean)))
+
+      if (previousEmails.length === nextEmails.length && previousEmails.every((email) => nextEmails.includes(email))) {
+        return
+      }
+
+      const emailsToAdd = nextEmails.filter((email) => !previousEmails.includes(email))
+      const emailsToRemove = previousEmails.filter((email) => !nextEmails.includes(email))
+
+      setAssignmentSavingByContractId((current) => ({ ...current, [contractId]: true }))
+      setAssignmentErrorByContractId((current) => {
+        const next = { ...current }
+        delete next[contractId]
+        return next
       })
 
-      setActivePreview({
-        url: previewUrl,
-        fileName: resolvedFileName,
-        fileMimeType: resolvedMimeType,
-        externalUrl: response.data.signedUrl,
-      })
+      try {
+        for (const email of emailsToAdd) {
+          const response = await contractsClient.manageAssignment(contractId, {
+            operation: 'add_collaborator',
+            collaboratorEmail: email,
+          })
+
+          if (!response.ok) {
+            throw new Error(response.error?.message ?? 'Failed to add collaborator')
+          }
+        }
+
+        for (const email of emailsToRemove) {
+          const response = await contractsClient.manageAssignment(contractId, {
+            operation: 'remove_collaborator',
+            collaboratorEmail: email,
+          })
+
+          if (!response.ok) {
+            throw new Error(response.error?.message ?? 'Failed to remove collaborator')
+          }
+        }
+
+        setContracts((current) =>
+          current.map((contract) =>
+            contract.id === contractId ? { ...contract, assignedToUsers: nextEmails } : contract
+          )
+        )
+        setOpenAssignmentDropdownContractId(contractId)
+      } catch (assignmentError) {
+        setAssignmentErrorByContractId((current) => ({
+          ...current,
+          [contractId]: assignmentError instanceof Error ? assignmentError.message : 'Failed to update assignment',
+        }))
+      } finally {
+        setAssignmentSavingByContractId((current) => ({ ...current, [contractId]: false }))
+      }
     },
-    [setError]
+    [contracts, isLegalTeamRole, resolveContractAssignedEmails]
   )
 
   const columns = useMemo<ColumnDef<ContractRecord>[]>(
@@ -555,6 +802,80 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         accessorKey: 'assignedTo',
         header: 'Assigned To',
         cell: ({ row }) => {
+          if (isLegalTeamRole) {
+            const selectedEmails = resolveContractAssignedEmails(row.original)
+            const selectedDisplayNames = selectedEmails.map((email) => resolveEmailDisplayName(email))
+            const isSaving = Boolean(assignmentSavingByContractId[row.original.id])
+            const assignmentError = assignmentErrorByContractId[row.original.id]
+            const isDropdownOpen = openAssignmentDropdownContractId === row.original.id
+            const triggerLabel = selectedDisplayNames.length > 0 ? selectedDisplayNames.join(', ') : 'Assign Contract'
+
+            return (
+              <div
+                className={styles.assignedToEditor}
+                onClick={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className={styles.assignedToTrigger}
+                  disabled={isSaving || legalTeamMembers.length === 0}
+                  onClick={() =>
+                    setOpenAssignmentDropdownContractId((current) =>
+                      current === row.original.id ? null : row.original.id
+                    )
+                  }
+                  title={triggerLabel}
+                >
+                  <span className={styles.assignedToTriggerLabel}>{triggerLabel}</span>
+                  <span className={styles.assignedToTriggerCaret}>{isDropdownOpen ? '▴' : '▾'}</span>
+                </button>
+                {isDropdownOpen ? (
+                  <div className={styles.assignedToDropdown}>
+                    {selectedEmails.length > 0 ? (
+                      <button
+                        type="button"
+                        className={styles.assignedToClearAll}
+                        disabled={isSaving}
+                        onClick={() => {
+                          void handleContractAssignmentChange(row.original.id, [])
+                        }}
+                      >
+                        Clear all
+                      </button>
+                    ) : null}
+                    {legalTeamMembers.map((member) => {
+                      const memberEmail = member.email.toLowerCase()
+                      const isSelected = selectedEmails.includes(memberEmail)
+                      const memberDisplayName = member.fullName?.trim() || toFallbackDisplayName(member.email)
+
+                      return (
+                        <button
+                          key={member.id}
+                          type="button"
+                          className={`${styles.assignedToOption} ${isSelected ? styles.assignedToOptionSelected : ''}`}
+                          disabled={isSaving}
+                          onClick={() => {
+                            const nextSelected = isSelected
+                              ? selectedEmails.filter((email) => email !== memberEmail)
+                              : [...selectedEmails, memberEmail]
+                            void handleContractAssignmentChange(row.original.id, nextSelected)
+                          }}
+                        >
+                          <span>{memberDisplayName}</span>
+                          {isSelected ? <span className={styles.assignedToOptionCheck}>✓</span> : null}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : null}
+                {legalTeamMembersError ? <span className={styles.assignmentError}>{legalTeamMembersError}</span> : null}
+                {assignmentError ? <span className={styles.assignmentError}>{assignmentError}</span> : null}
+                {isSaving ? <span className={styles.assignmentSaving}>Saving…</span> : null}
+              </div>
+            )
+          }
+
           const display = resolveAssignedToDisplay(row.original)
 
           return (
@@ -567,8 +888,58 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           )
         },
       },
+      ...(isLegalTeamRole
+        ? [
+            {
+              accessorKey: 'legalEffectiveDate',
+              header: () => <span className={styles.legalMetadataHeader}>Effective Date</span>,
+              cell: ({ row }: { row: { original: ContractRecord } }) => (
+                <span className={styles.legalMetadataValue}>{formatLegalDate(row.original.legalEffectiveDate)}</span>
+              ),
+            },
+            {
+              accessorKey: 'legalTerminationDate',
+              header: () => <span className={styles.legalMetadataHeader}>Termination Date</span>,
+              cell: ({ row }: { row: { original: ContractRecord } }) => (
+                <span className={styles.legalMetadataValue}>{formatLegalDate(row.original.legalTerminationDate)}</span>
+              ),
+            },
+            {
+              accessorKey: 'legalNoticePeriod',
+              header: () => <span className={styles.legalMetadataHeader}>Notice Period</span>,
+              cell: ({ row }: { row: { original: ContractRecord } }) => {
+                const value = row.original.legalNoticePeriod?.trim()
+                return <span className={styles.legalMetadataValue}>{value && value.length > 0 ? value : '-'}</span>
+              },
+            },
+            {
+              accessorKey: 'legalAutoRenewal',
+              header: () => <span className={styles.legalMetadataHeader}>Auto-renewal</span>,
+              cell: ({ row }: { row: { original: ContractRecord } }) => (
+                <span className={styles.legalMetadataValue}>
+                  {row.original.legalAutoRenewal === true
+                    ? 'Yes'
+                    : row.original.legalAutoRenewal === false
+                      ? 'No'
+                      : '-'}
+                </span>
+              ),
+            },
+          ]
+        : []),
     ],
-    []
+    [
+      assignmentErrorByContractId,
+      assignmentSavingByContractId,
+      handleContractAssignmentChange,
+      handleOpenCurrentDocument,
+      isLegalTeamRole,
+      legalTeamMembers,
+      legalTeamMembersError,
+      openAssignmentDropdownContractId,
+      resolveEmailDisplayName,
+      resolveContractAssignedEmails,
+    ]
   )
 
   const toggleExportColumn = (column: RepositoryExportColumn) => {
@@ -597,7 +968,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     setActiveExportFormat(null)
   }
 
-  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: contracts,
     columns,
@@ -615,6 +985,15 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
       activeNav="repository"
       canAccessApproverHistory={session.canAccessApproverHistory}
+      quickAction={
+        normalizedRole === 'HOD'
+          ? {
+              ariaLabel: 'Upload third-party contract',
+              onClick: () => setIsUploadOpen(true),
+              isActive: isUploadOpen,
+            }
+          : undefined
+      }
     >
       <main className={styles.main}>
         <section className={styles.header}>
@@ -757,8 +1136,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
             {isReportLoading ? (
               <div className={styles.empty}>Loading report...</div>
-            ) : reportError ? (
-              <div className={styles.empty}>{reportError}</div>
             ) : reportMetrics ? (
               <div className={styles.reportingGrid}>
                 <div className={styles.metricCard}>
@@ -766,7 +1143,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                   {reportMetrics.departmentMetrics.length === 0 ? (
                     <p className={styles.muted}>No department metrics available.</p>
                   ) : (
-                    <ul className={styles.metricList}>
+                    <ul className={`${styles.metricList} ${styles.metricListScrollable}`}>
                       {reportMetrics.departmentMetrics.map((metric) => (
                         <li key={metric.departmentId ?? 'unassigned'} className={styles.metricListItem}>
                           <span className={styles.metricName}>{metric.departmentName ?? 'Unassigned'}</span>
@@ -827,7 +1204,12 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           </button>
         </section>
 
-        <section className={styles.tableWrap}>
+        <section
+          ref={tableWrapRef}
+          className={styles.tableWrap}
+          onMouseMove={handleTableWrapMouseMove}
+          onMouseLeave={stopTableAutoScroll}
+        >
           {isLoading ? (
             <div>
               {[1, 2, 3, 4, 5].map((i) => (
@@ -839,8 +1221,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                 </div>
               ))}
             </div>
-          ) : error ? (
-            <div className={styles.empty}>{error}</div>
           ) : (
             <table className={styles.table}>
               <thead>
@@ -873,7 +1253,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
               <tbody>
                 {table.getRowModel().rows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className={styles.empty}>
+                    <td colSpan={columns.length} className={styles.empty}>
                       No contracts found.
                     </td>
                   </tr>
@@ -941,6 +1321,17 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
             </div>
           </div>
         ) : null}
+
+        <ThirdPartyUploadSidebar
+          isOpen={isUploadOpen}
+          mode={contractUploadModes.default}
+          actorRole={session.role ?? undefined}
+          onClose={() => setIsUploadOpen(false)}
+          onUploaded={async () => {
+            await loadContracts()
+            router.refresh()
+          }}
+        />
       </main>
     </ProtectedAppShell>
   )

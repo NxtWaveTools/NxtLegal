@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
+import { toast } from 'sonner'
 import { contractsClient, type ContractDetailResponse } from '@/core/client/contracts-client'
 import { contractStatuses } from '@/core/constants/contracts'
 import styles from './prepare-for-signing-modal.module.css'
@@ -70,7 +71,6 @@ export default function PrepareForSigningModal({
   const [isLoadingDraft, setIsLoadingDraft] = useState(false)
   const [isSavingDraft, setIsSavingDraft] = useState(false)
   const [isSending, setIsSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [numPages, setNumPages] = useState(1)
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedFieldType, setSelectedFieldType] = useState<FieldType>('SIGNATURE')
@@ -95,44 +95,50 @@ export default function PrepareForSigningModal({
 
     const loadDraft = async () => {
       setIsLoadingDraft(true)
-      setError(null)
-      const response = await contractsClient.getSigningPreparationDraft(contractId)
-      setIsLoadingDraft(false)
 
-      if (!response.ok) {
-        setError(response.error?.message ?? 'Failed to load signing draft')
-        return
+      try {
+        const response = await contractsClient.getSigningPreparationDraft(contractId)
+
+        if (!response.ok) {
+          toast.error(response.error?.message ?? 'Failed to load signing draft')
+          return
+        }
+
+        const data = response.data
+        if (!data) {
+          setRecipients([])
+          setFields([])
+          setSelectedRecipientEmail('')
+          return
+        }
+
+        const mappedRecipients: DraftRecipient[] = data.recipients.map((recipient) => ({
+          id: createDraftId(),
+          name: recipient.name,
+          email: recipient.email,
+          recipientType: recipient.recipientType,
+          routingOrder: recipient.routingOrder,
+        }))
+
+        const mappedFields: DraftField[] = data.fields.map((field) => ({
+          id: createDraftId(),
+          fieldType: field.fieldType,
+          pageNumber: field.pageNumber ?? undefined,
+          xPosition: field.xPosition ?? undefined,
+          yPosition: field.yPosition ?? undefined,
+          anchorString: field.anchorString ?? undefined,
+          assignedSignerEmail: field.assignedSignerEmail,
+        }))
+
+        setRecipients(mappedRecipients)
+        setFields(mappedFields)
+        setSelectedRecipientEmail(mappedRecipients[0]?.email ?? '')
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+        toast.error(errorMessage)
+      } finally {
+        setIsLoadingDraft(false)
       }
-
-      const data = response.data
-      if (!data) {
-        setRecipients([])
-        setFields([])
-        setSelectedRecipientEmail('')
-        return
-      }
-
-      const mappedRecipients: DraftRecipient[] = data.recipients.map((recipient) => ({
-        id: createDraftId(),
-        name: recipient.name,
-        email: recipient.email,
-        recipientType: recipient.recipientType,
-        routingOrder: recipient.routingOrder,
-      }))
-
-      const mappedFields: DraftField[] = data.fields.map((field) => ({
-        id: createDraftId(),
-        fieldType: field.fieldType,
-        pageNumber: field.pageNumber ?? undefined,
-        xPosition: field.xPosition ?? undefined,
-        yPosition: field.yPosition ?? undefined,
-        anchorString: field.anchorString ?? undefined,
-        assignedSignerEmail: field.assignedSignerEmail,
-      }))
-
-      setRecipients(mappedRecipients)
-      setFields(mappedFields)
-      setSelectedRecipientEmail(mappedRecipients[0]?.email ?? '')
     }
 
     void loadDraft()
@@ -410,12 +416,11 @@ export default function PrepareForSigningModal({
 
     const validationError = validateDraft()
     if (validationError) {
-      setError(validationError)
+      toast.error(validationError)
       return
     }
 
     setIsSavingDraft(true)
-    setError(null)
 
     const normalizedFields = fields.map(normalizeFieldToPoints)
 
@@ -436,13 +441,18 @@ export default function PrepareForSigningModal({
       })),
     }
 
-    const response = await contractsClient.saveSigningPreparationDraft(contractId, draftPayload)
+    try {
+      const response = await contractsClient.saveSigningPreparationDraft(contractId, draftPayload)
 
-    setIsSavingDraft(false)
-
-    if (!response.ok) {
-      setError(response.error?.message ?? 'Failed to save draft')
-      return
+      if (!response.ok) {
+        toast.error(response.error?.message ?? 'Failed to save draft')
+        return
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
+    } finally {
+      setIsSavingDraft(false)
     }
   }
 
@@ -453,12 +463,11 @@ export default function PrepareForSigningModal({
 
     const validationError = validateSend()
     if (validationError) {
-      setError(validationError)
+      toast.error(validationError)
       return
     }
 
     setIsSending(true)
-    setError(null)
 
     const normalizedFields = fields.map(normalizeFieldToPoints)
 
@@ -479,24 +488,28 @@ export default function PrepareForSigningModal({
       })),
     }
 
-    const draftSaveResponse = await contractsClient.saveSigningPreparationDraft(contractId, draftPayload)
-    if (!draftSaveResponse.ok) {
+    try {
+      const draftSaveResponse = await contractsClient.saveSigningPreparationDraft(contractId, draftPayload)
+      if (!draftSaveResponse.ok) {
+        toast.error(draftSaveResponse.error?.message ?? 'Failed to save draft before sending')
+        return
+      }
+
+      const response = await contractsClient.sendSigningPreparationDraft(contractId)
+
+      if (!response.ok || !response.data) {
+        toast.error(response.error?.message ?? 'Failed to send for signing')
+        return
+      }
+
+      onSent(response.data.contractView)
+      onClose()
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
+    } finally {
       setIsSending(false)
-      setError(draftSaveResponse.error?.message ?? 'Failed to save draft before sending')
-      return
     }
-
-    const response = await contractsClient.sendSigningPreparationDraft(contractId)
-
-    if (!response.ok || !response.data) {
-      setIsSending(false)
-      setError(response.error?.message ?? 'Failed to send for signing')
-      return
-    }
-
-    onSent(response.data.contractView)
-    setIsSending(false)
-    onClose()
   }
 
   if (!isOpen) {
@@ -720,9 +733,6 @@ export default function PrepareForSigningModal({
             </div>
           </div>
         ) : null}
-
-        {error ? <div className={styles.error}>{error}</div> : null}
-
         <div className={styles.footer}>
           <button type="button" className={styles.smallButton} onClick={onClose}>
             Cancel

@@ -176,6 +176,13 @@
   gap: 8px;
 }
 
+.metricListScrollable {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
 .metricListItem {
   display: flex;
   justify-content: space-between;
@@ -200,7 +207,8 @@
 }
 
 .table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
 }
 
@@ -385,6 +393,124 @@
   max-width: 280px;
 }
 
+.assignedToEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+  position: relative;
+}
+
+.assignedToTrigger {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  min-height: 34px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.assignedToTrigger:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.1);
+  outline: none;
+}
+
+.assignedToTriggerLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+.assignedToTriggerCaret {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.assignedToDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: min(320px, 42vw);
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  z-index: 30;
+}
+
+.assignedToClearAll {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-danger);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.assignedToClearAll:hover {
+  background: var(--color-danger-soft);
+}
+
+.assignedToOption {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12px;
+  text-align: left;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.assignedToOption:hover {
+  background: var(--color-accent-soft);
+}
+
+.assignedToOptionSelected {
+  background: var(--color-surface-muted);
+}
+
+.assignedToOptionCheck {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.assignedToHint {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.assignmentSaving {
+  color: var(--color-accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.assignmentError {
+  color: var(--color-danger);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .assignedToPrimary {
   display: inline-block;
   max-width: 100%;
@@ -403,6 +529,20 @@
   font-weight: 600;
   color: var(--color-text-muted);
   background: var(--color-surface-muted);
+}
+
+.legalMetadataHeader {
+  display: inline-block;
+  text-align: center;
+  width: 100%;
+  min-width: 120px;
+}
+
+.legalMetadataValue {
+  display: block;
+  text-align: center;
+  width: 100%;
+  min-width: 120px;
 }
 
 .muted {

@@ -6,7 +6,7 @@ import { publicConfig } from '@/core/config/public-config'
 import { useLoginPage } from '@/modules/auth/ui/use-login-page'
 
 export default function LoginPageContent() {
-  const { error } = useLoginPage()
+  useLoginPage()
   const allowedDomainsText = publicConfig.auth.allowedDomains.join(', ')
 
   return (
@@ -59,21 +59,6 @@ export default function LoginPageContent() {
               Please use your Microsoft account to sign in
             </p>
           </div>
-
-          {/* Error Message */}
-          {error && (
-            <div
-              className="mb-6 px-4 py-3 rounded-xl text-sm"
-              style={{
-                background: 'rgba(220, 38, 38, 0.08)',
-                border: '1px solid rgba(220, 38, 38, 0.2)',
-                color: 'var(--color-danger)',
-                animation: 'fadeIn 0.3s ease',
-              }}
-            >
-              {error}
-            </div>
-          )}
 
           {publicConfig.features.enableMicrosoftOAuth && (
             <div className="mb-6">
