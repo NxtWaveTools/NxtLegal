@@ -1504,10 +1504,12 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           hod_email: string | null
+          hod_name: string | null
           id: string
           is_active: boolean
           name: string
           poc_email: string | null
+          poc_name: string | null
           tenant_id: string
           updated_at: string
         }
@@ -1515,10 +1517,12 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           hod_email?: string | null
+          hod_name?: string | null
           id?: string
           is_active?: boolean
           name: string
           poc_email?: string | null
+          poc_name?: string | null
           tenant_id: string
           updated_at?: string
         }
@@ -1526,10 +1530,12 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           hod_email?: string | null
+          hod_name?: string | null
           id?: string
           is_active?: boolean
           name?: string
           poc_email?: string | null
+          poc_name?: string | null
           tenant_id?: string
           updated_at?: string
         }

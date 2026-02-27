@@ -392,4 +392,106 @@ describe('supabaseContractQueryRepository action permissions', () => {
 
     expect(result.size).toBe(0)
   })
+
+  it('includes legal users from canonical role assignments in active legal members list', async () => {
+    const userRolesIsRolesDeleted = jest.fn().mockResolvedValue({
+      data: [{ user_id: 'legal-2' }],
+      error: null,
+    })
+    const userRolesEqRolesIsActive = jest.fn().mockReturnValue({ is: userRolesIsRolesDeleted })
+    const userRolesEqRolesRoleKey = jest.fn().mockReturnValue({ eq: userRolesEqRolesIsActive })
+    const userRolesIsDeletedAt = jest.fn().mockReturnValue({ eq: userRolesEqRolesRoleKey })
+    const userRolesEqIsActive = jest.fn().mockReturnValue({ is: userRolesIsDeletedAt })
+    const userRolesEqTenant = jest.fn().mockReturnValue({ eq: userRolesEqIsActive })
+    const userRolesSelect = jest.fn().mockReturnValue({ eq: userRolesEqTenant })
+
+    const legacyUsersIsDeletedAt = jest.fn().mockResolvedValue({
+      data: [{ id: 'legal-1', email: 'legal.one@nxtwave.co.in', full_name: 'Legal One' }],
+      error: null,
+    })
+    const legacyUsersEqIsActive = jest.fn().mockReturnValue({ is: legacyUsersIsDeletedAt })
+    const legacyUsersEqRole = jest.fn().mockReturnValue({ eq: legacyUsersEqIsActive })
+    const legacyUsersEqTenant = jest.fn().mockReturnValue({ eq: legacyUsersEqRole })
+    const legacyUsersSelect = jest.fn().mockReturnValue({ eq: legacyUsersEqTenant })
+
+    const canonicalUsersInIds = jest.fn().mockResolvedValue({
+      data: [{ id: 'legal-2', email: 'legal.two@nxtwave.co.in', full_name: 'Legal Two' }],
+      error: null,
+    })
+    const canonicalUsersIsDeletedAt = jest.fn().mockReturnValue({ in: canonicalUsersInIds })
+    const canonicalUsersEqIsActive = jest.fn().mockReturnValue({ is: canonicalUsersIsDeletedAt })
+    const canonicalUsersEqTenant = jest.fn().mockReturnValue({ eq: canonicalUsersEqIsActive })
+    const canonicalUsersSelect = jest.fn().mockReturnValue({ eq: canonicalUsersEqTenant })
+
+    let usersFromCall = 0
+    const from = jest.fn((table: string) => {
+      if (table === 'user_roles') {
+        return { select: userRolesSelect }
+      }
+
+      if (table === 'users') {
+        usersFromCall += 1
+        if (usersFromCall === 1) {
+          return { select: legacyUsersSelect }
+        }
+
+        return { select: canonicalUsersSelect }
+      }
+
+      throw new Error(`Unexpected table: ${table}`)
+    })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const members = await supabaseContractQueryRepository.listActiveTenantLegalMembers('tenant-1')
+
+    expect(members).toEqual([
+      { id: 'legal-1', email: 'legal.one@nxtwave.co.in', fullName: 'Legal One' },
+      { id: 'legal-2', email: 'legal.two@nxtwave.co.in', fullName: 'Legal Two' },
+    ])
+    expect(canonicalUsersInIds).toHaveBeenCalledWith('id', ['legal-2'])
+  })
+
+  it('falls back to legacy legal role when canonical role tables are unavailable', async () => {
+    const userRolesIsRolesDeleted = jest.fn().mockResolvedValue({
+      data: null,
+      error: {
+        code: '42P01',
+        message: 'relation "user_roles" does not exist',
+      },
+    })
+    const userRolesEqRolesIsActive = jest.fn().mockReturnValue({ is: userRolesIsRolesDeleted })
+    const userRolesEqRolesRoleKey = jest.fn().mockReturnValue({ eq: userRolesEqRolesIsActive })
+    const userRolesIsDeletedAt = jest.fn().mockReturnValue({ eq: userRolesEqRolesRoleKey })
+    const userRolesEqIsActive = jest.fn().mockReturnValue({ is: userRolesIsDeletedAt })
+    const userRolesEqTenant = jest.fn().mockReturnValue({ eq: userRolesEqIsActive })
+    const userRolesSelect = jest.fn().mockReturnValue({ eq: userRolesEqTenant })
+
+    const legacyUsersIsDeletedAt = jest.fn().mockResolvedValue({
+      data: [{ id: 'legal-1', email: 'legacy.legal@nxtwave.co.in', full_name: 'Legacy Legal' }],
+      error: null,
+    })
+    const legacyUsersEqIsActive = jest.fn().mockReturnValue({ is: legacyUsersIsDeletedAt })
+    const legacyUsersEqRole = jest.fn().mockReturnValue({ eq: legacyUsersEqIsActive })
+    const legacyUsersEqTenant = jest.fn().mockReturnValue({ eq: legacyUsersEqRole })
+    const legacyUsersSelect = jest.fn().mockReturnValue({ eq: legacyUsersEqTenant })
+
+    const from = jest.fn((table: string) => {
+      if (table === 'user_roles') {
+        return { select: userRolesSelect }
+      }
+
+      if (table === 'users') {
+        return { select: legacyUsersSelect }
+      }
+
+      throw new Error(`Unexpected table: ${table}`)
+    })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const members = await supabaseContractQueryRepository.listActiveTenantLegalMembers('tenant-1')
+
+    expect(members).toEqual([{ id: 'legal-1', email: 'legacy.legal@nxtwave.co.in', fullName: 'Legacy Legal' }])
+  })
 })

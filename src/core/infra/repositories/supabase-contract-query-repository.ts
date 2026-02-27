@@ -1705,28 +1705,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       fullName?: string | null
     }>
   > {
-    const supabase = createServiceSupabase()
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, email, full_name')
-      .eq('tenant_id', tenantId)
-      .eq('role', 'LEGAL_TEAM')
-      .eq('is_active', true)
-      .is('deleted_at', null)
-      .order('full_name', { ascending: true })
-      .order('email', { ascending: true })
-
-    if (error) {
-      throw new DatabaseError('Failed to fetch legal team members', new Error(error.message), {
-        code: error.code,
-      })
-    }
-
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      email: row.email,
-      fullName: row.full_name,
-    }))
+    return this.resolveActiveTenantLegalMembers(tenantId)
   }
 
   async getSignatories(tenantId: string, contractId: string): Promise<ContractSignatory[]> {
@@ -4650,24 +4629,17 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   }
 
   private async getLegalAssignee(tenantId: string): Promise<{ id: string; email: string }> {
-    const supabase = createServiceSupabase()
+    const legalMembers = await this.resolveActiveTenantLegalMembers(tenantId)
+    const assignee = legalMembers[0]
 
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, email')
-      .eq('tenant_id', tenantId)
-      .eq('role', 'LEGAL_TEAM')
-      .eq('is_active', true)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .single<{ id: string; email: string }>()
-
-    if (error || !data) {
+    if (!assignee) {
       throw new BusinessRuleError('LEGAL_ASSIGNEE_NOT_FOUND', 'No active legal team member available for routing')
     }
 
-    return data
+    return {
+      id: assignee.id,
+      email: assignee.email,
+    }
   }
 
   private async resolveActiveTenantLegalUserByEmail(
@@ -4675,23 +4647,112 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     email: string
   ): Promise<{ id: string; email: string }> {
     const normalizedEmail = email.trim().toLowerCase()
-    const supabase = createServiceSupabase()
+    const legalMembers = await this.resolveActiveTenantLegalMembers(tenantId)
+    const legalUser = legalMembers.find((member) => member.email.trim().toLowerCase() === normalizedEmail)
 
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, email')
-      .eq('tenant_id', tenantId)
-      .eq('email', normalizedEmail)
-      .eq('role', 'LEGAL_TEAM')
-      .eq('is_active', true)
-      .is('deleted_at', null)
-      .single<{ id: string; email: string }>()
-
-    if (error || !data) {
+    if (!legalUser) {
       throw new BusinessRuleError('LEGAL_USER_NOT_FOUND', 'Email must belong to an active legal user in this tenant')
     }
 
-    return data
+    return {
+      id: legalUser.id,
+      email: legalUser.email,
+    }
+  }
+
+  private async resolveActiveTenantLegalMembers(
+    tenantId: string
+  ): Promise<Array<{ id: string; email: string; fullName?: string | null }>> {
+    const supabase = createServiceSupabase()
+
+    const { data: canonicalRoleRows, error: canonicalRoleError } = await supabase
+      .from('user_roles')
+      .select('user_id, roles:roles!inner(role_key, is_active, deleted_at)')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .eq('roles.role_key', 'LEGAL_TEAM')
+      .eq('roles.is_active', true)
+      .is('roles.deleted_at', null)
+
+    if (canonicalRoleError && !this.isMissingRelationError(canonicalRoleError)) {
+      throw new DatabaseError('Failed to fetch legal team members', new Error(canonicalRoleError.message), {
+        code: canonicalRoleError.code,
+      })
+    }
+
+    const canonicalLegalUserIds = new Set<string>()
+    for (const row of (canonicalRoleRows ?? []) as Array<{ user_id: string }>) {
+      if (row.user_id) {
+        canonicalLegalUserIds.add(row.user_id)
+      }
+    }
+
+    const { data: legacyRows, error: legacyError } = await supabase
+      .from('users')
+      .select('id, email, full_name')
+      .eq('tenant_id', tenantId)
+      .eq('role', 'LEGAL_TEAM')
+      .eq('is_active', true)
+      .is('deleted_at', null)
+
+    if (legacyError) {
+      throw new DatabaseError('Failed to fetch legal team members', new Error(legacyError.message), {
+        code: legacyError.code,
+      })
+    }
+
+    const merged = new Map<string, { id: string; email: string; fullName?: string | null }>()
+
+    for (const row of (legacyRows ?? []) as Array<{ id: string; email: string; full_name: string | null }>) {
+      merged.set(row.id, {
+        id: row.id,
+        email: row.email,
+        fullName: row.full_name,
+      })
+    }
+
+    if (canonicalLegalUserIds.size > 0) {
+      const { data: canonicalUsers, error: canonicalUsersError } = await supabase
+        .from('users')
+        .select('id, email, full_name')
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .is('deleted_at', null)
+        .in('id', Array.from(canonicalLegalUserIds))
+
+      if (canonicalUsersError) {
+        throw new DatabaseError('Failed to fetch legal team members', new Error(canonicalUsersError.message), {
+          code: canonicalUsersError.code,
+        })
+      }
+
+      for (const row of (canonicalUsers ?? []) as Array<{ id: string; email: string; full_name: string | null }>) {
+        merged.set(row.id, {
+          id: row.id,
+          email: row.email,
+          fullName: row.full_name,
+        })
+      }
+    }
+
+    return Array.from(merged.values()).sort((left, right) => {
+      const leftName = left.fullName?.trim().toLowerCase() ?? ''
+      const rightName = right.fullName?.trim().toLowerCase() ?? ''
+      if (leftName && rightName && leftName !== rightName) {
+        return leftName.localeCompare(rightName)
+      }
+
+      if (leftName && !rightName) {
+        return -1
+      }
+
+      if (!leftName && rightName) {
+        return 1
+      }
+
+      return left.email.localeCompare(right.email)
+    })
   }
 
   private assertLegalAssignmentActorRole(actorRole: string): void {

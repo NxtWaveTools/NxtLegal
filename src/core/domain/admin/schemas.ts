@@ -46,7 +46,9 @@ export const createDepartmentRequestSchema = z
   .object({
     name: z.string().trim().min(2, 'Department name is required').max(120, 'Department name is too long'),
     pocEmail: corporateEmailSchema,
+    pocName: z.string().trim().min(2, 'POC name is required').max(160, 'POC name is too long'),
     hodEmail: corporateEmailSchema,
+    hodName: z.string().trim().min(2, 'HOD name is required').max(160, 'HOD name is too long'),
     reason: z.string().trim().max(500, 'Reason is too long').optional(),
   })
   .superRefine((value, context) => {
@@ -78,6 +80,7 @@ export const updateDepartmentRequestSchema = z
 export const assignPrimaryRoleRequestSchema = z.object({
   roleType: z.enum(teamRoleTypeValues),
   newEmail: corporateEmailSchema,
+  newName: z.string().trim().min(2, 'New role name is required').max(160, 'New role name is too long'),
   reason: z.string().trim().max(500, 'Reason is too long').optional(),
 })
 

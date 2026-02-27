@@ -78,6 +78,35 @@
   font-weight: 700;
 }
 
+.primaryActionsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.primaryActionCard {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.primaryActionTitle {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.primaryActionSubtitle {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -200,6 +229,15 @@
   gap: 10px;
 }
 
+.modalWide {
+  width: min(920px, 95vw);
+}
+
+.modalScrollable {
+  max-height: min(75vh, 780px);
+  overflow: auto;
+}
+
 .modalTitle {
   font-size: 14px;
   font-weight: 700;
@@ -216,12 +254,29 @@
   gap: 8px;
 }
 
+.wizardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wizardInlineRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
 @media (max-width: 1100px) {
   .sections {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .primaryActionsGrid {
     grid-template-columns: 1fr;
   }
 }

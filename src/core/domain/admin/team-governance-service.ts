@@ -12,6 +12,8 @@ export type DepartmentSummary = {
   id: string
   name: string
   isActive: boolean
+  pocName: string | null
+  hodName: string | null
   hodUserId: string | null
   hodEmail: string | null
   pocUserId: string | null
@@ -23,6 +25,8 @@ export type TeamMutationResult = {
   teamId: string
   departmentName: string
   isActive: boolean
+  pocName: string | null
+  hodName: string | null
   pocEmail: string | null
   hodEmail: string | null
   beforeStateSnapshot: Record<string, unknown>
@@ -52,7 +56,9 @@ export interface ITeamGovernanceRepository {
     adminUserId: string
     name: string
     pocEmail: string
+    pocName: string
     hodEmail: string
+    hodName: string
     reason?: string
   }): Promise<TeamMutationResult>
   updateDepartment(params: {
@@ -68,6 +74,7 @@ export interface ITeamGovernanceRepository {
     adminUserId: string
     teamId: string
     newEmail: string
+    newName: string
     roleType: 'POC' | 'HOD'
     reason?: string
   }): Promise<PrimaryRoleMutationResult>
@@ -109,7 +116,9 @@ export class TeamGovernanceService {
     session: SessionData
     name: string
     pocEmail: string
+    pocName: string
     hodEmail: string
+    hodName: string
     reason?: string
   }): Promise<TeamMutationResult> {
     this.assertAdminSession(params.session)
@@ -119,7 +128,9 @@ export class TeamGovernanceService {
       adminUserId: params.session.employeeId as string,
       name: params.name,
       pocEmail: params.pocEmail,
+      pocName: params.pocName,
       hodEmail: params.hodEmail,
+      hodName: params.hodName,
       reason: params.reason,
     })
   }
@@ -147,6 +158,7 @@ export class TeamGovernanceService {
     session: SessionData
     teamId: string
     newEmail: string
+    newName: string
     roleType: 'POC' | 'HOD'
     reason?: string
   }): Promise<PrimaryRoleMutationResult> {
@@ -157,6 +169,7 @@ export class TeamGovernanceService {
       adminUserId: params.session.employeeId as string,
       teamId: params.teamId,
       newEmail: params.newEmail,
+      newName: params.newName,
       roleType: params.roleType,
       reason: params.reason,
     })

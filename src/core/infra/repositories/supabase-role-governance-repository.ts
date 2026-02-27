@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { adminGovernance } from '@/core/constants/admin-governance'
 import { createServiceSupabase } from '@/lib/supabase/service'
 import { DatabaseError, NotFoundError } from '@/core/http/errors'
 import type {
@@ -22,6 +23,132 @@ type RoleChangeRpcRow = {
 
 class SupabaseRoleGovernanceRepository implements IRoleGovernanceRepository {
   private readonly supabase = createServiceSupabase()
+
+  private readonly canonicalRolePrecedence = [
+    'SUPER_ADMIN',
+    'LEGAL_ADMIN',
+    'ADMIN',
+    'LEGAL_TEAM',
+    'HOD',
+    'POC',
+    'USER',
+  ] as const
+
+  private normalizeRole(value: unknown): string {
+    if (typeof value !== 'string') {
+      return ''
+    }
+
+    return value.trim().toUpperCase()
+  }
+
+  private selectHighestPrecedenceRole(activeRoleKeys: string[]): string {
+    const normalized = Array.from(new Set(activeRoleKeys.map((value) => this.normalizeRole(value)).filter(Boolean)))
+    if (normalized.length === 0) {
+      return adminGovernance.userRoleTypes[0]
+    }
+
+    for (const roleKey of this.canonicalRolePrecedence) {
+      if (normalized.includes(roleKey)) {
+        return roleKey
+      }
+    }
+
+    return normalized[0]
+  }
+
+  private async syncLegacyRoleCompatibility(params: {
+    tenantId: string
+    targetUserId: string
+    roleKey: string
+    operation: 'grant' | 'revoke'
+    changed: boolean
+  }): Promise<void> {
+    const { data: currentUser, error: currentUserError } = await this.supabase
+      .from('users')
+      .select('role, token_version')
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.targetUserId)
+      .is('deleted_at', null)
+      .maybeSingle<{ role: string | null; token_version: number | null }>()
+
+    if (currentUserError) {
+      throw new DatabaseError('Failed to synchronize legacy role state', undefined, {
+        errorCode: currentUserError.code,
+        errorMessage: currentUserError.message,
+      })
+    }
+
+    if (!currentUser) {
+      throw new NotFoundError('User', params.targetUserId)
+    }
+
+    const { data: canonicalRoleRows, error: canonicalRoleError } = await this.supabase
+      .from('user_roles')
+      .select('roles:role_id(role_key)')
+      .eq('tenant_id', params.tenantId)
+      .eq('user_id', params.targetUserId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+
+    if (canonicalRoleError) {
+      throw new DatabaseError('Failed to synchronize legacy role state', undefined, {
+        errorCode: canonicalRoleError.code,
+        errorMessage: canonicalRoleError.message,
+      })
+    }
+
+    const activeRoleKeys: string[] = []
+    for (const row of (canonicalRoleRows ?? []) as Array<{
+      roles: { role_key?: string } | Array<{ role_key?: string }> | null
+    }>) {
+      const relation = row.roles
+      const entries = Array.isArray(relation) ? relation : relation ? [relation] : []
+      for (const entry of entries) {
+        const roleKey = this.normalizeRole(entry.role_key)
+        if (roleKey.length > 0) {
+          activeRoleKeys.push(roleKey)
+        }
+      }
+    }
+
+    const nextLegacyRole = this.selectHighestPrecedenceRole(activeRoleKeys)
+    const currentLegacyRole = this.normalizeRole(currentUser.role)
+    const hasExpectedLegacyRole = currentLegacyRole === nextLegacyRole
+
+    if (hasExpectedLegacyRole && params.changed) {
+      return
+    }
+
+    const previousTokenVersion =
+      typeof currentUser.token_version === 'number' && Number.isFinite(currentUser.token_version)
+        ? Math.max(0, Math.trunc(currentUser.token_version))
+        : 0
+
+    const shouldBumpTokenVersion = !params.changed
+    const patch: { role: string; updated_at: string; token_version?: number } = {
+      role: nextLegacyRole,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (shouldBumpTokenVersion) {
+      patch.token_version = previousTokenVersion + 1
+    }
+
+    const { error: updateError } = await this.supabase
+      .from('users')
+      .update(patch)
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.targetUserId)
+      .is('deleted_at', null)
+
+    if (updateError) {
+      throw new DatabaseError('Failed to synchronize legacy role state', undefined, {
+        errorCode: updateError.code,
+        errorMessage: updateError.message,
+      })
+    }
+  }
 
   async changeUserRole(params: ChangeUserRoleParams): Promise<ChangeUserRoleResult> {
     const { data, error } = await this.supabase.rpc('admin_change_user_role', {
@@ -54,6 +181,14 @@ class SupabaseRoleGovernanceRepository implements IRoleGovernanceRepository {
     if (!row) {
       throw new DatabaseError('Role change RPC returned no result')
     }
+
+    await this.syncLegacyRoleCompatibility({
+      tenantId: params.tenantId,
+      targetUserId: row.target_user_id,
+      roleKey: row.role_key,
+      operation: row.operation,
+      changed: row.changed,
+    })
 
     return {
       changed: row.changed,

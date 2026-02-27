@@ -83,6 +83,8 @@ describe('Admin team API routes', () => {
         id: '6bc8d6e8-51b5-4a5f-9f57-5168b3729513',
         name: 'Finance',
         isActive: true,
+        pocName: null,
+        hodName: null,
         hodUserId: null,
         hodEmail: null,
         pocUserId: null,
@@ -119,6 +121,8 @@ describe('Admin team API routes', () => {
       teamId: '6bc8d6e8-51b5-4a5f-9f57-5168b3729513',
       departmentName: 'Finance',
       isActive: true,
+      pocName: 'Finance POC',
+      hodName: 'Finance HOD',
       pocEmail: 'finance.poc@nxtwave.co.in',
       hodEmail: 'finance.hod@nxtwave.co.in',
       beforeStateSnapshot: {},
@@ -130,7 +134,9 @@ describe('Admin team API routes', () => {
         json: async () => ({
           name: 'Finance',
           pocEmail: 'finance.poc@nxtwave.co.in',
+          pocName: 'Finance POC',
           hodEmail: 'finance.hod@nxtwave.co.in',
+          hodName: 'Finance HOD',
           reason: 'Initial setup',
         }),
       } as unknown as PostRequestArg,
@@ -144,7 +150,9 @@ describe('Admin team API routes', () => {
       session: mockSession,
       name: 'Finance',
       pocEmail: 'finance.poc@nxtwave.co.in',
+      pocName: 'Finance POC',
       hodEmail: 'finance.hod@nxtwave.co.in',
+      hodName: 'Finance HOD',
       reason: 'Initial setup',
     })
   })
@@ -182,6 +190,7 @@ describe('Admin team API routes', () => {
         json: async () => ({
           roleType: 'POC',
           newEmail: 'next.poc@nxtwave.co.in',
+          newName: 'Next POC Owner',
           reason: 'Ownership transfer',
         }),
       } as unknown as PutPrimaryRequestArg,
@@ -196,6 +205,7 @@ describe('Admin team API routes', () => {
       teamId: '6bc8d6e8-51b5-4a5f-9f57-5168b3729513',
       roleType: 'POC',
       newEmail: 'next.poc@nxtwave.co.in',
+      newName: 'Next POC Owner',
       reason: 'Ownership transfer',
     })
   })
