@@ -87,6 +87,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [legalNoticePeriod, setLegalNoticePeriod] = useState('')
   const [legalAutoRenewal, setLegalAutoRenewal] = useState<'unknown' | 'yes' | 'no'>('unknown')
   const [isGeneratingLinkFor, setIsGeneratingLinkFor] = useState<string | null>(null)
+  const [copiedSigningLinkFor, setCopiedSigningLinkFor] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [isActivityComposerOpen, setIsActivityComposerOpen] = useState(false)
   const [isSubmittingActivity, setIsSubmittingActivity] = useState(false)
@@ -119,6 +120,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const knownContractStatusesRef = useRef<Map<string, ContractRecord['status']>>(new Map())
   const executedCelebratedContractIdsRef = useRef<Set<string>>(new Set())
   const pendingCompletedCelebrationContractIdRef = useRef<string | null>(null)
+  const copiedSigningLinkResetTimerRef = useRef<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const PAGE_SIZE = 15
@@ -249,6 +251,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     void bootstrap()
   }, [loadContracts])
+
+  useEffect(() => {
+    return () => {
+      if (copiedSigningLinkResetTimerRef.current) {
+        window.clearTimeout(copiedSigningLinkResetTimerRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (!selectedContractId) {
@@ -694,6 +704,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       }
       await navigator.clipboard.writeText(json.data.signing_url)
       setError(null)
+      setCopiedSigningLinkFor(recipientEmail)
+      if (copiedSigningLinkResetTimerRef.current) {
+        window.clearTimeout(copiedSigningLinkResetTimerRef.current)
+      }
+      copiedSigningLinkResetTimerRef.current = window.setTimeout(() => {
+        setCopiedSigningLinkFor((current) => (current === recipientEmail ? null : current))
+      }, 2000)
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to generate signing link')
     } finally {
@@ -1502,24 +1519,51 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                           <div className={styles.timeline}>
                             {signatories.map((signatory) => (
                               <div key={signatory.id} className={styles.event}>
-                                <div>
-                                  {signatory.signatoryEmail} · {signatory.recipientType} · Step {signatory.routingOrder}
-                                </div>
-                                <div className={styles.eventMeta}>{signatory.status}</div>
-                                <div className={styles.inlineForm}>
-                                  <button
-                                    type="button"
-                                    className={styles.buttonGhost}
-                                    disabled={isMutating || isGeneratingLinkFor === signatory.signatoryEmail}
-                                    onClick={() =>
-                                      void handleGenerateSigningLink(signatory.signatoryEmail, signatory.recipientType)
-                                    }
+                                <div className={styles.signatoryHeader}>
+                                  <div>
+                                    {signatory.signatoryEmail} · {signatory.recipientType} · Step{' '}
+                                    {signatory.routingOrder}
+                                  </div>
+                                  <span
+                                    className={`${styles.signatoryStatusBadge} ${
+                                      signatory.status === 'SIGNED'
+                                        ? styles.signatoryStatusSigned
+                                        : styles.signatoryStatusPending
+                                    }`}
                                   >
-                                    {isGeneratingLinkFor === signatory.signatoryEmail
-                                      ? 'Generating…'
-                                      : 'Copy Signing Link'}
-                                  </button>
+                                    {signatory.status}
+                                  </span>
                                 </div>
+                                {signatory.recipientType === 'INTERNAL' ? (
+                                  <div className={styles.signatoryActionRow}>
+                                    <button
+                                      type="button"
+                                      className={`${styles.button} ${styles.buttonGhost} ${styles.signatoryLinkButton}`}
+                                      disabled={isMutating || isGeneratingLinkFor === signatory.signatoryEmail}
+                                      onClick={() =>
+                                        void handleGenerateSigningLink(
+                                          signatory.signatoryEmail,
+                                          signatory.recipientType
+                                        )
+                                      }
+                                    >
+                                      {isGeneratingLinkFor === signatory.signatoryEmail
+                                        ? 'Generating link...'
+                                        : copiedSigningLinkFor === signatory.signatoryEmail
+                                          ? 'Copied'
+                                          : 'Copy Signing Link'}
+                                    </button>
+                                    <span className={styles.signatoryActionHint}>
+                                      {copiedSigningLinkFor === signatory.signatoryEmail
+                                        ? 'Copied to clipboard'
+                                        : 'Generates fresh secure link'}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className={styles.signatoryActionHint}>
+                                    Signing link available for internal users.
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>

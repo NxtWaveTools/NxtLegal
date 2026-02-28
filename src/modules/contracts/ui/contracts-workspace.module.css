@@ -714,6 +714,55 @@
   font-size: 11px;
 }
 
+.signatoryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.signatoryStatusBadge {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.signatoryStatusPending {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.signatoryStatusSigned {
+  border-color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  color: var(--color-success);
+}
+
+.signatoryActionRow {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.signatoryLinkButton {
+  padding: 6px 12px;
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.signatoryActionHint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
 .logContainer {
   display: flex;
   flex-direction: column;
