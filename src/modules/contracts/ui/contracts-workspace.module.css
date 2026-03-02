@@ -807,6 +807,29 @@
   gap: 2px;
 }
 
+.timelineEventHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.eventCategoryBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .roleHod .timelineMarker {
   background: var(--color-accent);
 }
@@ -853,6 +876,12 @@
   margin-top: 2px;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.eventTargetEmail {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
 }
 
 .approvalTimeline {

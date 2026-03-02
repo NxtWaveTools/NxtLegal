@@ -22,50 +22,83 @@ type CanonicalContractLogEventType =
   | 'ADDITIONAL_APPROVED'
   | 'ADDITIONAL_REJECTED'
   | 'ADDITIONAL_BYPASSED'
+  | 'SIGNATORY_ADDED'
+  | 'SIGNATORY_SENT'
+  | 'SIGNATORY_DELIVERED'
+  | 'SIGNATORY_VIEWED'
+  | 'SIGNATORY_SIGNED'
+  | 'SIGNATORY_COMPLETED'
+  | 'SIGNATORY_DECLINED'
+  | 'SIGNATORY_EXPIRED'
+  | 'SIGNING_PREPARATION_DRAFT_SAVED'
+
+type TimelineEventCategory = 'SIGNING' | 'APPROVAL' | 'ASSIGNMENT' | 'STATUS' | 'DISCUSSION' | 'GENERAL'
 
 type FormattedContractLogEvent = {
   id: string
   message: string
   actorLabel: string
+  category: TimelineEventCategory
+  categoryLabel: string
+  categoryIcon: string
   relativeTimestamp: string
   absoluteTimestamp: string
   remark: string | null
   target: string | null
 }
 
-const eventTemplates: Record<CanonicalContractLogEventType, string> = {
-  CONTRACT_CREATED: '{actor} created this contract.',
-  CONTRACT_UPDATED: '{actor} updated this contract.',
-  HOD_APPROVED: '{actor} approved the contract as HOD.',
-  HOD_REJECTED: '{actor} rejected the contract as HOD.',
-  LEGAL_APPROVED: '{actor} approved the contract as Legal.',
-  LEGAL_REJECTED: '{actor} rejected the contract as Legal.',
-  LEGAL_QUERY_RAISED: '{actor} raised a legal query.',
-  LEGAL_STATUS_UPDATED: '{actor} updated the legal workflow status.',
-  LEGAL_VOIDED: '{actor} marked this contract as Void Documents.',
-  HOD_BYPASSED: '{actor} bypassed HOD approval.',
-  CONTRACT_REROUTED_TO_HOD: '{actor} rerouted contract to HOD.',
-  LEGAL_OWNER_SET: '{actor} set {target} as legal owner.',
-  LEGAL_COLLABORATOR_ADDED: '{actor} added {target} as legal collaborator.',
-  LEGAL_COLLABORATOR_REMOVED: '{actor} removed {target} from legal collaborators.',
-  ACTIVITY_MESSAGE_ADDED: '{actor} added a discussion message.',
-  NOTE_ADDED: '{actor} added a note.',
-  ADDITIONAL_APPROVER_ADDED: '{actor} added {target} as an additional approver.',
-  ADDITIONAL_APPROVED: '{actor} approved as additional approver.',
-  ADDITIONAL_REJECTED: '{actor} rejected as additional approver.',
-  ADDITIONAL_BYPASSED: '{actor} bypassed {target} as an additional approver.',
+const categoryLabels: Record<TimelineEventCategory, string> = {
+  SIGNING: 'Signing',
+  APPROVAL: 'Approval',
+  ASSIGNMENT: 'Assignment',
+  STATUS: 'Status',
+  DISCUSSION: 'Discussion',
+  GENERAL: 'General',
 }
 
+const categoryIcons: Record<TimelineEventCategory, string> = {
+  SIGNING: '✍️',
+  APPROVAL: '✅',
+  ASSIGNMENT: '👤',
+  STATUS: '🔄',
+  DISCUSSION: '💬',
+  GENERAL: '📝',
+}
+
+const knownCanonicalEventTypes = new Set<CanonicalContractLogEventType>([
+  'CONTRACT_CREATED',
+  'CONTRACT_UPDATED',
+  'HOD_APPROVED',
+  'HOD_REJECTED',
+  'LEGAL_APPROVED',
+  'LEGAL_REJECTED',
+  'LEGAL_QUERY_RAISED',
+  'LEGAL_STATUS_UPDATED',
+  'LEGAL_VOIDED',
+  'HOD_BYPASSED',
+  'CONTRACT_REROUTED_TO_HOD',
+  'LEGAL_OWNER_SET',
+  'LEGAL_COLLABORATOR_ADDED',
+  'LEGAL_COLLABORATOR_REMOVED',
+  'ACTIVITY_MESSAGE_ADDED',
+  'NOTE_ADDED',
+  'ADDITIONAL_APPROVER_ADDED',
+  'ADDITIONAL_APPROVED',
+  'ADDITIONAL_REJECTED',
+  'ADDITIONAL_BYPASSED',
+  'SIGNATORY_ADDED',
+  'SIGNATORY_SENT',
+  'SIGNATORY_DELIVERED',
+  'SIGNATORY_VIEWED',
+  'SIGNATORY_SIGNED',
+  'SIGNATORY_COMPLETED',
+  'SIGNATORY_DECLINED',
+  'SIGNATORY_EXPIRED',
+  'SIGNING_PREPARATION_DRAFT_SAVED',
+])
+
 const actionMessageOverrides: Record<string, string> = {
-  'contract.legal.send_for_signing.initiated': '{actor} initiated Send for Signing workflow. Pending Legal HOD review.',
-  'contract.signatory.added': '{actor} added a signatory.',
-  'contract.signatory.sent': '{actor} sent the contract for signing.',
-  'contract.signatory.delivered': '{actor} recorded signatory delivery.',
-  'contract.signatory.viewed': '{actor} recorded that a signatory viewed the contract.',
-  'contract.signatory.signed': '{actor} recorded that a signatory signed the contract.',
-  'contract.signatory.completed': '{actor} recorded signing completion.',
-  'contract.signatory.declined': '{actor} recorded signatory decline.',
-  'contract.signatory.expired': '{actor} recorded signatory expiry.',
+  'contract.legal.send_for_signing.initiated': 'Initiated Send for Signing workflow. Pending Legal HOD review.',
 }
 
 const absoluteTimestampFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -82,7 +115,7 @@ function normalizeEventType(rawType?: string | null): CanonicalContractLogEventT
     return null
   }
 
-  if (rawType in eventTemplates) {
+  if (knownCanonicalEventTypes.has(rawType as CanonicalContractLogEventType)) {
     return rawType as CanonicalContractLogEventType
   }
 
@@ -107,6 +140,22 @@ function normalizeEventType(rawType?: string | null): CanonicalContractLogEventT
       return 'LEGAL_COLLABORATOR_REMOVED'
     case 'CONTRACT_ACTIVITY_MESSAGE_ADDED':
       return 'ACTIVITY_MESSAGE_ADDED'
+    case 'CONTRACT_SIGNATORY_ADDED':
+      return 'SIGNATORY_ADDED'
+    case 'CONTRACT_SIGNATORY_SENT':
+      return 'SIGNATORY_SENT'
+    case 'CONTRACT_SIGNATORY_DELIVERED':
+      return 'SIGNATORY_DELIVERED'
+    case 'CONTRACT_SIGNATORY_VIEWED':
+      return 'SIGNATORY_VIEWED'
+    case 'CONTRACT_SIGNATORY_SIGNED':
+      return 'SIGNATORY_SIGNED'
+    case 'CONTRACT_SIGNATORY_COMPLETED':
+      return 'SIGNATORY_COMPLETED'
+    case 'CONTRACT_SIGNATORY_DECLINED':
+      return 'SIGNATORY_DECLINED'
+    case 'CONTRACT_SIGNATORY_EXPIRED':
+      return 'SIGNATORY_EXPIRED'
     default:
       return null
   }
@@ -159,6 +208,24 @@ function normalizeFromAction(rawAction: string): CanonicalContractLogEventType |
       return 'ADDITIONAL_REJECTED'
     case 'contract.approver.bypassed':
       return 'ADDITIONAL_BYPASSED'
+    case 'contract.signatory.added':
+      return 'SIGNATORY_ADDED'
+    case 'contract.signatory.sent':
+      return 'SIGNATORY_SENT'
+    case 'contract.signatory.delivered':
+      return 'SIGNATORY_DELIVERED'
+    case 'contract.signatory.viewed':
+      return 'SIGNATORY_VIEWED'
+    case 'contract.signatory.signed':
+      return 'SIGNATORY_SIGNED'
+    case 'contract.signatory.completed':
+      return 'SIGNATORY_COMPLETED'
+    case 'contract.signatory.declined':
+      return 'SIGNATORY_DECLINED'
+    case 'contract.signatory.expired':
+      return 'SIGNATORY_EXPIRED'
+    case 'contract.signing_preparation_draft.saved':
+      return 'SIGNING_PREPARATION_DRAFT_SAVED'
     default:
       return null
   }
@@ -250,8 +317,128 @@ function toValidDate(value: string): Date {
   return parsed
 }
 
-function formatMessage(template: string, actor: string, target: string | null): string {
-  return template.replace('{actor}', actor).replace('{target}', target ?? 'an additional approver')
+function getMetadataString(metadata: Record<string, unknown> | null | undefined, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = metadata?.[key]
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  return null
+}
+
+function getMetadataNumber(metadata: Record<string, unknown> | null | undefined, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = metadata?.[key]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) {
+        return parsed
+      }
+    }
+  }
+
+  return null
+}
+
+function isSystemActor(event: ContractTimelineEvent): boolean {
+  return !event.actorEmail?.trim() || event.actorRole === 'SYSTEM'
+}
+
+function isSignatoryCanonicalType(canonicalType: CanonicalContractLogEventType | null): boolean {
+  return (
+    canonicalType === 'SIGNATORY_ADDED' ||
+    canonicalType === 'SIGNATORY_SENT' ||
+    canonicalType === 'SIGNATORY_DELIVERED' ||
+    canonicalType === 'SIGNATORY_VIEWED' ||
+    canonicalType === 'SIGNATORY_SIGNED' ||
+    canonicalType === 'SIGNATORY_COMPLETED' ||
+    canonicalType === 'SIGNATORY_DECLINED' ||
+    canonicalType === 'SIGNATORY_EXPIRED' ||
+    canonicalType === 'SIGNING_PREPARATION_DRAFT_SAVED'
+  )
+}
+
+function resolveRecipientEmail(event: ContractTimelineEvent): string | null {
+  const targetEmail = event.targetEmail?.trim()
+  if (targetEmail) {
+    return targetEmail
+  }
+
+  return getMetadataString(event.metadata, [
+    'recipient_email',
+    'signatory_email',
+    'email',
+    'recipientEmail',
+    'signatoryEmail',
+  ])
+}
+
+function resolveActorLabel(
+  event: ContractTimelineEvent,
+  canonicalType: CanonicalContractLogEventType | null,
+  recipientEmail: string | null
+): string {
+  const actorEmail = event.actorEmail?.trim()
+  if (actorEmail) {
+    return actorEmail
+  }
+
+  if (isSystemActor(event) && isSignatoryCanonicalType(canonicalType)) {
+    if (recipientEmail) {
+      return `External signer (${recipientEmail})`
+    }
+
+    return 'External signer'
+  }
+
+  return 'System'
+}
+
+function toRecipientSuffix(recipientEmail: string | null): string {
+  return recipientEmail ? ` ${recipientEmail}` : ''
+}
+
+function resolveCategory(canonicalType: CanonicalContractLogEventType | null): TimelineEventCategory {
+  switch (canonicalType) {
+    case 'HOD_APPROVED':
+    case 'HOD_REJECTED':
+    case 'LEGAL_APPROVED':
+    case 'LEGAL_REJECTED':
+    case 'HOD_BYPASSED':
+    case 'ADDITIONAL_APPROVED':
+    case 'ADDITIONAL_REJECTED':
+    case 'ADDITIONAL_BYPASSED':
+      return 'APPROVAL'
+    case 'LEGAL_OWNER_SET':
+    case 'LEGAL_COLLABORATOR_ADDED':
+    case 'LEGAL_COLLABORATOR_REMOVED':
+    case 'ADDITIONAL_APPROVER_ADDED':
+      return 'ASSIGNMENT'
+    case 'LEGAL_STATUS_UPDATED':
+    case 'LEGAL_VOIDED':
+    case 'CONTRACT_REROUTED_TO_HOD':
+      return 'STATUS'
+    case 'ACTIVITY_MESSAGE_ADDED':
+    case 'NOTE_ADDED':
+      return 'DISCUSSION'
+    case 'SIGNATORY_ADDED':
+    case 'SIGNATORY_SENT':
+    case 'SIGNATORY_DELIVERED':
+    case 'SIGNATORY_VIEWED':
+    case 'SIGNATORY_SIGNED':
+    case 'SIGNATORY_COMPLETED':
+    case 'SIGNATORY_DECLINED':
+    case 'SIGNATORY_EXPIRED':
+    case 'SIGNING_PREPARATION_DRAFT_SAVED':
+      return 'SIGNING'
+    default:
+      return 'GENERAL'
+  }
 }
 
 function toStatusLabel(status: unknown): string | null {
@@ -267,16 +454,16 @@ function toStatusLabel(status: unknown): string | null {
   return contractStatusLabels[normalizedStatus as ContractStatus]
 }
 
-function resolveStatusTransitionMessage(event: ContractTimelineEvent, actor: string): string | null {
+function resolveStatusTransitionMessage(event: ContractTimelineEvent): string | null {
   const fromStatusLabel = toStatusLabel(event.metadata?.from_status)
   const toStatusLabelValue = toStatusLabel(event.metadata?.to_status)
 
   if (fromStatusLabel && toStatusLabelValue && fromStatusLabel !== toStatusLabelValue) {
-    return `${actor} changed status from ${fromStatusLabel} to ${toStatusLabelValue}.`
+    return `Changed status from ${fromStatusLabel} to ${toStatusLabelValue}.`
   }
 
   if (toStatusLabelValue) {
-    return `${actor} changed status to ${toStatusLabelValue}.`
+    return `Changed status to ${toStatusLabelValue}.`
   }
 
   return null
@@ -289,14 +476,14 @@ function humanizeAction(action: string): string {
     .trim()
 }
 
-function resolveActionFallbackMessage(action: string | null | undefined, actor: string): string | null {
+function resolveActionFallbackMessage(action: string | null | undefined): string | null {
   if (!action) {
     return null
   }
 
   const overrideTemplate = actionMessageOverrides[action]
   if (overrideTemplate) {
-    return overrideTemplate.replace('{actor}', actor)
+    return overrideTemplate
   }
 
   const humanized = humanizeAction(action)
@@ -304,7 +491,7 @@ function resolveActionFallbackMessage(action: string | null | undefined, actor: 
     return null
   }
 
-  return `${actor} performed ${humanized}.`
+  return `Recorded: ${humanized}.`
 }
 
 function formatRemark(remark: string | null, canonicalType: CanonicalContractLogEventType | null): string | null {
@@ -326,19 +513,101 @@ function formatRemark(remark: string | null, canonicalType: CanonicalContractLog
 function resolveLogMessage(
   event: ContractTimelineEvent,
   canonicalType: CanonicalContractLogEventType | null,
-  actorLabel: string,
+  recipientEmail: string | null,
   target: string | null
 ): string {
-  const transitionMessage = resolveStatusTransitionMessage(event, actorLabel)
+  const explicitOverrideMessage = actionMessageOverrides[event.action]
+  if (explicitOverrideMessage) {
+    return explicitOverrideMessage
+  }
+
+  const transitionMessage = resolveStatusTransitionMessage(event)
   if (transitionMessage) {
     return transitionMessage
   }
 
-  if (canonicalType) {
-    return formatMessage(eventTemplates[canonicalType], actorLabel, target)
+  const routingOrder = getMetadataNumber(event.metadata, ['routing_order'])
+  const recipientType = getMetadataString(event.metadata, ['recipient_type'])
+
+  switch (canonicalType) {
+    case 'CONTRACT_CREATED':
+      return 'Created this contract.'
+    case 'CONTRACT_UPDATED':
+      return 'Updated this contract.'
+    case 'HOD_APPROVED':
+      return 'Approved the contract as HOD.'
+    case 'HOD_REJECTED':
+      return 'Rejected the contract as HOD.'
+    case 'LEGAL_APPROVED':
+      return 'Approved the contract as Legal.'
+    case 'LEGAL_REJECTED':
+      return 'Rejected the contract as Legal.'
+    case 'LEGAL_QUERY_RAISED':
+      return 'Raised a legal query.'
+    case 'LEGAL_STATUS_UPDATED':
+      return 'Updated the legal workflow status.'
+    case 'LEGAL_VOIDED':
+      return 'Marked this contract as Void Documents.'
+    case 'HOD_BYPASSED':
+      return 'Bypassed HOD approval.'
+    case 'CONTRACT_REROUTED_TO_HOD':
+      return 'Rerouted the contract to HOD.'
+    case 'LEGAL_OWNER_SET':
+      return `Set ${target ?? 'a legal owner'} as legal owner.`
+    case 'LEGAL_COLLABORATOR_ADDED':
+      return `Added ${target ?? 'a user'} as legal collaborator.`
+    case 'LEGAL_COLLABORATOR_REMOVED':
+      return `Removed ${target ?? 'a user'} from legal collaborators.`
+    case 'ACTIVITY_MESSAGE_ADDED':
+      return 'Added a discussion message.'
+    case 'NOTE_ADDED':
+      return 'Added a note.'
+    case 'ADDITIONAL_APPROVER_ADDED':
+      return `Added ${target ?? 'an approver'} as an additional approver.`
+    case 'ADDITIONAL_APPROVED':
+      return 'Approved as additional approver.'
+    case 'ADDITIONAL_REJECTED':
+      return 'Rejected as additional approver.'
+    case 'ADDITIONAL_BYPASSED':
+      return `Bypassed ${target ?? 'an additional approver'} as additional approver.`
+    case 'SIGNATORY_ADDED': {
+      const recipientTypeLabel = recipientType ? `, ${recipientType.toUpperCase()}` : ''
+      const routingLabel = typeof routingOrder === 'number' ? `, Order #${routingOrder}` : ''
+      return `Added ${target ?? recipientEmail ?? 'a signer'} as signer${recipientTypeLabel}${routingLabel}.`
+    }
+    case 'SIGNATORY_SENT':
+      return `Sent the contract for signing${toRecipientSuffix(recipientEmail)}.`
+    case 'SIGNATORY_DELIVERED':
+      return `Delivery confirmed for${toRecipientSuffix(recipientEmail)} via Zoho Sign.`
+    case 'SIGNATORY_VIEWED':
+      return `Viewed by${toRecipientSuffix(recipientEmail)} via Zoho Sign.`
+    case 'SIGNATORY_SIGNED':
+      return `Signed by${toRecipientSuffix(recipientEmail)} via Zoho Sign.`
+    case 'SIGNATORY_COMPLETED':
+      return `Signing completed${toRecipientSuffix(recipientEmail)} via Zoho Sign.`
+    case 'SIGNATORY_DECLINED':
+      return `Signing declined by${toRecipientSuffix(recipientEmail)} via Zoho Sign.`
+    case 'SIGNATORY_EXPIRED':
+      return `Signing request expired${toRecipientSuffix(recipientEmail)}.`
+    case 'SIGNING_PREPARATION_DRAFT_SAVED': {
+      const recipientsCount = getMetadataNumber(event.metadata, ['recipients_count'])
+      const fieldsCount = getMetadataNumber(event.metadata, ['fields_count'])
+      const recipientsLabel =
+        recipientsCount !== null ? `${recipientsCount} recipient${recipientsCount === 1 ? '' : 's'}` : null
+      const fieldsLabel = fieldsCount !== null ? `${fieldsCount} field${fieldsCount === 1 ? '' : 's'}` : null
+      const contextLabel = [recipientsLabel, fieldsLabel].filter((value): value is string => Boolean(value)).join(', ')
+
+      if (contextLabel) {
+        return `Saved signing preparation draft (${contextLabel}).`
+      }
+
+      return 'Saved signing preparation draft.'
+    }
+    default:
+      break
   }
 
-  const fallbackActionMessage = resolveActionFallbackMessage(event.action, actorLabel)
+  const fallbackActionMessage = resolveActionFallbackMessage(event.action)
   if (fallbackActionMessage) {
     return fallbackActionMessage
   }
@@ -347,11 +616,13 @@ function resolveLogMessage(
 }
 
 function formatContractLogEvent(event: ContractTimelineEvent, now: Date = new Date()): FormattedContractLogEvent {
-  const actorLabel = event.actorEmail?.trim() || 'System'
+  const canonicalType = resolveCanonicalType(event)
+  const recipientEmail = resolveRecipientEmail(event)
+  const actorLabel = resolveActorLabel(event, canonicalType, recipientEmail)
   const target = event.targetEmail?.trim() || null
   const remarkSource = event.noteText?.trim() || null
-  const canonicalType = resolveCanonicalType(event)
-  const message = resolveLogMessage(event, canonicalType, actorLabel, target)
+  const message = resolveLogMessage(event, canonicalType, recipientEmail, target)
+  const category = resolveCategory(canonicalType)
 
   const timestamp = toValidDate(event.createdAt)
 
@@ -359,6 +630,9 @@ function formatContractLogEvent(event: ContractTimelineEvent, now: Date = new Da
     id: event.id,
     message,
     actorLabel,
+    category,
+    categoryLabel: categoryLabels[category],
+    categoryIcon: categoryIcons[category],
     relativeTimestamp: formatRelativeTimestamp(timestamp, now),
     absoluteTimestamp: formatAbsoluteTimestamp(timestamp),
     remark: formatRemark(remarkSource, canonicalType),
@@ -366,10 +640,31 @@ function formatContractLogEvent(event: ContractTimelineEvent, now: Date = new Da
   }
 }
 
+function isDraftSavedEvent(event: ContractTimelineEvent): boolean {
+  const canonicalType = resolveCanonicalType(event)
+  return canonicalType === 'SIGNING_PREPARATION_DRAFT_SAVED'
+}
+
 function formatContractLogEvents(events: ContractTimelineEvent[], now: Date = new Date()): FormattedContractLogEvent[] {
-  return [...events]
-    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
-    .map((event) => formatContractLogEvent(event, now))
+  const dedupedEvents: ContractTimelineEvent[] = []
+  let hasIncludedSigningDraftSaved = false
+
+  const sortedEvents = [...events].sort(
+    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  )
+
+  for (const event of sortedEvents) {
+    if (isDraftSavedEvent(event)) {
+      if (hasIncludedSigningDraftSaved) {
+        continue
+      }
+      hasIncludedSigningDraftSaved = true
+    }
+
+    dedupedEvents.push(event)
+  }
+
+  return dedupedEvents.map((event) => formatContractLogEvent(event, now))
 }
 
 function isContractNoteEvent(event: ContractTimelineEvent): boolean {

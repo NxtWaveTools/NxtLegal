@@ -1772,10 +1772,26 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                               <div key={event.id} className={`${styles.timelineEvent} ${roleClass}`}>
                                 <div className={styles.timelineMarker} />
                                 <div className={styles.timelineContent}>
-                                  <div className={styles.eventActor}>{event.actorLabel}</div>
+                                  <div className={styles.timelineEventHeader}>
+                                    <span className={styles.eventCategoryBadge}>
+                                      <span aria-hidden="true">{event.categoryIcon}</span>
+                                      <span>{event.categoryLabel}</span>
+                                    </span>
+                                    <div className={styles.eventMeta} title={event.absoluteTimestamp}>
+                                      {event.relativeTimestamp}
+                                    </div>
+                                  </div>
+                                  <div className={styles.eventActor}>
+                                    <strong>{event.actorLabel}</strong>
+                                  </div>
                                   <div>{event.message}</div>
+                                  {event.target ? (
+                                    <div className={styles.eventTargetEmail}>
+                                      Recipient: <strong>{event.target}</strong>
+                                    </div>
+                                  ) : null}
                                   <div className={styles.eventMeta} title={event.absoluteTimestamp}>
-                                    {event.relativeTimestamp}
+                                    {event.absoluteTimestamp}
                                   </div>
                                   <button
                                     type="button"
