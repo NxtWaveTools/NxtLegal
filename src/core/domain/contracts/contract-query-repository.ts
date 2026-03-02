@@ -338,6 +338,18 @@ export interface ContractQueryRepository {
     cursor?: string
     limit: number
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }>
+  /**
+   * Returns only the count for a single dashboard filter.
+   * Use this instead of getDashboardContracts when only the total is needed
+   * (e.g. the counts endpoint) — avoids fetching rows and all post-processing.
+   */
+  getDashboardFilterCount(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    filter: DashboardContractFilter
+    scope?: DashboardContractScope
+  }): Promise<number>
   getActionableAdditionalApprovals(params: {
     tenantId: string
     employeeId: string

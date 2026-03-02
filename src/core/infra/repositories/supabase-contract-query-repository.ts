@@ -740,6 +740,155 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return { items, nextCursor, total: totalCount }
   }
 
+  /**
+   * Optimised count-only variant of getDashboardContracts.
+   * Executes a single HEAD COUNT query — no row fetch, no additional approver
+   * context map, no actor signal enrichment. Use this for the counts endpoint.
+   */
+  async getDashboardFilterCount(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    filter: DashboardContractFilter
+    scope?: DashboardContractScope
+  }): Promise<number> {
+    const resolvedFilter = this.resolveDashboardFilter(params.role, params.filter)
+    const shouldUsePersonalScope = params.scope === 'personal'
+    let statusFilter = this.resolveDashboardStatusFromFilter(resolvedFilter)
+
+    if (shouldUsePersonalScope && resolvedFilter === 'ASSIGNED_TO_ME' && params.role === 'ADMIN') {
+      statusFilter = contractStatuses.hodPending
+    }
+
+    const supabase = createServiceSupabase()
+    const shouldFilterAssignedToMe = resolvedFilter === 'ASSIGNED_TO_ME' && !shouldUsePersonalScope
+
+    // For personal-scope counts we need the actor email to match the assignee.
+    const actorEmail = shouldUsePersonalScope ? await this.getEmployeeEmail(params.tenantId, params.employeeId) : null
+
+    let assignedContractIds: string[] | null = null
+
+    if (shouldFilterAssignedToMe) {
+      const assignedIds = new Set<string>()
+
+      // Resolve directly-assigned contracts and legal-collaborator contracts
+      // in parallel to avoid sequential round-trips.
+      const [assigneeResult, collaboratorResult] = await Promise.all([
+        params.role !== 'LEGAL_TEAM'
+          ? (async () => {
+              let q = supabase
+                .from('contracts_repository_view')
+                .select('id')
+                .eq('tenant_id', params.tenantId)
+                .eq('current_assignee_employee_id', params.employeeId)
+              if (statusFilter) q = q.eq('status', statusFilter)
+              return q
+            })()
+          : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
+        supabase
+          .from('contract_legal_collaborators')
+          .select('contract_id')
+          .eq('tenant_id', params.tenantId)
+          .eq('collaborator_employee_id', params.employeeId)
+          .is('deleted_at', null),
+      ])
+
+      if (assigneeResult.error) {
+        throw new DatabaseError(
+          'Failed to resolve assigned contracts for dashboard count',
+          new Error(assigneeResult.error.message),
+          { code: assigneeResult.error.code }
+        )
+      }
+      for (const row of (assigneeResult.data ?? []) as Array<{ id: string }>) {
+        assignedIds.add(row.id)
+      }
+
+      if (collaboratorResult.error) {
+        if (
+          !this.isMissingRelationError(collaboratorResult.error, 'contract_legal_collaborators') &&
+          !this.isMissingColumnError(collaboratorResult.error, 'contract_legal_collaborators')
+        ) {
+          throw new DatabaseError(
+            'Failed to resolve legal collaborator contracts for dashboard count',
+            new Error(collaboratorResult.error.message),
+            { code: collaboratorResult.error.code }
+          )
+        }
+      } else {
+        const collaboratorContractIds = (collaboratorResult.data ?? []).map((row) => row.contract_id)
+        if (collaboratorContractIds.length > 0) {
+          let collaboratorContractQuery = supabase
+            .from('contracts_repository_view')
+            .select('id')
+            .eq('tenant_id', params.tenantId)
+            .in('id', collaboratorContractIds)
+          if (statusFilter) collaboratorContractQuery = collaboratorContractQuery.eq('status', statusFilter)
+
+          const { data: collaboratorContractRows, error: collaboratorContractError } = await collaboratorContractQuery
+
+          if (collaboratorContractError) {
+            throw new DatabaseError(
+              'Failed to resolve collaborator dashboard contracts for count',
+              new Error(collaboratorContractError.message),
+              { code: collaboratorContractError.code }
+            )
+          }
+          for (const row of (collaboratorContractRows ?? []) as Array<{ id: string }>) {
+            assignedIds.add(row.id)
+          }
+        }
+      }
+
+      assignedContractIds = Array.from(assignedIds)
+      if (assignedContractIds.length === 0) {
+        return 0
+      }
+    }
+
+    // For non-personal scope, fetch the visibility filter in parallel with any
+    // remaining work (nothing else to await here, but structured for clarity).
+    const visibilityFilterContext = shouldUsePersonalScope
+      ? null
+      : await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+
+    let countQuery = supabase
+      .from('contracts_repository_view')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', params.tenantId)
+
+    if (statusFilter) {
+      countQuery = countQuery.eq('status', statusFilter)
+    }
+
+    if (assignedContractIds) {
+      countQuery = countQuery.in('id', assignedContractIds)
+    }
+
+    if (shouldUsePersonalScope) {
+      if (actorEmail) {
+        countQuery = countQuery.or(
+          `current_assignee_employee_id.eq.${params.employeeId},current_assignee_email.eq.${actorEmail}`
+        )
+      } else {
+        countQuery = countQuery.eq('current_assignee_employee_id', params.employeeId)
+      }
+    } else {
+      if (visibilityFilterContext?.filter) {
+        countQuery = countQuery.or(visibilityFilterContext.filter)
+      }
+    }
+
+    const { count, error } = await countQuery
+    if (error) {
+      throw new DatabaseError('Failed to count dashboard contracts', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return count ?? 0
+  }
+
   async listRepositoryContracts(params: {
     tenantId: string
     employeeId: string

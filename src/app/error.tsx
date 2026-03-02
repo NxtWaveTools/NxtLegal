@@ -58,7 +58,7 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
         </div>
 
         <p className="mb-6" style={{ color: 'var(--color-text-muted)' }}>
-          {error.message || 'An unexpected error occurred. Please try again.'}
+          An unexpected error occurred. Please try again.
         </p>
 
         <div className="flex gap-4">

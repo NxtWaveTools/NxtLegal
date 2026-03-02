@@ -71,6 +71,16 @@ export class ContractQueryService {
     return this.contractRepository.getDashboardContracts(params)
   }
 
+  async getDashboardFilterCount(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    filter: DashboardContractFilter
+    scope?: DashboardContractScope
+  }): Promise<number> {
+    return this.contractRepository.getDashboardFilterCount(params)
+  }
+
   async getActionableAdditionalApprovals(params: {
     tenantId: string
     employeeId: string

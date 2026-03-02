@@ -38,15 +38,14 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
     const results = await Promise.all(
       filters.map(async (filter) => {
         const scope = resolveScope(session.role, filter)
-        const result = await contractQueryService.getDashboardContracts({
+        const count = await contractQueryService.getDashboardFilterCount({
           tenantId: session.tenantId!,
           employeeId: session.employeeId,
           role: session.role,
           filter,
           scope,
-          limit: 1,
         })
-        return { filter, count: result.total }
+        return { filter, count }
       })
     )
 
