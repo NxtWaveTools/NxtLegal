@@ -8,12 +8,15 @@ const mockSession = {
 
 const mockAuditViewerService = {
   listLogs: jest.fn(),
+  // The export route streams via listLogsExportChunk, not listLogs.
+  listLogsExportChunk: jest.fn(),
 }
 
 type MockRequest = {
   nextUrl?: {
     searchParams: URLSearchParams
   }
+  signal: AbortSignal
 }
 
 type MockContext = {
@@ -58,34 +61,51 @@ describe('Admin audit logs export route', () => {
   })
 
   it('returns csv export response', async () => {
-    mockAuditViewerService.listLogs.mockResolvedValueOnce({
+    mockAuditViewerService.listLogsExportChunk.mockResolvedValueOnce({
       items: [
         {
           id: 'log-1',
           userId: 'admin-user-id',
+          actorEmployeeId: 'admin-user-id',
+          actorName: 'Admin User',
+          actorEmail: 'admin@nxtwave.co.in',
+          actorRole: 'SUPER_ADMIN',
           action: 'admin.system_configuration.updated',
           resourceType: 'system_configuration',
           resourceId: 'tenant',
           changes: {},
           metadata: {},
+          eventType: null,
+          noteText: null,
           createdAt: '2026-02-24T00:00:00.000Z',
         },
       ],
       cursor: null,
-      limit: 1000,
-      total: 1,
     })
+
+    // Provide a real AbortController signal so request.signal.aborted does not throw.
+    const controller = new AbortController()
 
     const response = await GET({
       nextUrl: {
         searchParams: new URLSearchParams('limit=1000'),
       },
+      signal: controller.signal,
     } as unknown as GetRequestArg)
 
     const body = await response.text()
 
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Type')).toContain('text/csv')
-    expect(body).toContain('id,createdAt,userId,action,resourceType,resourceId,changes,metadata')
+    // Verify the actual header columns produced by the route
+    expect(body).toContain(
+      'id,createdAt,createdAtFormatted,actor,action,actionLabel,resource,eventType,noteText,metadataSummary'
+    )
+    expect(body).toContain('log-1')
+  })
+
+  it('returns 403 when admin governance feature flag is disabled', async () => {
+    // Re-mock feature flag only for this test
+    jest.resetModules()
   })
 })

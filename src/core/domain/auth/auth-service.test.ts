@@ -7,6 +7,12 @@ import type { EmployeeRepository } from '@/core/domain/users/employee-repository
 import type { Logger } from '@/core/infra/logging/types'
 import { createSession } from '@/core/infra/session/jwt-session-store'
 
+// domain-policy.ts transitively loads app-config → env.server which calls requireEnv().
+// Mock the policy module so the test does not require real environment variables.
+jest.mock('@/core/domain/auth/policies/domain-policy', () => ({
+  isAllowedDomain: jest.fn().mockReturnValue(true),
+}))
+
 jest.mock('@/core/infra/session/jwt-session-store', () => ({
   createSession: jest.fn().mockResolvedValue(undefined),
   deleteSession: jest.fn().mockResolvedValue(undefined),

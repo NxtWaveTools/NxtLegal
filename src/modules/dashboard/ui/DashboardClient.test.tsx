@@ -49,6 +49,15 @@ describe('DashboardClient legal upload action cards', () => {
   beforeEach(() => {
     jest.clearAllMocks()
 
+    // dashboardCounts is fetched asynchronously; must be mocked to prevent
+    // real fetch() calls which are not available in the node test environment.
+    jest.spyOn(contractsClient, 'dashboardCounts').mockResolvedValue({
+      ok: true,
+      data: {
+        counts: { ALL: 0, HOD_PENDING: 0, UNDER_REVIEW: 0, COMPLETED: 0, ON_HOLD: 0, ASSIGNED_TO_ME: 0 },
+      },
+    } as never)
+
     jest.spyOn(contractsClient, 'dashboardContracts').mockResolvedValue({
       ok: true,
       data: {
@@ -241,6 +250,14 @@ describe('DashboardClient contract aging and TAT breach indicators', () => {
 describe('DashboardClient HOD experience updates', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+
+    // dashboardCounts must be mocked to prevent real fetch() calls.
+    jest.spyOn(contractsClient, 'dashboardCounts').mockResolvedValue({
+      ok: true,
+      data: {
+        counts: { ALL: 0, HOD_PENDING: 0, UNDER_REVIEW: 0, COMPLETED: 0, ON_HOLD: 0, ASSIGNED_TO_ME: 0 },
+      },
+    } as never)
   })
 
   it('hides Upload Third-Party Contract action card for HOD users', async () => {
@@ -350,6 +367,14 @@ describe('DashboardClient HOD experience updates', () => {
 describe('DashboardClient admin personal approvals queue', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+
+    // dashboardCounts must be mocked to prevent real fetch() calls.
+    jest.spyOn(contractsClient, 'dashboardCounts').mockResolvedValue({
+      ok: true,
+      data: {
+        counts: { ALL: 0, HOD_PENDING: 0, UNDER_REVIEW: 0, COMPLETED: 0, ON_HOLD: 0, ASSIGNED_TO_ME: 0 },
+      },
+    } as never)
   })
 
   it('uses personal scope for Assigned To Me and keeps All HOD Pending as a distinct tab', async () => {
