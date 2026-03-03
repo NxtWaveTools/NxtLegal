@@ -35,6 +35,7 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   listByTenant: jest.fn(),
   getPendingApprovalsForRole: jest.fn(),
   getDashboardContracts: jest.fn(),
+  getDashboardFilterCount: jest.fn(),
   getActionableAdditionalApprovals: jest.fn(),
   getAdditionalApproverDecisionHistory: jest.fn(),
   listRepositoryContracts: jest.fn(),

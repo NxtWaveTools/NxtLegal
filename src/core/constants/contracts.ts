@@ -195,6 +195,10 @@ export const contractNotificationPolicy = {
   approvalReminderCooldownHours: 24,
 } as const
 
+export const contractNotificationTemplates = {
+  masterHtmlInline: 0,
+} as const
+
 export const contractAuditEvents = {
   signatoryAdded: 'CONTRACT_SIGNATORY_ADDED',
   signatorySent: 'CONTRACT_SIGNATORY_SENT',

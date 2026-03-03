@@ -1,5 +1,6 @@
 import { config } from 'dotenv'
 import { resolve } from 'path'
+import { buildMasterTemplate, type MasterTemplateData } from '../src/lib/email/master-template'
 
 config({ path: resolve(process.cwd(), '.env.local') })
 
@@ -7,7 +8,7 @@ type BrevoTemplateSeed = {
   envKey: string
   templateName: string
   subject: string
-  htmlContent: string
+  templateData: MasterTemplateData
 }
 
 type BrevoCreateTemplateResponse = {
@@ -23,22 +24,40 @@ const templatesToCreate: BrevoTemplateSeed[] = [
     envKey: 'BREVO_TEMPLATE_HOD_APPROVAL_REQUESTED_ID',
     templateName: 'NXT_LEGAL_HOD_APPROVAL_REQUEST',
     subject: 'Action Required: Approve Contract for {{contact.POC_NAME}}',
-    htmlContent:
-      "<h1>Contract Approval Request</h1><p>A new contract <strong>{{contact.CONTRACT_TITLE}}</strong> requires your approval.</p><a href='{{contact.LINK}}'>Click here to review</a>",
+    templateData: {
+      title: 'Contract Approval Request',
+      greeting: 'Hello {{contact.APPROVER_ROLE}},',
+      messageText: 'A new contract, {{contact.CONTRACT_TITLE}}, requires your approval.',
+      buttonText: 'Review Contract',
+      buttonLink: '{{contact.LINK}}',
+      footerText: 'Please review and take action as soon as possible.',
+    },
   },
   {
     envKey: 'BREVO_TEMPLATE_APPROVAL_REMINDER_ID',
     templateName: 'NXT_LEGAL_APPROVAL_REMINDER',
     subject: 'Reminder: Pending Approval for {{contact.CONTRACT_TITLE}}',
-    htmlContent:
-      "<h1>Approval Reminder</h1><p>This is a reminder that the contract <strong>{{contact.CONTRACT_TITLE}}</strong> is still pending your approval.</p><a href='{{contact.LINK}}'>Review Now</a>",
+    templateData: {
+      title: 'Approval Reminder',
+      greeting: 'Hello {{contact.APPROVER_ROLE}},',
+      messageText: 'This is a reminder that {{contact.CONTRACT_TITLE}} is still pending your approval.',
+      buttonText: 'Review Now',
+      buttonLink: '{{contact.LINK}}',
+      footerText: 'Thank you for helping keep the contract workflow on track.',
+    },
   },
   {
     envKey: 'BREVO_TEMPLATE_ADDITIONAL_APPROVER_ADDED_ID',
     templateName: 'NXT_LEGAL_NEW_APPROVER_ADDED',
     subject: 'You have been added as an approver for {{contact.CONTRACT_TITLE}}',
-    htmlContent:
-      "<h1>New Approval Assignment</h1><p>You have been added as an approver for <strong>{{contact.CONTRACT_TITLE}}</strong>.</p><a href='{{contact.LINK}}'>View Contract</a>",
+    templateData: {
+      title: 'New Approval Assignment',
+      greeting: 'Hello {{contact.APPROVER_ROLE}},',
+      messageText: 'You have been added as an approver for {{contact.CONTRACT_TITLE}}.',
+      buttonText: 'View Contract',
+      buttonLink: '{{contact.LINK}}',
+      footerText: 'If this assignment looks incorrect, please contact your legal operations team.',
+    },
   },
 ]
 
@@ -56,7 +75,7 @@ async function createTemplate(params: { apiKey: string; template: BrevoTemplateS
       },
       templateName: params.template.templateName,
       subject: params.template.subject,
-      htmlContent: params.template.htmlContent,
+      htmlContent: buildMasterTemplate(params.template.templateData),
     }),
   })
 

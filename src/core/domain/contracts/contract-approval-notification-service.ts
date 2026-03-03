@@ -2,17 +2,20 @@ import {
   contractNotificationChannels,
   contractNotificationPolicy,
   contractNotificationStatuses,
+  contractNotificationTemplates,
   contractNotificationTypes,
   contractStatuses,
 } from '@/core/constants/contracts'
 import { BusinessRuleError } from '@/core/http/errors'
 import type { ContractQueryService } from '@/core/domain/contracts/contract-query-service'
+import { buildMasterTemplate } from '@/lib/email/master-template'
 
 type MailSender = {
   sendTemplateEmail(input: {
     recipientEmail: string
-    templateId: number
-    templateParams: Record<string, unknown>
+    subject: string
+    htmlContent: string
+    tags?: string[]
   }): Promise<{ providerMessageId?: string }>
 }
 
@@ -22,22 +25,11 @@ type Logger = {
   error: (message: string, context?: Record<string, unknown>) => void
 }
 
-type NotificationTemplates = {
-  hodApprovalRequestedTemplateId: number
-  approvalReminderTemplateId: number
-  additionalApproverAddedTemplateId: number
-  legalInternalAssignmentTemplateId: number
-  legalApprovalReceivedHodTemplateId: number
-  legalApprovalReceivedAdditionalTemplateId: number
-  legalReturnedToHodTemplateId: number
-  legalContractRejectedTemplateId: number
-}
-
 export class ContractApprovalNotificationService {
   constructor(
     private readonly contractQueryService: ContractQueryService,
     private readonly mailSender: MailSender,
-    private readonly templates: NotificationTemplates,
+    private readonly _legacyTemplates: Record<string, number> | undefined,
     private readonly logger: Logger
   ) {}
 
@@ -74,13 +66,16 @@ export class ContractApprovalNotificationService {
       tenantId: params.tenantId,
       contractId: params.contractId,
       recipientEmail,
-      templateId: this.templates.hodApprovalRequestedTemplateId,
+      subject: `Action Required: Approve Contract for ${contractView.contract.title}`,
+      htmlContent: buildMasterTemplate({
+        title: 'Contract Approval Request',
+        greeting: 'Hello HOD,',
+        messageText: `${contractView.contract.uploadedByEmail} submitted ${contractView.contract.title} and it requires your approval.`,
+        buttonText: 'Review Contract',
+        buttonLink: this.getContractLink(params.contractId),
+        footerText: 'Please review and approve or reject this contract request.',
+      }),
       notificationType: contractNotificationTypes.hodApprovalRequested,
-      templateParams: {
-        'contact.CONTRACT_TITLE': contractView.contract.title,
-        'contact.APPROVER_ROLE': 'HOD',
-        'contact.LINK': this.getContractLink(params.contractId),
-      },
       metadata: {
         trigger: 'CONTRACT_UPLOAD',
       },
@@ -107,13 +102,16 @@ export class ContractApprovalNotificationService {
       tenantId: params.tenantId,
       contractId: params.contractId,
       recipientEmail,
-      templateId: this.templates.additionalApproverAddedTemplateId,
+      subject: `Approval Assignment: ${contractView.contract.title}`,
+      htmlContent: buildMasterTemplate({
+        title: 'New Approval Assignment',
+        greeting: 'Hello Approver,',
+        messageText: `You have been added as an approver for ${contractView.contract.title}.`,
+        buttonText: 'View Contract',
+        buttonLink: this.getContractLink(params.contractId),
+        footerText: 'Please review the contract and submit your decision.',
+      }),
       notificationType: contractNotificationTypes.additionalApproverAdded,
-      templateParams: {
-        'contact.CONTRACT_TITLE': contractView.contract.title,
-        'contact.APPROVER_ROLE': 'ADDITIONAL_APPROVER',
-        'contact.LINK': this.getContractLink(params.contractId),
-      },
       metadata: {
         trigger: 'ADD_APPROVER',
       },
@@ -196,13 +194,16 @@ export class ContractApprovalNotificationService {
       tenantId: params.tenantId,
       contractId: params.contractId,
       recipientEmail,
-      templateId: this.templates.approvalReminderTemplateId,
+      subject: `Reminder: Pending Approval for ${contractView.contract.title}`,
+      htmlContent: buildMasterTemplate({
+        title: 'Approval Reminder',
+        greeting: `Hello ${recipientRole === 'HOD' ? 'HOD' : 'Approver'},`,
+        messageText: `${contractView.contract.title} is still pending your approval.`,
+        buttonText: 'Review Now',
+        buttonLink: this.getContractLink(params.contractId),
+        footerText: 'This reminder was sent because the contract is awaiting your action.',
+      }),
       notificationType: contractNotificationTypes.approvalReminder,
-      templateParams: {
-        'contact.CONTRACT_TITLE': contractView.contract.title,
-        'contact.APPROVER_ROLE': recipientRole,
-        'contact.LINK': this.getContractLink(params.contractId),
-      },
       metadata: {
         trigger: 'MANUAL_REMIND',
       },
@@ -238,12 +239,16 @@ export class ContractApprovalNotificationService {
       tenantId: params.tenantId,
       contractId: params.contractId,
       recipientEmail,
-      templateId: this.templates.legalInternalAssignmentTemplateId,
+      subject: `Legal Assignment: ${contractView.contract.title}`,
+      htmlContent: buildMasterTemplate({
+        title: 'Contract Assignment',
+        greeting: 'Hello Legal Team,',
+        messageText: `You were assigned legal work for ${contractView.contract.title}.`,
+        buttonText: 'Open Contract',
+        buttonLink: this.getContractLink(params.contractId),
+        footerText: 'Please proceed with the legal review workflow.',
+      }),
       notificationType: contractNotificationTypes.legalInternalAssignment,
-      templateParams: {
-        'contact.CONTRACT_TITLE': contractView.contract.title,
-        'contact.LINK': this.getContractLink(params.contractId),
-      },
       metadata: {
         trigger: 'LEGAL_INTERNAL_ASSIGNMENT',
       },
@@ -270,25 +275,27 @@ export class ContractApprovalNotificationService {
       role: params.actorRole,
     })
 
-    const templateId =
-      params.event === 'HOD_APPROVED'
-        ? this.templates.legalApprovalReceivedHodTemplateId
-        : this.templates.legalApprovalReceivedAdditionalTemplateId
     const notificationType =
       params.event === 'HOD_APPROVED'
         ? contractNotificationTypes.legalApprovalReceivedHod
         : contractNotificationTypes.legalApprovalReceivedAdditional
 
+    const approvalEventLabel = params.event === 'HOD_APPROVED' ? 'HOD approval' : 'additional approval'
+
     await this.dispatchNotification({
       tenantId: params.tenantId,
       contractId: params.contractId,
       recipientEmail,
-      templateId,
+      subject: `Approval Received: ${contractView.contract.title}`,
+      htmlContent: buildMasterTemplate({
+        title: 'Approval Received',
+        greeting: 'Hello Legal Team,',
+        messageText: `${approvalEventLabel} was recorded for ${contractView.contract.title}.`,
+        buttonText: 'Review Contract',
+        buttonLink: this.getContractLink(params.contractId),
+        footerText: 'Continue processing this contract based on the current workflow status.',
+      }),
       notificationType,
-      templateParams: {
-        'contact.CONTRACT_TITLE': contractView.contract.title,
-        'contact.LINK': this.getContractLink(params.contractId),
-      },
       metadata: {
         trigger: params.event,
       },
@@ -318,12 +325,16 @@ export class ContractApprovalNotificationService {
       tenantId: params.tenantId,
       contractId: params.contractId,
       recipientEmail,
-      templateId: this.templates.legalReturnedToHodTemplateId,
+      subject: `Returned to HOD: ${contractView.contract.title}`,
+      htmlContent: buildMasterTemplate({
+        title: 'Contract Returned to HOD',
+        greeting: 'Hello HOD,',
+        messageText: `${contractView.contract.title} has been rerouted to you for review.`,
+        buttonText: 'Open Contract',
+        buttonLink: this.getContractLink(params.contractId),
+        footerText: 'Please review and submit your decision to continue workflow.',
+      }),
       notificationType: contractNotificationTypes.legalReturnedToHod,
-      templateParams: {
-        'contact.CONTRACT_TITLE': contractView.contract.title,
-        'contact.LINK': this.getContractLink(params.contractId),
-      },
       metadata: {
         trigger: 'REROUTE_TO_HOD',
       },
@@ -354,12 +365,16 @@ export class ContractApprovalNotificationService {
         tenantId: params.tenantId,
         contractId: params.contractId,
         recipientEmail,
-        templateId: this.templates.legalContractRejectedTemplateId,
+        subject: `Contract Rejected: ${contractView.contract.title}`,
+        htmlContent: buildMasterTemplate({
+          title: 'Contract Rejected',
+          greeting: 'Hello,',
+          messageText: `${contractView.contract.title} has been rejected in the approval workflow.`,
+          buttonText: 'View Details',
+          buttonLink: this.getContractLink(params.contractId),
+          footerText: 'Open the contract for rejection context and required next steps.',
+        }),
         notificationType: contractNotificationTypes.legalContractRejected,
-        templateParams: {
-          'contact.CONTRACT_TITLE': contractView.contract.title,
-          'contact.LINK': this.getContractLink(params.contractId),
-        },
         metadata: {
           trigger: params.trigger,
         },
@@ -371,7 +386,8 @@ export class ContractApprovalNotificationService {
     tenantId: string
     contractId: string
     recipientEmail: string
-    templateId: number
+    subject: string
+    htmlContent: string
     notificationType:
       | 'HOD_APPROVAL_REQUESTED'
       | 'APPROVAL_REMINDER'
@@ -381,23 +397,14 @@ export class ContractApprovalNotificationService {
       | 'LEGAL_APPROVAL_RECEIVED_ADDITIONAL'
       | 'LEGAL_RETURNED_TO_HOD'
       | 'LEGAL_CONTRACT_REJECTED'
-    templateParams: Record<string, unknown>
     metadata?: Record<string, unknown>
   }): Promise<void> {
-    if (!params.templateId || params.templateId <= 0) {
-      this.logger.warn('Skipping contract approval notification; template id is missing', {
-        tenantId: params.tenantId,
-        contractId: params.contractId,
-        notificationType: params.notificationType,
-      })
-      return
-    }
-
     try {
       const delivery = await this.mailSender.sendTemplateEmail({
         recipientEmail: params.recipientEmail,
-        templateId: params.templateId,
-        templateParams: params.templateParams,
+        subject: params.subject,
+        htmlContent: params.htmlContent,
+        tags: ['contract-workflow'],
       })
 
       await this.contractQueryService.recordContractNotificationDelivery({
@@ -406,13 +413,17 @@ export class ContractApprovalNotificationService {
         recipientEmail: params.recipientEmail,
         channel: contractNotificationChannels.email,
         notificationType: params.notificationType,
-        templateId: params.templateId,
+        templateId: contractNotificationTemplates.masterHtmlInline,
         providerName: 'BREVO',
         providerMessageId: delivery.providerMessageId,
         status: contractNotificationStatuses.sent,
         retryCount: 0,
         maxRetries: contractNotificationPolicy.maxRetries,
-        metadata: params.metadata,
+        metadata: {
+          ...params.metadata,
+          template_mode: 'MASTER_HTML',
+          subject: params.subject,
+        },
       })
     } catch (error) {
       this.logger.error('Contract approval notification delivery failed', {
@@ -429,13 +440,17 @@ export class ContractApprovalNotificationService {
         recipientEmail: params.recipientEmail,
         channel: contractNotificationChannels.email,
         notificationType: params.notificationType,
-        templateId: params.templateId,
+        templateId: contractNotificationTemplates.masterHtmlInline,
         providerName: 'BREVO',
         status: contractNotificationStatuses.failed,
         retryCount: 0,
         maxRetries: contractNotificationPolicy.maxRetries,
         lastError: String(error),
-        metadata: params.metadata,
+        metadata: {
+          ...params.metadata,
+          template_mode: 'MASTER_HTML',
+          subject: params.subject,
+        },
       })
 
       throw error

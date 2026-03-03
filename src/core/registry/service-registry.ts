@@ -130,13 +130,7 @@ export function getContractSignatoryService(): ContractSignatoryService {
     })
 
     const hasBrevoConfig = Boolean(
-      mailConfig.brevoApiBaseUrl &&
-      apiKey &&
-      apiKeyLooksLikeRestKey &&
-      mailConfig.brevoTemplateSignatoryLinkId &&
-      mailConfig.brevoTemplateSigningCompletedId &&
-      mailConfig.fromName &&
-      mailConfig.fromEmail
+      mailConfig.brevoApiBaseUrl && apiKey && apiKeyLooksLikeRestKey && mailConfig.fromName && mailConfig.fromEmail
     )
 
     const zohoSignClient = new ZohoSignClient({
@@ -163,10 +157,10 @@ export function getContractSignatoryService(): ContractSignatoryService {
           fromEmail: mailConfig.fromEmail as string,
         })
       : {
-          sendTemplateEmail: async (input: { recipientEmail: string; templateId: number }) => {
+          sendTemplateEmail: async (input: { recipientEmail: string; subject: string }) => {
             logger.warn('Brevo config missing; using dev no-op signatory mail sender', {
               recipientEmail: input.recipientEmail,
-              templateId: input.templateId,
+              subject: input.subject,
             })
 
             return {
@@ -175,13 +169,8 @@ export function getContractSignatoryService(): ContractSignatoryService {
           },
         }
 
-    const signatoryLinkTemplateId = mailConfig.brevoTemplateSignatoryLinkId ?? 0
-    const signingCompletedTemplateId = mailConfig.brevoTemplateSigningCompletedId ?? 0
-
     if (!hasBrevoConfig) {
       logger.warn('Brevo config is incomplete. Dev no-op email sender is active.', {
-        signatoryLinkTemplateId,
-        signingCompletedTemplateId,
         hasApiKey: Boolean(apiKey),
         apiKeyLooksLikeRestKey,
       })
@@ -194,10 +183,7 @@ export function getContractSignatoryService(): ContractSignatoryService {
       supabaseContractStorageRepository,
       zohoSignClient,
       brevoSmtpSender,
-      {
-        signatoryLinkTemplateId,
-        signingCompletedTemplateId,
-      },
+      undefined,
       appConfig.auth.siteUrl,
       logger
     )
@@ -234,10 +220,10 @@ export function getContractApprovalNotificationService(): ContractApprovalNotifi
           fromEmail: mailConfig.fromEmail as string,
         })
       : {
-          sendTemplateEmail: async (input: { recipientEmail: string; templateId: number }) => {
+          sendTemplateEmail: async (input: { recipientEmail: string; subject: string }) => {
             logger.warn('Brevo config missing; using dev no-op approval mail sender', {
               recipientEmail: input.recipientEmail,
-              templateId: input.templateId,
+              subject: input.subject,
             })
 
             return {
@@ -249,16 +235,7 @@ export function getContractApprovalNotificationService(): ContractApprovalNotifi
     contractApprovalNotificationService = new ContractApprovalNotificationService(
       getContractQueryService(),
       sender,
-      {
-        hodApprovalRequestedTemplateId: mailConfig.brevoTemplateHodApprovalRequestedId ?? 0,
-        approvalReminderTemplateId: mailConfig.brevoTemplateApprovalReminderId ?? 0,
-        additionalApproverAddedTemplateId: mailConfig.brevoTemplateAdditionalApproverAddedId ?? 0,
-        legalInternalAssignmentTemplateId: mailConfig.brevoTemplateLegalInternalAssignmentId ?? 0,
-        legalApprovalReceivedHodTemplateId: mailConfig.brevoTemplateLegalApprovalReceivedHodId ?? 0,
-        legalApprovalReceivedAdditionalTemplateId: mailConfig.brevoTemplateLegalApprovalReceivedAdditionalId ?? 0,
-        legalReturnedToHodTemplateId: mailConfig.brevoTemplateLegalReturnedToHodId ?? 0,
-        legalContractRejectedTemplateId: mailConfig.brevoTemplateLegalContractRejectedId ?? 0,
-      },
+      undefined,
       logger
     )
   }

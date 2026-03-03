@@ -5,6 +5,7 @@ import {
   contractNotificationChannels,
   contractNotificationPolicy,
   contractNotificationStatuses,
+  contractNotificationTemplates,
   contractNotificationTypes,
   contractAuditActions,
   contractAuditEvents,
@@ -12,6 +13,7 @@ import {
   contractStatuses,
   contractWorkflowRoles,
 } from '@/core/constants/contracts'
+import { buildMasterTemplate } from '@/lib/email/master-template'
 import type { ContractDetailView } from '@/core/domain/contracts/contract-query-repository'
 import type { ContractRepository } from '@/core/domain/contracts/contract-repository'
 import type { ContractStorageRepository } from '@/core/domain/contracts/contract-storage-repository'
@@ -57,15 +59,20 @@ type SignatureProvider = {
       signingUrl: string
     }>
   }>
-  downloadEnvelopePdf: (params: { envelopeId: string }) => Promise<Uint8Array>
-  downloadCompletionCertificate: (params: { envelopeId: string }) => Promise<Uint8Array>
+  downloadEnvelopePdf?: (params: { envelopeId: string }) => Promise<Uint8Array>
+  downloadCompletionCertificate?: (params: { envelopeId: string }) => Promise<Uint8Array>
+  downloadCompletedEnvelopeDocuments?: (params: { envelopeId: string }) => Promise<{
+    executedPdf: Uint8Array
+    certificatePdf: Uint8Array
+  }>
 }
 
 type SignatoryMailer = {
   sendTemplateEmail(input: {
     recipientEmail: string
-    templateId: number
-    templateParams: Record<string, unknown>
+    subject: string
+    htmlContent: string
+    tags?: string[]
   }): Promise<{ providerMessageId?: string }>
 }
 
@@ -93,10 +100,12 @@ export class ContractSignatoryService {
     private readonly contractStorageRepository: ContractStorageRepository,
     private readonly signatureProvider: SignatureProvider,
     private readonly signatoryMailer: SignatoryMailer,
-    private readonly notificationTemplates: {
-      signatoryLinkTemplateId: number
-      signingCompletedTemplateId: number
-    },
+    private readonly _legacyNotificationTemplates:
+      | {
+          signatoryLinkTemplateId: number
+          signingCompletedTemplateId: number
+        }
+      | undefined,
     private readonly appSiteUrl: string,
     private readonly logger: Logger
   ) {}
@@ -266,17 +275,24 @@ export class ContractSignatoryService {
         recipientId: envelopeRecipient.recipientId,
       })
 
+      const subject = `Signature Requested: ${contractView.contract.title}`
+      const htmlContent = buildMasterTemplate({
+        title: 'Signature Requested',
+        greeting: 'Hello,',
+        messageText: `A signature has been requested for ${contractView.contract.title} by ${params.actorEmail}.`,
+        buttonText: 'Review & Sign Contract',
+        buttonLink: signingUrl,
+        footerText: 'Please complete signing at your earliest convenience.',
+      })
+
       await this.dispatchTemplateNotificationWithRetry({
         tenantId: params.tenantId,
         contractId: params.contractId,
         envelopeId: envelope.envelopeId,
         recipientEmail: recipient.signatoryEmail,
-        templateId: this.notificationTemplates.signatoryLinkTemplateId,
+        subject,
+        htmlContent,
         notificationType: contractNotificationTypes.signatoryLink,
-        templateParams: {
-          contract_title: contractView.contract.title,
-          signing_url: signingUrl,
-        },
         strictFailure: true,
       })
     }
@@ -477,9 +493,25 @@ export class ContractSignatoryService {
     }
 
     try {
-      const fileBytes = isCompletionCertificate
-        ? await this.signatureProvider.downloadCompletionCertificate({ envelopeId })
-        : await this.signatureProvider.downloadEnvelopePdf({ envelopeId })
+      let fileBytes: Uint8Array
+
+      if (isCompletionCertificate) {
+        if (this.signatureProvider.downloadCompletionCertificate) {
+          fileBytes = await this.signatureProvider.downloadCompletionCertificate({ envelopeId })
+        } else if (this.signatureProvider.downloadCompletedEnvelopeDocuments) {
+          const legacyArtifacts = await this.signatureProvider.downloadCompletedEnvelopeDocuments({ envelopeId })
+          fileBytes = legacyArtifacts.certificatePdf
+        } else {
+          throw new Error('Completion certificate download is not supported by configured signature provider')
+        }
+      } else if (this.signatureProvider.downloadEnvelopePdf) {
+        fileBytes = await this.signatureProvider.downloadEnvelopePdf({ envelopeId })
+      } else if (this.signatureProvider.downloadCompletedEnvelopeDocuments) {
+        const legacyArtifacts = await this.signatureProvider.downloadCompletedEnvelopeDocuments({ envelopeId })
+        fileBytes = legacyArtifacts.executedPdf
+      } else {
+        throw new Error('Executed envelope download is not supported by configured signature provider')
+      }
 
       await this.uploadCompletionArtifactSafely({
         path: targetFilePath,
@@ -641,17 +673,25 @@ export class ContractSignatoryService {
     }
 
     for (const recipientEmail of profile.recipientEmails) {
+      const contractLink = `${this.appSiteUrl}/contracts/${params.contractId}`
+      const subject = `Signing Completed: ${profile.contractTitle}`
+      const htmlContent = buildMasterTemplate({
+        title: 'Signing Completed',
+        greeting: 'Hello,',
+        messageText: `The signing workflow for ${profile.contractTitle} has been completed.`,
+        buttonText: 'View Contract',
+        buttonLink: contractLink,
+        footerText: 'The executed contract and certificate are now available in NXT Legal.',
+      })
+
       await this.dispatchTemplateNotificationWithRetry({
         tenantId: params.tenantId,
         contractId: params.contractId,
         envelopeId: params.envelopeId,
         recipientEmail,
-        templateId: this.notificationTemplates.signingCompletedTemplateId,
+        subject,
+        htmlContent,
         notificationType: contractNotificationTypes.signingCompleted,
-        templateParams: {
-          contract_title: profile.contractTitle,
-          contract_link: `${this.appSiteUrl}/contracts/${params.contractId}`,
-        },
         strictFailure: false,
       })
     }
@@ -662,9 +702,9 @@ export class ContractSignatoryService {
     contractId: string
     envelopeId?: string
     recipientEmail: string
-    templateId: number
+    subject: string
+    htmlContent: string
     notificationType: 'SIGNATORY_LINK' | 'SIGNING_COMPLETED'
-    templateParams: Record<string, unknown>
     strictFailure: boolean
   }): Promise<void> {
     const maxRetries = contractNotificationPolicy.maxRetries
@@ -674,8 +714,9 @@ export class ContractSignatoryService {
       try {
         const response = await this.signatoryMailer.sendTemplateEmail({
           recipientEmail: params.recipientEmail,
-          templateId: params.templateId,
-          templateParams: params.templateParams,
+          subject: params.subject,
+          htmlContent: params.htmlContent,
+          tags: ['contract-workflow'],
         })
 
         await this.contractQueryService.recordContractNotificationDelivery({
@@ -685,14 +726,15 @@ export class ContractSignatoryService {
           recipientEmail: params.recipientEmail,
           channel: contractNotificationChannels.email,
           notificationType: params.notificationType,
-          templateId: params.templateId,
+          templateId: contractNotificationTemplates.masterHtmlInline,
           providerName: 'BREVO',
           providerMessageId: response.providerMessageId,
           status: contractNotificationStatuses.sent,
           retryCount,
           maxRetries,
           metadata: {
-            template_params: params.templateParams,
+            template_mode: 'MASTER_HTML',
+            subject: params.subject,
           },
         })
 
@@ -712,7 +754,7 @@ export class ContractSignatoryService {
           recipientEmail: params.recipientEmail,
           channel: contractNotificationChannels.email,
           notificationType: params.notificationType,
-          templateId: params.templateId,
+          templateId: contractNotificationTemplates.masterHtmlInline,
           providerName: 'BREVO',
           status: contractNotificationStatuses.failed,
           retryCount,
@@ -720,7 +762,8 @@ export class ContractSignatoryService {
           nextRetryAt,
           lastError: error instanceof Error ? error.message : String(error),
           metadata: {
-            template_params: params.templateParams,
+            template_mode: 'MASTER_HTML',
+            subject: params.subject,
           },
         })
 

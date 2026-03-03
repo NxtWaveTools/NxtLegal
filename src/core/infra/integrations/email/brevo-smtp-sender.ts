@@ -1,22 +1,23 @@
 import 'server-only'
 
-type BrevoTemplateSenderConfig = {
+type BrevoSenderConfig = {
   apiBaseUrl: string
   apiKey: string
   fromName: string
   fromEmail: string
 }
 
-type SendTemplateEmailInput = {
+type SendEmailInput = {
   recipientEmail: string
-  templateId: number
-  templateParams: Record<string, unknown>
+  subject: string
+  htmlContent: string
+  tags?: string[]
 }
 
 export class BrevoSmtpSender {
-  constructor(private readonly config: BrevoTemplateSenderConfig) {}
+  constructor(private readonly config: BrevoSenderConfig) {}
 
-  async sendTemplateEmail(input: SendTemplateEmailInput): Promise<{ providerMessageId?: string }> {
+  async sendTemplateEmail(input: SendEmailInput): Promise<{ providerMessageId?: string }> {
     const response = await fetch(`${this.config.apiBaseUrl}/smtp/email`, {
       method: 'POST',
       headers: {
@@ -30,8 +31,9 @@ export class BrevoSmtpSender {
           email: this.config.fromEmail,
         },
         to: [{ email: input.recipientEmail }],
-        templateId: input.templateId,
-        params: input.templateParams,
+        subject: input.subject,
+        htmlContent: input.htmlContent,
+        tags: input.tags,
       }),
     })
 

@@ -1,5 +1,6 @@
 import { config } from 'dotenv'
 import { resolve } from 'path'
+import { buildMasterTemplate, type MasterTemplateData } from '../src/lib/email/master-template'
 
 config({ path: resolve(process.cwd(), '.env.local') })
 
@@ -7,7 +8,7 @@ type BrevoTemplateSeed = {
   envKey: string
   templateName: string
   subject: string
-  htmlContent: string
+  templateData: MasterTemplateData
 }
 
 type BrevoCreateTemplateResponse = {
@@ -23,36 +24,66 @@ const templatesToCreate: BrevoTemplateSeed[] = [
     envKey: 'BREVO_TEMPLATE_LEGAL_INTERNAL_ASSIGNMENT_ID',
     templateName: 'NXT_LEGAL_INTERNAL_ASSIGNMENT',
     subject: 'Legal Assignment: {{contact.CONTRACT_TITLE}}',
-    htmlContent:
-      "<h1>Contract Assignment</h1><p>You were assigned legal work for <strong>{{contact.CONTRACT_TITLE}}</strong>.</p><a href='{{contact.LINK}}'>Open Contract</a>",
+    templateData: {
+      title: 'Contract Assignment',
+      greeting: 'Hello Legal Team,',
+      messageText: 'You were assigned legal work for {{contact.CONTRACT_TITLE}}.',
+      buttonText: 'Open Contract',
+      buttonLink: '{{contact.LINK}}',
+      footerText: 'Please review the assignment and proceed with the next required action.',
+    },
   },
   {
     envKey: 'BREVO_TEMPLATE_LEGAL_APPROVAL_RECEIVED_HOD_ID',
     templateName: 'NXT_LEGAL_APPROVAL_RECEIVED_HOD',
     subject: 'HOD Approved: {{contact.CONTRACT_TITLE}}',
-    htmlContent:
-      "<h1>HOD Approval Received</h1><p>The HOD completed approval for <strong>{{contact.CONTRACT_TITLE}}</strong>.</p><a href='{{contact.LINK}}'>Review Contract</a>",
+    templateData: {
+      title: 'HOD Approval Received',
+      greeting: 'Hello Legal Team,',
+      messageText: 'The HOD has completed approval for {{contact.CONTRACT_TITLE}}.',
+      buttonText: 'Review Contract',
+      buttonLink: '{{contact.LINK}}',
+      footerText: 'No further HOD action is required for this step.',
+    },
   },
   {
     envKey: 'BREVO_TEMPLATE_LEGAL_APPROVAL_RECEIVED_ADDITIONAL_ID',
     templateName: 'NXT_LEGAL_APPROVAL_RECEIVED_ADDITIONAL',
     subject: 'Additional Approval Received: {{contact.CONTRACT_TITLE}}',
-    htmlContent:
-      "<h1>Additional Approval Received</h1><p>An additional approver completed their approval for <strong>{{contact.CONTRACT_TITLE}}</strong>.</p><a href='{{contact.LINK}}'>Review Contract</a>",
+    templateData: {
+      title: 'Additional Approval Received',
+      greeting: 'Hello Legal Team,',
+      messageText: 'An additional approver has completed approval for {{contact.CONTRACT_TITLE}}.',
+      buttonText: 'Review Contract',
+      buttonLink: '{{contact.LINK}}',
+      footerText: 'Continue the workflow based on current contract status.',
+    },
   },
   {
     envKey: 'BREVO_TEMPLATE_LEGAL_RETURNED_TO_HOD_ID',
     templateName: 'NXT_LEGAL_RETURNED_TO_HOD',
     subject: 'Returned to HOD: {{contact.CONTRACT_TITLE}}',
-    htmlContent:
-      "<h1>Contract Returned to HOD</h1><p>The contract <strong>{{contact.CONTRACT_TITLE}}</strong> has been rerouted to you for HOD review.</p><a href='{{contact.LINK}}'>Open Contract</a>",
+    templateData: {
+      title: 'Contract Returned to HOD',
+      greeting: 'Hello HOD,',
+      messageText: '{{contact.CONTRACT_TITLE}} has been rerouted to you for HOD review.',
+      buttonText: 'Open Contract',
+      buttonLink: '{{contact.LINK}}',
+      footerText: 'Please review the contract and submit your decision.',
+    },
   },
   {
     envKey: 'BREVO_TEMPLATE_LEGAL_CONTRACT_REJECTED_ID',
     templateName: 'NXT_LEGAL_CONTRACT_REJECTED',
     subject: 'Contract Rejected: {{contact.CONTRACT_TITLE}}',
-    htmlContent:
-      "<h1>Contract Rejected</h1><p>The contract <strong>{{contact.CONTRACT_TITLE}}</strong> has been rejected.</p><a href='{{contact.LINK}}'>View Details</a>",
+    templateData: {
+      title: 'Contract Rejected',
+      greeting: 'Hello,',
+      messageText: '{{contact.CONTRACT_TITLE}} has been rejected in the approval workflow.',
+      buttonText: 'View Details',
+      buttonLink: '{{contact.LINK}}',
+      footerText: 'Open the contract for rejection context and next-step guidance.',
+    },
   },
 ]
 
@@ -70,7 +101,7 @@ async function createTemplate(params: { apiKey: string; template: BrevoTemplateS
       },
       templateName: params.template.templateName,
       subject: params.template.subject,
-      htmlContent: params.template.htmlContent,
+      htmlContent: buildMasterTemplate(params.template.templateData),
     }),
   })
 
