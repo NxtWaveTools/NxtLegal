@@ -7,7 +7,7 @@ import {
 import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { logger } from '@/core/infra/logging/logger'
-import { isAppError } from '@/core/http/errors'
+import { DatabaseError, isAppError } from '@/core/http/errors'
 import { contractUploadModes, contractWorkflowRoles } from '@/core/constants/contracts'
 import { z } from 'zod'
 
@@ -338,6 +338,14 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     logger.error('Contract upload failed', {
       error: String(error),
       errorCode: isAppError(error) ? error.code : 'INTERNAL_ERROR',
+      errorStatusCode: isAppError(error) ? error.statusCode : 500,
+      errorMetadata: isAppError(error) ? error.metadata : undefined,
+      originalError:
+        error instanceof DatabaseError
+          ? error.originalError instanceof Error
+            ? error.originalError.message
+            : undefined
+          : undefined,
     })
 
     const status = isAppError(error) ? error.statusCode : 500
