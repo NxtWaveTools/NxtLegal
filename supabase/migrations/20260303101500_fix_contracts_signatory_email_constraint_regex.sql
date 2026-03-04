@@ -20,5 +20,6 @@ BEGIN
     ADD CONSTRAINT contracts_signatory_email_format_check
     CHECK (
       signatory_email ~* '^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$'
+      OR upper(btrim(signatory_email)) = 'NA'
     );
 END $$;
