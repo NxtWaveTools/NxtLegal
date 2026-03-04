@@ -36,6 +36,7 @@ type DraftField = {
 type ResizeSession = {
   fieldId: string
   mirrorGroupId?: string
+  fieldType: FieldType
   pageNumber: number
   startClientX: number
   startClientY: number
@@ -79,6 +80,8 @@ const defaultFieldSizeByType: Record<FieldType, { width: number; height: number 
   TIME: { width: 96, height: 22 },
   TEXT: { width: 200, height: 22 },
 }
+const imageFieldTypes: FieldType[] = ['SIGNATURE', 'INITIAL', 'STAMP']
+const isImageFieldType = (fieldType: FieldType) => imageFieldTypes.includes(fieldType)
 
 export default function PrepareForSigningModal({
   isOpen,
@@ -297,9 +300,23 @@ export default function PrepareForSigningModal({
 
   const resolveFieldDimensions = (field: DraftField) => {
     const defaults = defaultFieldSizeByType[field.fieldType]
+    const rawWidth = field.width ?? defaults.width
+    const rawHeight = field.height ?? defaults.height
+
+    if (!isImageFieldType(field.fieldType)) {
+      return {
+        width: rawWidth,
+        height: rawHeight,
+      }
+    }
+
+    const widthScale = rawWidth / defaults.width
+    const heightScale = rawHeight / defaults.height
+    const normalizedScale = Number(Math.max(0.5, Math.min(2.5, (widthScale + heightScale) / 2)).toFixed(3))
+
     return {
-      width: field.width ?? defaults.width,
-      height: field.height ?? defaults.height,
+      width: Number((defaults.width * normalizedScale).toFixed(2)),
+      height: Number((defaults.height * normalizedScale).toFixed(2)),
     }
   }
 
@@ -572,17 +589,36 @@ export default function PrepareForSigningModal({
             groupMaxHeight = Math.min(groupMaxHeight, Math.max(minHeight, candidateMetrics.height - candidateY))
           }
 
-          const nextWidth = Number(
-            Math.max(minWidth, Math.min(groupMaxWidth, session.startWidth + deltaWidth)).toFixed(2)
-          )
-          const nextHeight = Number(
-            Math.max(minHeight, Math.min(groupMaxHeight, session.startHeight + deltaHeight)).toFixed(2)
-          )
+          const nextDimensions = (() => {
+            if (!isImageFieldType(session.fieldType)) {
+              return {
+                width: Number(Math.max(minWidth, Math.min(groupMaxWidth, session.startWidth + deltaWidth)).toFixed(2)),
+                height: Number(
+                  Math.max(minHeight, Math.min(groupMaxHeight, session.startHeight + deltaHeight)).toFixed(2)
+                ),
+              }
+            }
+
+            const aspectRatio = session.startHeight / session.startWidth
+            const safeAspectRatio = Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 22 / 96
+            const minWidthForAspect = Math.max(minWidth, minHeight / safeAspectRatio)
+            const maxWidthForAspect = Math.max(
+              minWidthForAspect,
+              Math.min(groupMaxWidth, groupMaxHeight / safeAspectRatio)
+            )
+            const width = Number(
+              Math.max(minWidthForAspect, Math.min(maxWidthForAspect, session.startWidth + deltaWidth)).toFixed(2)
+            )
+            return {
+              width,
+              height: Number((width * safeAspectRatio).toFixed(2)),
+            }
+          })()
 
           return current.map((field) =>
             field.id === session.fieldId ||
             (session.mirrorGroupId && field.mirrorGroupId && field.mirrorGroupId === session.mirrorGroupId)
-              ? { ...field, width: nextWidth, height: nextHeight }
+              ? { ...field, width: nextDimensions.width, height: nextDimensions.height }
               : field
           )
         })()
@@ -629,6 +665,7 @@ export default function PrepareForSigningModal({
     resizeSessionRef.current = {
       fieldId: field.id,
       mirrorGroupId: field.mirrorGroupId,
+      fieldType: field.fieldType,
       pageNumber,
       startClientX: event.clientX,
       startClientY: event.clientY,

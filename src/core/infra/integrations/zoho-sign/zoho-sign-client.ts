@@ -391,6 +391,13 @@ export class ZohoSignClient {
     const pageNumber = Math.max(0, (field.pageNumber ?? 1) - 1)
     const xCoord = this.normalizeZohoCoordinate(field.xPosition, 24)
     const yCoord = this.normalizeZohoCoordinate(field.yPosition, 24)
+    const dimensions = this.resolveZohoFieldDimensions({
+      fieldType: field.fieldType,
+      width: field.width,
+      height: field.height,
+      defaultWidth,
+      defaultHeight,
+    })
 
     return {
       field_type_name: fieldTypeName,
@@ -403,8 +410,8 @@ export class ZohoSignClient {
       action_id: actionId,
       x_coord: xCoord,
       y_coord: yCoord,
-      abs_width: this.normalizeZohoDimension(field.width, defaultWidth),
-      abs_height: this.normalizeZohoDimension(field.height, defaultHeight),
+      abs_width: dimensions.width,
+      abs_height: dimensions.height,
     }
   }
 
@@ -415,6 +422,35 @@ export class ZohoSignClient {
 
     // Treat coordinates as PDF-space points; clamp to safe bounds.
     return Math.max(0, Math.min(2000, Math.round(value)))
+  }
+
+  private resolveZohoFieldDimensions(params: {
+    fieldType: ContractSignatoryFieldType
+    width: number | null
+    height: number | null
+    defaultWidth: number
+    defaultHeight: number
+  }): { width: number; height: number } {
+    if (params.fieldType === 'SIGNATURE' || params.fieldType === 'INITIAL' || params.fieldType === 'STAMP') {
+      const widthScale =
+        typeof params.width === 'number' && !Number.isNaN(params.width) ? params.width / params.defaultWidth : null
+      const heightScale =
+        typeof params.height === 'number' && !Number.isNaN(params.height) ? params.height / params.defaultHeight : null
+      const averagedScale =
+        typeof widthScale === 'number' && typeof heightScale === 'number'
+          ? (widthScale + heightScale) / 2
+          : (widthScale ?? heightScale ?? 1)
+      const safeScale = Math.max(0.5, Math.min(2.5, averagedScale))
+      return {
+        width: this.normalizeZohoDimension(params.defaultWidth * safeScale, params.defaultWidth),
+        height: this.normalizeZohoDimension(params.defaultHeight * safeScale, params.defaultHeight),
+      }
+    }
+
+    return {
+      width: this.normalizeZohoDimension(params.width, params.defaultWidth),
+      height: this.normalizeZohoDimension(params.height, params.defaultHeight),
+    }
   }
 
   private normalizeZohoDimension(value: number | null, fallback: number): number {
