@@ -156,9 +156,11 @@ export default function PrepareForSigningModal({
       .filter((recipient) => recipient.email)
 
     const uniqueRoutingOrders = new Set(normalizedRecipients.map((recipient) => recipient.routingOrder))
+    const allRoutingOrdersSame = uniqueRoutingOrders.size === 1
+    const allRoutingOrdersUnique = uniqueRoutingOrders.size === normalizedRecipients.length
     const hasValidRoutingOrder =
       normalizedRecipients.length > 0 &&
-      uniqueRoutingOrders.size === normalizedRecipients.length &&
+      (allRoutingOrdersSame || allRoutingOrdersUnique) &&
       normalizedRecipients.every((recipient) => recipient.routingOrder >= 1)
 
     const missingSignatureEmails = normalizedRecipients
@@ -211,8 +213,10 @@ export default function PrepareForSigningModal({
         label: 'Routing order valid',
         isReady: hasValidRoutingOrder,
         detail: hasValidRoutingOrder
-          ? 'Unique routing order per recipient'
-          : 'Each recipient needs a unique routing order',
+          ? allRoutingOrdersSame
+            ? 'All recipients share one routing order (parallel send)'
+            : 'Unique routing order per recipient (sequential send)'
+          : 'Use either same order for all recipients or unique order for each recipient',
       },
       {
         key: 'field_positions',
@@ -287,6 +291,18 @@ export default function PrepareForSigningModal({
     const draftError = validateDraft()
     if (draftError) {
       return draftError
+    }
+
+    const normalizedRecipients = recipients.map((recipient) => ({
+      email: recipient.email.trim().toLowerCase(),
+      routingOrder: recipient.routingOrder,
+    }))
+    const uniqueRoutingOrders = new Set(normalizedRecipients.map((recipient) => recipient.routingOrder))
+    const allRoutingOrdersSame = uniqueRoutingOrders.size === 1
+    const allRoutingOrdersUnique = uniqueRoutingOrders.size === normalizedRecipients.length
+
+    if (!allRoutingOrdersSame && !allRoutingOrdersUnique) {
+      return 'Use either same routing order for all recipients or unique order for each recipient'
     }
 
     for (const recipient of recipients) {

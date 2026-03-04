@@ -85,6 +85,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [legalAutoRenewal, setLegalAutoRenewal] = useState<'unknown' | 'yes' | 'no'>('unknown')
   const [isGeneratingLinkFor, setIsGeneratingLinkFor] = useState<string | null>(null)
   const [copiedSigningLinkFor, setCopiedSigningLinkFor] = useState<string | null>(null)
+  const [generatedSigningLinksByEmail, setGeneratedSigningLinksByEmail] = useState<Record<string, string>>({})
   const [isDownloadingFinalSignedDoc, setIsDownloadingFinalSignedDoc] = useState(false)
   const [isDownloadingCompletionCertificate, setIsDownloadingCompletionCertificate] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
@@ -325,6 +326,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       setActiveTab('overview')
     }
   }, [activeTab, canViewSignedDocsTab])
+
+  useEffect(() => {
+    setGeneratedSigningLinksByEmail({})
+    setCopiedSigningLinkFor(null)
+  }, [selectedContractId])
 
   useEffect(() => {
     if (!selectedContractId) {
@@ -806,6 +812,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
     setIsGeneratingLinkFor(recipientEmail)
     try {
+      const normalizedRecipientEmail = recipientEmail.trim().toLowerCase()
       const response = await fetch(
         `/api/contracts/${selectedContractId}/signatories/link?email=${encodeURIComponent(recipientEmail)}`,
         { method: 'GET' }
@@ -814,15 +821,31 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       if (!response.ok || !json?.ok || !json.data?.signing_url) {
         throw new Error(json?.error?.message ?? 'Failed to generate signing link')
       }
-      await navigator.clipboard.writeText(json.data.signing_url)
+      const signingUrl = String(json.data.signing_url)
+      setGeneratedSigningLinksByEmail((current) => ({
+        ...current,
+        [normalizedRecipientEmail]: signingUrl,
+      }))
       setError(null)
-      setCopiedSigningLinkFor(recipientEmail)
-      if (copiedSigningLinkResetTimerRef.current) {
-        window.clearTimeout(copiedSigningLinkResetTimerRef.current)
+
+      if (typeof navigator?.clipboard?.writeText === 'function') {
+        try {
+          await navigator.clipboard.writeText(signingUrl)
+          setCopiedSigningLinkFor(recipientEmail)
+          if (copiedSigningLinkResetTimerRef.current) {
+            window.clearTimeout(copiedSigningLinkResetTimerRef.current)
+          }
+          copiedSigningLinkResetTimerRef.current = window.setTimeout(() => {
+            setCopiedSigningLinkFor((current) => (current === recipientEmail ? null : current))
+          }, 2000)
+        } catch {
+          setCopiedSigningLinkFor(null)
+          setError('Signing link generated. Clipboard copy failed, copy the link shown below.')
+        }
+      } else {
+        setCopiedSigningLinkFor(null)
+        setError('Signing link generated. Clipboard is unavailable, copy the link shown below.')
       }
-      copiedSigningLinkResetTimerRef.current = window.setTimeout(() => {
-        setCopiedSigningLinkFor((current) => (current === recipientEmail ? null : current))
-      }, 2000)
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to generate signing link')
     } finally {
@@ -1664,55 +1687,71 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                               <div className={styles.eventMeta}>Sign is available only after COMPLETED.</div>
                             )}
                             <div className={styles.timeline}>
-                              {signatories.map((signatory) => (
-                                <div key={signatory.id} className={styles.event}>
-                                  <div className={styles.signatoryHeader}>
-                                    <div>
-                                      {signatory.signatoryEmail} · {signatory.recipientType} · Step{' '}
-                                      {signatory.routingOrder}
-                                    </div>
-                                    <span
-                                      className={`${styles.signatoryStatusBadge} ${
-                                        signatory.status === 'SIGNED'
-                                          ? styles.signatoryStatusSigned
-                                          : styles.signatoryStatusPending
-                                      }`}
-                                    >
-                                      {signatory.status}
-                                    </span>
-                                  </div>
-                                  {signatory.recipientType === 'INTERNAL' ? (
-                                    <div className={styles.signatoryActionRow}>
-                                      <button
-                                        type="button"
-                                        className={`${styles.button} ${styles.buttonGhost} ${styles.signatoryLinkButton}`}
-                                        disabled={isMutating || isGeneratingLinkFor === signatory.signatoryEmail}
-                                        onClick={() =>
-                                          void handleGenerateSigningLink(
-                                            signatory.signatoryEmail,
-                                            signatory.recipientType
-                                          )
-                                        }
+                              {signatories.map((signatory) => {
+                                const generatedSigningLink =
+                                  generatedSigningLinksByEmail[signatory.signatoryEmail.trim().toLowerCase()]
+
+                                return (
+                                  <div key={signatory.id} className={styles.event}>
+                                    <div className={styles.signatoryHeader}>
+                                      <div>
+                                        {signatory.signatoryEmail} · {signatory.recipientType} · Step{' '}
+                                        {signatory.routingOrder}
+                                      </div>
+                                      <span
+                                        className={`${styles.signatoryStatusBadge} ${
+                                          signatory.status === 'SIGNED'
+                                            ? styles.signatoryStatusSigned
+                                            : styles.signatoryStatusPending
+                                        }`}
                                       >
-                                        {isGeneratingLinkFor === signatory.signatoryEmail
-                                          ? 'Generating link...'
-                                          : copiedSigningLinkFor === signatory.signatoryEmail
-                                            ? 'Copied'
-                                            : 'Copy Signing Link'}
-                                      </button>
-                                      <span className={styles.signatoryActionHint}>
-                                        {copiedSigningLinkFor === signatory.signatoryEmail
-                                          ? 'Copied to clipboard'
-                                          : 'Generates fresh secure link'}
+                                        {signatory.status}
                                       </span>
                                     </div>
-                                  ) : (
-                                    <div className={styles.signatoryActionHint}>
-                                      Signing link available for internal users.
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
+                                    {signatory.recipientType === 'INTERNAL' ? (
+                                      <div className={styles.signatoryActionRow}>
+                                        <button
+                                          type="button"
+                                          className={`${styles.button} ${styles.buttonGhost} ${styles.signatoryLinkButton}`}
+                                          disabled={isMutating || isGeneratingLinkFor === signatory.signatoryEmail}
+                                          onClick={() =>
+                                            void handleGenerateSigningLink(
+                                              signatory.signatoryEmail,
+                                              signatory.recipientType
+                                            )
+                                          }
+                                        >
+                                          {isGeneratingLinkFor === signatory.signatoryEmail
+                                            ? 'Generating link...'
+                                            : copiedSigningLinkFor === signatory.signatoryEmail
+                                              ? 'Copied'
+                                              : 'Copy Signing Link'}
+                                        </button>
+                                        <span className={styles.signatoryActionHint}>
+                                          {copiedSigningLinkFor === signatory.signatoryEmail
+                                            ? 'Copied to clipboard'
+                                            : 'Generates fresh secure link'}
+                                        </span>
+                                        {generatedSigningLink ? (
+                                          <a
+                                            href={generatedSigningLink}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className={styles.signatoryLinkValue}
+                                            title={generatedSigningLink}
+                                          >
+                                            {generatedSigningLink}
+                                          </a>
+                                        ) : null}
+                                      </div>
+                                    ) : (
+                                      <div className={styles.signatoryActionHint}>
+                                        Signing link available for internal users.
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
                             </div>
                           </div>
                         </>
