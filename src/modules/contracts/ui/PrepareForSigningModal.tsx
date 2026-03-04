@@ -62,6 +62,12 @@ type PreflightCheck = {
 }
 
 const fieldPalette: FieldType[] = ['SIGNATURE', 'INITIAL', 'STAMP', 'NAME', 'DATE', 'TIME', 'TEXT']
+const sendingStatuses = [
+  'Sending signature request emails...',
+  'Almost there...',
+  'Just a minute...',
+  'Preparing the signing package...',
+]
 
 const createDraftId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const defaultFieldSizeByType: Record<FieldType, { width: number; height: number }> = {
@@ -86,6 +92,7 @@ export default function PrepareForSigningModal({
   const [isLoadingDraft, setIsLoadingDraft] = useState(false)
   const [isSavingDraft, setIsSavingDraft] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [sendingStatusIndex, setSendingStatusIndex] = useState(0)
   const [numPages, setNumPages] = useState(1)
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedFieldType, setSelectedFieldType] = useState<FieldType>('SIGNATURE')
@@ -106,6 +113,19 @@ export default function PrepareForSigningModal({
 
   const isLocked = contractStatus === contractStatuses.pendingExternal
   const canEdit = !isLocked && !isSending
+
+  useEffect(() => {
+    if (!isSending) {
+      setSendingStatusIndex(0)
+      return
+    }
+
+    const interval = window.setInterval(() => {
+      setSendingStatusIndex((current) => (current + 1) % sendingStatuses.length)
+    }, 1800)
+
+    return () => window.clearInterval(interval)
+  }, [isSending])
 
   useEffect(() => {
     if (!isOpen) {
@@ -1003,6 +1023,12 @@ export default function PrepareForSigningModal({
                 </div>
               ))}
             </div>
+          </div>
+        ) : null}
+        {isSending ? (
+          <div className={styles.sendingProgress} aria-live="polite">
+            <span className={styles.sendingDot} />
+            <span>{sendingStatuses[sendingStatusIndex]}</span>
           </div>
         ) : null}
         <div className={styles.footer}>
