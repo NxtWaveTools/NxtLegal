@@ -763,6 +763,15 @@
   color: var(--color-text-muted);
 }
 
+.signatoryLinkValue {
+  display: block;
+  width: 100%;
+  font-size: 11px;
+  color: var(--color-accent);
+  word-break: break-all;
+  text-decoration: underline;
+}
+
 .logContainer {
   display: flex;
   flex-direction: column;

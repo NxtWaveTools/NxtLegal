@@ -676,6 +676,193 @@ describe('ContractSignatoryService', () => {
     })
   })
 
+  it('rejects mixed routing order mode before send', async () => {
+    const contractQueryService = {
+      countPendingSignatoriesByContract: jest.fn().mockResolvedValue(0),
+      getSigningPreparationDraft: jest.fn().mockResolvedValue({
+        contractId: 'contract-1',
+        recipients: [
+          { name: 'Signer One', email: 'one@nxtwave.co.in', recipientType: 'EXTERNAL', routingOrder: 1 },
+          { name: 'Signer Two', email: 'two@nxtwave.co.in', recipientType: 'EXTERNAL', routingOrder: 1 },
+          { name: 'Signer Three', email: 'three@nxtwave.co.in', recipientType: 'EXTERNAL', routingOrder: 2 },
+        ],
+        fields: [
+          {
+            fieldType: 'SIGNATURE',
+            pageNumber: 1,
+            xPosition: 10,
+            yPosition: 20,
+            anchorString: null,
+            assignedSignerEmail: 'one@nxtwave.co.in',
+          },
+          {
+            fieldType: 'SIGNATURE',
+            pageNumber: 1,
+            xPosition: 20,
+            yPosition: 30,
+            anchorString: null,
+            assignedSignerEmail: 'two@nxtwave.co.in',
+          },
+          {
+            fieldType: 'SIGNATURE',
+            pageNumber: 1,
+            xPosition: 30,
+            yPosition: 40,
+            anchorString: null,
+            assignedSignerEmail: 'three@nxtwave.co.in',
+          },
+        ],
+      }),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService as never,
+      { createSignedDownloadUrl: jest.fn() },
+      { createDocument: jest.fn() } as never,
+      { upload: jest.fn() } as never,
+      { createSigningEnvelope: jest.fn(), downloadCompletedEnvelopeDocuments: jest.fn() },
+      { sendTemplateEmail: jest.fn() },
+      {
+        signatoryLinkTemplateId: 101,
+        signingCompletedTemplateId: 102,
+      },
+      'https://app.example.com',
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    )
+
+    await expect(
+      service.sendSigningPreparationDraft({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        actorEmployeeId: 'legal-1',
+        actorRole: 'LEGAL_TEAM',
+        actorEmail: 'legal@nxtwave.co.in',
+      })
+    ).rejects.toMatchObject<Partial<BusinessRuleError>>({
+      code: 'SIGNING_PREPARATION_ROUTING_ORDER_INVALID',
+    })
+  })
+
+  it('allows parallel send when all routing orders are identical', async () => {
+    const contractQueryService = {
+      countPendingSignatoriesByContract: jest.fn().mockResolvedValue(0),
+      getSigningPreparationDraft: jest.fn().mockResolvedValue({
+        contractId: 'contract-1',
+        recipients: [
+          { name: 'Signer One', email: 'one@nxtwave.co.in', recipientType: 'EXTERNAL', routingOrder: 1 },
+          { name: 'Signer Two', email: 'two@nxtwave.co.in', recipientType: 'EXTERNAL', routingOrder: 1 },
+        ],
+        fields: [
+          {
+            fieldType: 'SIGNATURE',
+            pageNumber: 1,
+            xPosition: 10,
+            yPosition: 20,
+            anchorString: null,
+            assignedSignerEmail: 'one@nxtwave.co.in',
+          },
+          {
+            fieldType: 'SIGNATURE',
+            pageNumber: 1,
+            xPosition: 20,
+            yPosition: 30,
+            anchorString: null,
+            assignedSignerEmail: 'two@nxtwave.co.in',
+          },
+        ],
+      }),
+      getContractDetail: jest.fn().mockResolvedValue({
+        ...mockContractView,
+        contract: { ...mockContractView.contract, currentDocumentId: 'doc-1' },
+      }),
+      addSignatory: jest.fn().mockResolvedValue({
+        ...mockContractView,
+        signatories: [
+          {
+            id: 'sig-1',
+            signatoryEmail: 'one@nxtwave.co.in',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+            fieldConfig: [],
+            status: 'PENDING',
+            signedAt: null,
+            zohoSignEnvelopeId: 'env-123',
+            zohoSignRecipientId: 'a1',
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'sig-2',
+            signatoryEmail: 'two@nxtwave.co.in',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+            fieldConfig: [],
+            status: 'PENDING',
+            signedAt: null,
+            zohoSignEnvelopeId: 'env-123',
+            zohoSignRecipientId: 'a2',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+      moveContractToInSignature: jest.fn().mockResolvedValue(undefined),
+      deleteSigningPreparationDraft: jest.fn().mockResolvedValue(undefined),
+      resolveEnvelopeContext: jest.fn(),
+      recordZohoSignWebhookEvent: jest.fn(),
+      addSignatoryWebhookAuditEvent: jest.fn(),
+      recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
+      getEnvelopeNotificationProfile: jest.fn(),
+    }
+
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      headers: { get: () => 'application/pdf' },
+    } as unknown as Response)
+
+    const signatureProvider = {
+      createSigningEnvelope: jest.fn().mockResolvedValue({
+        envelopeId: 'env-123',
+        recipients: [
+          { email: 'one@nxtwave.co.in', recipientId: 'a1', clientUserId: 'c1', signingUrl: '' },
+          { email: 'two@nxtwave.co.in', recipientId: 'a2', clientUserId: 'c2', signingUrl: '' },
+        ],
+      }),
+      downloadCompletedEnvelopeDocuments: jest.fn(),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService as never,
+      {
+        createSignedDownloadUrl: jest.fn().mockResolvedValue({
+          signedUrl: 'https://example.com/signed-url',
+          fileName: 'contract.pdf',
+        }),
+      },
+      { createDocument: jest.fn() } as never,
+      { upload: jest.fn() } as never,
+      signatureProvider,
+      { sendTemplateEmail: jest.fn().mockResolvedValue({ providerMessageId: 'msg-1' }) },
+      {
+        signatoryLinkTemplateId: 101,
+        signingCompletedTemplateId: 102,
+      },
+      'https://app.example.com',
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    )
+
+    const result = await service.sendSigningPreparationDraft({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      actorEmail: 'legal@nxtwave.co.in',
+    })
+
+    expect(result.envelopeId).toBe('env-123')
+    expect(signatureProvider.createSigningEnvelope).toHaveBeenCalledTimes(1)
+    expect(contractQueryService.addSignatory).toHaveBeenCalledTimes(2)
+  })
+
   it('requires draft to exist before send', async () => {
     const contractQueryService = {
       countPendingSignatoriesByContract: jest.fn().mockResolvedValue(0),

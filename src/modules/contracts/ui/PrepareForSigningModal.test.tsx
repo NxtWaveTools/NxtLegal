@@ -170,6 +170,66 @@ describe('PrepareForSigningModal', () => {
     })
   })
 
+  it('allows parallel routing when all recipients share same order', async () => {
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: {
+        contractId: 'contract-1',
+        recipients: [
+          {
+            name: 'Signer One',
+            email: 'one@nxtwave.co.in',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+          },
+          {
+            name: 'Signer Two',
+            email: 'two@nxtwave.co.in',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+          },
+        ],
+        fields: [
+          {
+            fieldType: 'SIGNATURE',
+            pageNumber: 1,
+            xPosition: 10,
+            yPosition: 20,
+            anchorString: null,
+            assignedSignerEmail: 'one@nxtwave.co.in',
+          },
+          {
+            fieldType: 'SIGNATURE',
+            pageNumber: 1,
+            xPosition: 20,
+            yPosition: 30,
+            anchorString: null,
+            assignedSignerEmail: 'two@nxtwave.co.in',
+          },
+        ],
+        createdByEmployeeId: 'employee-1',
+        updatedByEmployeeId: 'employee-1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    } as never)
+
+    render(
+      <PrepareForSigningModal
+        isOpen
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        pdfUrl="/api/contracts/contract-1/preview"
+        onClose={jest.fn()}
+        onSent={jest.fn()}
+      />
+    )
+
+    await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
+
+    expect(screen.getByRole('button', { name: 'Review & Send' }).hasAttribute('disabled')).toBe(false)
+  })
+
   it('sends draft and notifies parent callbacks', async () => {
     jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
       ok: true,

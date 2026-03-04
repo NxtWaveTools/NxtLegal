@@ -868,6 +868,17 @@ export class ContractSignatoryService {
         )
       }
     })
+
+    const uniqueRoutingOrders = new Set(params.map((recipient) => recipient.routingOrder))
+    const allRoutingOrdersSame = uniqueRoutingOrders.size === 1
+    const allRoutingOrdersUnique = uniqueRoutingOrders.size === params.length
+
+    if (!allRoutingOrdersSame && !allRoutingOrdersUnique) {
+      throw new BusinessRuleError(
+        'SIGNING_PREPARATION_ROUTING_ORDER_INVALID',
+        'Routing order must be either identical for all recipients (parallel send) or unique per recipient (sequential send)'
+      )
+    }
   }
 
   private assertSignatureFieldPerRecipient(params: {

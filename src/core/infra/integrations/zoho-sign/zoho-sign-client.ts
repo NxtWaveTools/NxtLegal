@@ -168,10 +168,12 @@ export class ZohoSignClient {
 
     const fileName = this.normalizeFileNameWithExtension(input.documentName, detectedFormat.extension)
     const mimeType = detectedFormat.mimeType
+    const uniqueRoutingOrders = new Set(input.recipients.map((recipient) => recipient.routingOrder))
+    const isSequential = input.recipients.length > 1 && uniqueRoutingOrders.size > 1
     const dataPayload = {
       requests: {
         request_name: input.emailSubject,
-        is_sequential: input.recipients.length > 1,
+        is_sequential: isSequential,
         actions: input.recipients.map((recipient) => ({
           action_type: 'SIGN',
           recipient_name: recipient.name || recipient.email,
