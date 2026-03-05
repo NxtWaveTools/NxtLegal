@@ -1158,7 +1158,7 @@ export const contractsClient = {
   async downloadFinalSigningArtifact(
     contractId: string,
     artifact: FinalSigningArtifactType
-  ): Promise<ApiResponse<{ blob: Blob; fileName: string; contentType: string }>> {
+  ): Promise<ApiResponse<{ blob?: Blob; signedUrl?: string; fileName: string; contentType: string }>> {
     try {
       const path = resolveContractPath(routeRegistry.api.contracts.finalSignedArtifactDownload, contractId)
       const query = new URLSearchParams({ artifact })
@@ -1189,8 +1189,38 @@ export const contractsClient = {
         }
       }
 
+      const responseContentType = response.headers.get('content-type') ?? ''
+      if (responseContentType.toLowerCase().includes('application/json')) {
+        const parsed = (await response.json()) as ApiResponse<{
+          signedUrl?: string
+          fileName?: string
+          contentType?: string
+        }>
+
+        if (!parsed.ok || !parsed.data?.signedUrl) {
+          return {
+            ok: false,
+            error: {
+              code: parsed.error?.code ?? 'download_failed',
+              message: parsed.error?.message ?? 'Failed to download final signing artifact',
+            },
+          }
+        }
+
+        return {
+          ok: true,
+          data: {
+            signedUrl: parsed.data.signedUrl,
+            fileName:
+              parsed.data.fileName ??
+              (artifact === 'completion_certificate' ? 'completion-certificate.pdf' : 'signed-document.pdf'),
+            contentType: parsed.data.contentType ?? 'application/pdf',
+          },
+        }
+      }
+
       const blob = await response.blob()
-      const contentType = response.headers.get('content-type') ?? 'application/pdf'
+      const contentType = responseContentType || 'application/pdf'
       const contentDisposition = response.headers.get('content-disposition') ?? ''
       const fileNameMatch = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";\n]+)/i)
       const rawFileName = fileNameMatch?.[1]?.replace(/"/g, '')

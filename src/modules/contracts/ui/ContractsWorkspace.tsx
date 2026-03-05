@@ -645,6 +645,19 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       setIsDownloadingFinalSignedDoc(false)
       return
     }
+
+    if (response.data.signedUrl) {
+      window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+      setIsDownloadingFinalSignedDoc(false)
+      return
+    }
+
+    if (!response.data.blob) {
+      toast.error('Failed to download final signed document')
+      setIsDownloadingFinalSignedDoc(false)
+      return
+    }
+
     triggerBlobDownload(response.data.blob, response.data.fileName)
     setIsDownloadingFinalSignedDoc(false)
   }
@@ -661,6 +674,19 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       setIsDownloadingCompletionCertificate(false)
       return
     }
+
+    if (response.data.signedUrl) {
+      window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+      setIsDownloadingCompletionCertificate(false)
+      return
+    }
+
+    if (!response.data.blob) {
+      toast.error('Failed to download completion certificate')
+      setIsDownloadingCompletionCertificate(false)
+      return
+    }
+
     triggerBlobDownload(response.data.blob, response.data.fileName)
     setIsDownloadingCompletionCertificate(false)
   }

@@ -596,7 +596,10 @@ export class ContractSignatoryService {
     actorEmployeeId: string
     actorRole?: string
     artifact: 'signed_document' | 'completion_certificate'
-  }): Promise<{ fileName: string; contentType: string; fileBytes: Uint8Array }> {
+  }): Promise<
+    | { fileName: string; contentType: string; signedUrl: string }
+    | { fileName: string; contentType: string; fileBytes: Uint8Array }
+  > {
     const downloadStartedAt = Date.now()
     const elapsedMs = () => Date.now() - downloadStartedAt
 
@@ -673,55 +676,28 @@ export class ContractSignatoryService {
           documentId: localDocument.id,
         })
         const createSignedUrlMs = Date.now() - createSignedUrlStartedAt
-
-        const storageFetchStartedAt = Date.now()
-        const localDocumentResponse = await fetch(localDownload.signedUrl)
-        const storageFetchMs = Date.now() - storageFetchStartedAt
-        if (localDocumentResponse.ok) {
-          const storageReadStartedAt = Date.now()
-          const fileBytes = new Uint8Array(await localDocumentResponse.arrayBuffer())
-          const storageReadMs = Date.now() - storageReadStartedAt
-
-          this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
-            phase: 'served_from_storage',
-            source: 'storage',
-            tenantId: params.tenantId,
-            contractId: params.contractId,
-            artifact: params.artifact,
-            envelopeId,
-            localDocumentId: localDocument.id,
-            createSignedUrlMs,
-            storageFetchMs,
-            storageReadMs,
-            storageAttemptMs: Date.now() - storageAttemptStartedAt,
-            elapsedMs: elapsedMs(),
-            fileSizeBytes: fileBytes.byteLength,
-          })
-
-          return {
-            fileName: localDownload.fileName,
-            contentType: localDocumentResponse.headers.get('content-type') ?? 'application/pdf',
-            fileBytes,
-          }
-        }
-
-        this.logger.warn('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
-          phase: 'storage_non_ok_fallback',
+        this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+          phase: 'served_from_storage_signed_url',
           source: 'storage',
           tenantId: params.tenantId,
           contractId: params.contractId,
           artifact: params.artifact,
           envelopeId,
           localDocumentId: localDocument.id,
-          status: localDocumentResponse.status,
-          storageFetchMs,
+          createSignedUrlMs,
           storageAttemptMs: Date.now() - storageAttemptStartedAt,
           elapsedMs: elapsedMs(),
         })
+
+        return {
+          fileName: localDownload.fileName,
+          contentType: 'application/pdf',
+          signedUrl: localDownload.signedUrl,
+        }
       } catch (error) {
         // If local fetch fails, fallback to Zoho and repersist.
         this.logger.warn('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
-          phase: 'storage_fetch_failed_fallback',
+          phase: 'storage_signed_url_failed_fallback',
           source: 'storage',
           tenantId: params.tenantId,
           contractId: params.contractId,
@@ -921,6 +897,12 @@ export class ContractSignatoryService {
         insertedWebhookEvent: webhookInsert.inserted,
       })
 
+      await this.syncCompletionArtifactsForCompletedEnvelope({
+        tenantId: envelopeContext.tenantId,
+        contractId: envelopeContext.contractId,
+        envelopeId: params.envelopeId,
+      })
+
       if (webhookInsert.inserted) {
         await this.sendCompletionNotifications({
           tenantId: envelopeContext.tenantId,
@@ -941,6 +923,154 @@ export class ContractSignatoryService {
     payload: Record<string, unknown>
   }): Promise<void> {
     await this.handleZohoSignWebhook(params)
+  }
+
+  private async syncCompletionArtifactsForCompletedEnvelope(params: {
+    tenantId: string
+    contractId: string
+    envelopeId: string
+  }): Promise<void> {
+    const syncStartedAt = Date.now()
+    const elapsedMs = () => Date.now() - syncStartedAt
+
+    try {
+      const existingDocuments = await this.contractQueryService.getContractDocumentsBySystem({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+      })
+
+      const hasExecutedContract = existingDocuments.some(
+        (document) => document.documentKind === contractDocumentKinds.executedContract
+      )
+      const hasAuditCertificate = existingDocuments.some(
+        (document) => document.documentKind === contractDocumentKinds.auditCertificate
+      )
+
+      if (hasExecutedContract && hasAuditCertificate) {
+        this.logger.info('ZOHO_SIGN_COMPLETION_ARTIFACT_SYNC_TRACE', {
+          phase: 'already_present',
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          envelopeId: params.envelopeId,
+          elapsedMs: elapsedMs(),
+        })
+        return
+      }
+
+      let executedPdfBytes: Uint8Array | undefined
+      let certificatePdfBytes: Uint8Array | undefined
+      let usedBatchProviderDownload = false
+
+      // Prefer a single provider request when both artifacts are missing.
+      if (!hasExecutedContract && !hasAuditCertificate && this.signatureProvider.downloadCompletedEnvelopeDocuments) {
+        const artifacts = await this.signatureProvider.downloadCompletedEnvelopeDocuments({
+          envelopeId: params.envelopeId,
+        })
+        executedPdfBytes = artifacts.executedPdf
+        certificatePdfBytes = artifacts.certificatePdf
+        usedBatchProviderDownload = true
+      }
+
+      if (!hasExecutedContract && !executedPdfBytes) {
+        if (this.signatureProvider.downloadEnvelopePdf) {
+          executedPdfBytes = await this.signatureProvider.downloadEnvelopePdf({
+            envelopeId: params.envelopeId,
+          })
+        } else if (this.signatureProvider.downloadCompletedEnvelopeDocuments) {
+          const artifacts = await this.signatureProvider.downloadCompletedEnvelopeDocuments({
+            envelopeId: params.envelopeId,
+          })
+          executedPdfBytes = artifacts.executedPdf
+        }
+      }
+
+      if (!hasAuditCertificate && !certificatePdfBytes) {
+        if (this.signatureProvider.downloadCompletionCertificate) {
+          certificatePdfBytes = await this.signatureProvider.downloadCompletionCertificate({
+            envelopeId: params.envelopeId,
+          })
+        } else if (this.signatureProvider.downloadCompletedEnvelopeDocuments) {
+          const artifacts = await this.signatureProvider.downloadCompletedEnvelopeDocuments({
+            envelopeId: params.envelopeId,
+          })
+          certificatePdfBytes = artifacts.certificatePdf
+        }
+      }
+
+      if (executedPdfBytes && !hasExecutedContract) {
+        const executedFileName = `executed-${params.envelopeId}.pdf`
+        const executedPath = `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/executed-contract.pdf`
+
+        await this.uploadCompletionArtifactSafely({
+          path: executedPath,
+          fileBody: executedPdfBytes,
+          contentType: 'application/pdf',
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          envelopeId: params.envelopeId,
+          artifactKind: contractDocumentKinds.executedContract,
+        })
+
+        await this.insertCompletionDocumentSafely({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          documentKind: contractDocumentKinds.executedContract,
+          displayName: 'Executed Contract',
+          fileName: executedFileName,
+          filePath: executedPath,
+          fileSizeBytes: executedPdfBytes.byteLength,
+          fileMimeType: 'application/pdf',
+          envelopeId: params.envelopeId,
+        })
+      }
+
+      if (certificatePdfBytes && !hasAuditCertificate) {
+        const certificateFileName = `audit-certificate-${params.envelopeId}.pdf`
+        const certificatePath = `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/audit-certificate.pdf`
+
+        await this.uploadCompletionArtifactSafely({
+          path: certificatePath,
+          fileBody: certificatePdfBytes,
+          contentType: 'application/pdf',
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          envelopeId: params.envelopeId,
+          artifactKind: contractDocumentKinds.auditCertificate,
+        })
+
+        await this.insertCompletionDocumentSafely({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          documentKind: contractDocumentKinds.auditCertificate,
+          displayName: 'Zoho Sign Completion Certificate',
+          fileName: certificateFileName,
+          filePath: certificatePath,
+          fileSizeBytes: certificatePdfBytes.byteLength,
+          fileMimeType: 'application/pdf',
+          envelopeId: params.envelopeId,
+        })
+      }
+
+      this.logger.info('ZOHO_SIGN_COMPLETION_ARTIFACT_SYNC_TRACE', {
+        phase: 'completed',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        envelopeId: params.envelopeId,
+        usedBatchProviderDownload,
+        persistedExecutedContract: Boolean(executedPdfBytes && !hasExecutedContract),
+        persistedAuditCertificate: Boolean(certificatePdfBytes && !hasAuditCertificate),
+        elapsedMs: elapsedMs(),
+      })
+    } catch (error) {
+      this.logger.error('ZOHO_SIGN_COMPLETION_ARTIFACT_SYNC_TRACE', {
+        phase: 'failed',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        envelopeId: params.envelopeId,
+        elapsedMs: elapsedMs(),
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   private async sendCompletionNotifications(params: {
