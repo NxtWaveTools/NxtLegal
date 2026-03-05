@@ -10,6 +10,7 @@ import { routeRegistry } from '@/core/config/route-registry'
 export const useLoginPage = (): void => {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const searchParamsKey = searchParams.toString()
   const lastErrorMessageRef = useRef('')
 
   const errorMap = useMemo(() => authErrorMessages, [])
@@ -36,8 +37,9 @@ export const useLoginPage = (): void => {
 
   // Handle error messages from URL params in separate effect
   useEffect(() => {
-    const errorParam = searchParams.get('error')
-    const errorDescription = searchParams.get('error_description')
+    const params = new URLSearchParams(searchParamsKey)
+    const errorParam = params.get('error')
+    const errorDescription = params.get('error_description')
 
     let errorMessage = ''
     if (errorParam === authErrorCodes.oauthFailed) {
@@ -71,5 +73,5 @@ export const useLoginPage = (): void => {
     if (!errorMessage && lastErrorMessageRef.current) {
       lastErrorMessageRef.current = ''
     }
-  }, [searchParams, errorMap])
+  }, [searchParamsKey, errorMap])
 }

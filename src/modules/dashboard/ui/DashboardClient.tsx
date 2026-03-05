@@ -260,6 +260,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
 export default function DashboardClient({ session }: DashboardClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const searchParamsKey = searchParams.toString()
   const roleConfig = useMemo(() => getRoleConfig(session.role), [session.role])
   const contractsSectionRef = useRef<HTMLElement | null>(null)
   const latestContractsRequestIdRef = useRef(0)
@@ -294,6 +295,11 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [filterCounts, setFilterCounts] = useState<Partial<Record<DashboardContractsFilter, number>>>({})
   const [activeFilterTotal, setActiveFilterTotal] = useState(0)
   const [actionableAdditionalApprovals, setActionableAdditionalApprovals] = useState<ContractRecord[]>([])
+
+  const requestedFilterFromUrl = useMemo(() => {
+    const params = new URLSearchParams(searchParamsKey)
+    return normalizeDashboardFilter(params.get('filter'))
+  }, [searchParamsKey])
 
   const resolveFilterScope = useCallback(
     (filter: DashboardContractsFilter): DashboardContractsScope | undefined => {
@@ -414,52 +420,37 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
   const applyFilter = useCallback(
     (filter: DashboardContractsFilter) => {
+      if (filter === activeFilter) {
+        return
+      }
+
       setActiveFilter(filter)
       router.replace(`/dashboard?filter=${filter}`)
     },
-    [router]
+    [activeFilter, router]
   )
 
   useEffect(() => {
-    const requestedFilter = normalizeDashboardFilter(searchParams.get('filter'))
-    const isAllowedFilter = roleConfig.filters.some((item) => item.value === requestedFilter)
+    const isAllowedFilter = roleConfig.filters.some((item) => item.value === requestedFilterFromUrl)
 
-    if (!requestedFilter || !isAllowedFilter) {
+    if (!requestedFilterFromUrl || !isAllowedFilter) {
       return
     }
 
-    const normalizedFilter = requestedFilter as DashboardContractsFilter
+    const normalizedFilter = requestedFilterFromUrl as DashboardContractsFilter
     if (normalizedFilter === activeFilter) {
       return
     }
 
-    const timeoutId = window.setTimeout(() => {
-      setActiveFilter(normalizedFilter)
-    }, 0)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
-  }, [activeFilter, roleConfig.filters, searchParams])
+    setActiveFilter(normalizedFilter)
+  }, [activeFilter, requestedFilterFromUrl, roleConfig.filters])
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      void loadDashboardCounts()
-    }, 0)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
+    void loadDashboardCounts()
   }, [loadDashboardCounts])
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      void loadContractsForFilter(activeFilter, { cursor: undefined, pageIndex: 0 })
-    }, 0)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
+    void loadContractsForFilter(activeFilter, { cursor: undefined, pageIndex: 0 })
   }, [activeFilter, loadContractsForFilter])
 
   useEffect(() => {

@@ -17,7 +17,7 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
     const { filter, scope, cursor, limit, includeExtras } = dashboardContractsQuerySchema.parse(queryParams)
 
     const contractQueryService = getContractQueryService()
-    const result = await contractQueryService.getDashboardContracts({
+    const dashboardContractsPromise = contractQueryService.getDashboardContracts({
       tenantId: session.tenantId,
       employeeId: session.employeeId,
       role: session.role,
@@ -27,21 +27,21 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       limit,
     })
 
-    let additionalApproverSections: {
-      actionableContracts: Awaited<ReturnType<typeof contractQueryService.getActionableAdditionalApprovals>>
-    } | null = null
+    const actionableContractsPromise = includeExtras
+      ? contractQueryService.getActionableAdditionalApprovals({
+          tenantId: session.tenantId,
+          employeeId: session.employeeId,
+          limit: limits.dashboardContractsPageSize,
+        })
+      : Promise.resolve(null)
 
-    if (includeExtras) {
-      const actionableContracts = await contractQueryService.getActionableAdditionalApprovals({
-        tenantId: session.tenantId,
-        employeeId: session.employeeId,
-        limit: limits.dashboardContractsPageSize,
-      })
+    const [result, actionableContracts] = await Promise.all([dashboardContractsPromise, actionableContractsPromise])
 
-      additionalApproverSections = {
-        actionableContracts,
-      }
-    }
+    const additionalApproverSections = actionableContracts
+      ? {
+          actionableContracts,
+        }
+      : null
 
     return NextResponse.json(
       okResponse({
