@@ -36,6 +36,7 @@ AUTH_ALLOWED_DOMAINS=yourcompany.com
 # Application
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 NODE_ENV=development
+LOG_LEVEL=DEBUG
 
 # Features
 FEATURE_MICROSOFT_OAUTH=true
@@ -216,6 +217,7 @@ AUTH_ALLOWED_DOMAINS=yourcompany.com,subsidiary.com
 
 NEXT_PUBLIC_SITE_URL=https://yourdomain.com
 NODE_ENV=production
+LOG_LEVEL=ERROR
 
 FEATURE_MICROSOFT_OAUTH=true
 

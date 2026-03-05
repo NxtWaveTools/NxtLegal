@@ -134,16 +134,30 @@ export class ContractSignatoryService {
       }>
     }>
   }): Promise<ContractDetailView> {
+    const assignStartedAt = Date.now()
+    const elapsedMs = () => Date.now() - assignStartedAt
+
+    this.logger.info('SIGNING_PREPARATION_ASSIGN_TRACE', {
+      phase: 'start',
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      recipientCount: params.recipients.length,
+    })
+
     if (!params.actorRole) {
       throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for signatory assignment')
     }
 
+    const contractDetailStartedAt = Date.now()
     const contractView = await this.contractQueryService.getContractDetail({
       tenantId: params.tenantId,
       contractId: params.contractId,
       employeeId: params.actorEmployeeId,
       role: params.actorRole,
     })
+    const contractDetailMs = Date.now() - contractDetailStartedAt
 
     if (contractView.contract.status !== contractStatuses.completed) {
       throw new BusinessRuleError('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in COMPLETED')
@@ -172,17 +186,44 @@ export class ContractSignatoryService {
       )
     }
 
-    const download = await this.contractDocumentDownloadService.createSignedDownloadUrl({
-      contractId: params.contractId,
+    this.logger.info('SIGNING_PREPARATION_ASSIGN_TRACE', {
+      phase: 'contract_detail_loaded',
       tenantId: params.tenantId,
-      requestorEmployeeId: params.actorEmployeeId,
-      requestorRole: params.actorRole,
-      documentId: contractView.contract.currentDocumentId,
+      contractId: params.contractId,
+      contractDetailMs,
+      contractStatus: contractView.contract.status,
+      currentDocumentId: contractView.contract.currentDocumentId,
+      normalizedRecipientCount: normalizedRecipients.length,
+      normalizedFieldCount: normalizedRecipients.reduce((sum, recipient) => sum + recipient.fields.length, 0),
+      elapsedMs: elapsedMs(),
     })
+
+    const signedUrlStartedAt = Date.now()
+    let download: { signedUrl: string; fileName: string }
+    try {
+      download = await this.contractDocumentDownloadService.createSignedDownloadUrl({
+        contractId: params.contractId,
+        tenantId: params.tenantId,
+        requestorEmployeeId: params.actorEmployeeId,
+        requestorRole: params.actorRole,
+        documentId: contractView.contract.currentDocumentId,
+      })
+    } catch (error) {
+      this.logger.error('SIGNING_PREPARATION_ASSIGN_TRACE', {
+        phase: 'create_signed_url_failed',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        elapsedMs: elapsedMs(),
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    }
+    const createSignedUrlMs = Date.now() - signedUrlStartedAt
 
     let documentBytes: Uint8Array
     let documentMimeType = 'application/octet-stream'
 
+    const sourceDocumentFetchStartedAt = Date.now()
     try {
       const documentResponse = await fetch(download.signedUrl)
       if (!documentResponse.ok) {
@@ -191,7 +232,28 @@ export class ContractSignatoryService {
 
       documentBytes = new Uint8Array(await documentResponse.arrayBuffer())
       documentMimeType = documentResponse.headers.get('content-type') ?? 'application/octet-stream'
+
+      this.logger.info('SIGNING_PREPARATION_ASSIGN_TRACE', {
+        phase: 'source_document_loaded',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        createSignedUrlMs,
+        sourceDocumentFetchMs: Date.now() - sourceDocumentFetchStartedAt,
+        sourceDocumentSizeBytes: documentBytes.byteLength,
+        sourceDocumentMimeType: documentMimeType,
+        elapsedMs: elapsedMs(),
+      })
     } catch (error) {
+      this.logger.error('SIGNING_PREPARATION_ASSIGN_TRACE', {
+        phase: 'source_document_fetch_failed',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        createSignedUrlMs,
+        sourceDocumentFetchMs: Date.now() - sourceDocumentFetchStartedAt,
+        elapsedMs: elapsedMs(),
+        error: error instanceof Error ? error.message : String(error),
+      })
+
       if (error instanceof BusinessRuleError) {
         throw error
       }
@@ -209,6 +271,7 @@ export class ContractSignatoryService {
       }>
     }
 
+    const envelopeCreateStartedAt = Date.now()
     try {
       envelope = await this.signatureProvider.createSigningEnvelope({
         recipients: normalizedRecipients.map((recipient) => ({
@@ -225,8 +288,28 @@ export class ContractSignatoryService {
         returnUrl: `${this.appSiteUrl}/contracts/${params.contractId}`,
       })
     } catch (error) {
+      this.logger.error('SIGNING_PREPARATION_ASSIGN_TRACE', {
+        phase: 'zoho_envelope_create_failed',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        createEnvelopeMs: Date.now() - envelopeCreateStartedAt,
+        elapsedMs: elapsedMs(),
+        error: error instanceof Error ? error.message : String(error),
+      })
       throw new ExternalServiceError('ZOHO_SIGN', 'Failed to create Zoho Sign request', error as Error)
     }
+
+    const createEnvelopeMs = Date.now() - envelopeCreateStartedAt
+
+    this.logger.info('SIGNING_PREPARATION_ASSIGN_TRACE', {
+      phase: 'zoho_envelope_created',
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      envelopeId: envelope.envelopeId,
+      zohoRecipientCount: envelope.recipients?.length ?? 0,
+      createEnvelopeMs,
+      elapsedMs: elapsedMs(),
+    })
 
     if (!envelope?.envelopeId) {
       throw new BusinessRuleError('SIGNING_PREPARATION_ENVELOPE_MISSING', 'Envelope ID missing after signing send')
@@ -236,6 +319,7 @@ export class ContractSignatoryService {
       (envelope.recipients ?? []).map((recipient) => [recipient.email, recipient])
     )
 
+    const persistSignatoriesStartedAt = Date.now()
     let updatedView: ContractDetailView | null = null
     for (const recipient of normalizedRecipients) {
       const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
@@ -261,11 +345,14 @@ export class ContractSignatoryService {
         envelopeSourceDocumentId: contractView.contract.currentDocumentId,
       })
     }
+    const persistSignatoriesMs = Date.now() - persistSignatoriesStartedAt
 
     if (!updatedView) {
       throw new BusinessRuleError('SIGNATORY_ASSIGNMENT_FAILED', 'No signatory recipient was persisted')
     }
 
+    const internalNotificationsStartedAt = Date.now()
+    let internalNotificationCount = 0
     for (const recipient of normalizedRecipients) {
       if (recipient.recipientType !== contractSignatoryRecipientTypes.internal) {
         continue
@@ -301,13 +388,20 @@ export class ContractSignatoryService {
         notificationType: contractNotificationTypes.signatoryLink,
         strictFailure: true,
       })
+      internalNotificationCount += 1
     }
+    const internalNotificationMs = Date.now() - internalNotificationsStartedAt
 
     this.logger.info('Contract signatory assigned', {
       tenantId: params.tenantId,
       contractId: params.contractId,
       signatoryEmails: normalizedRecipients.map((recipient) => recipient.signatoryEmail),
       envelopeId: envelope.envelopeId,
+      createEnvelopeMs,
+      persistSignatoriesMs,
+      internalNotificationCount,
+      internalNotificationMs,
+      elapsedMs: elapsedMs(),
     })
 
     return updatedView
@@ -320,114 +414,179 @@ export class ContractSignatoryService {
     actorRole?: string
     actorEmail: string
   }): Promise<{ envelopeId: string; contractView: ContractDetailView }> {
+    const sendStartedAt = Date.now()
+    const elapsedMs = () => Date.now() - sendStartedAt
+
+    this.logger.info('SIGNING_PREPARATION_SEND_TRACE', {
+      phase: 'start',
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      elapsedMs: elapsedMs(),
+    })
+
     if (!params.actorRole) {
       throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for signing preparation send')
     }
 
-    const pendingSignatoryCount = await this.contractQueryService.countPendingSignatoriesByContract({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-    })
+    let envelopeIdForTrace: string | undefined
 
-    if (pendingSignatoryCount > 0) {
-      throw new BusinessRuleError(
-        'SIGNING_PREPARATION_ALREADY_SENT',
-        'Signing preparation draft already sent for this contract'
+    try {
+      const pendingSignatoryCheckStartedAt = Date.now()
+      const pendingSignatoryCount = await this.contractQueryService.countPendingSignatoriesByContract({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+      })
+      const pendingSignatoryCheckMs = Date.now() - pendingSignatoryCheckStartedAt
+
+      if (pendingSignatoryCount > 0) {
+        throw new BusinessRuleError(
+          'SIGNING_PREPARATION_ALREADY_SENT',
+          'Signing preparation draft already sent for this contract'
+        )
+      }
+
+      const draftLoadStartedAt = Date.now()
+      const draft = await this.contractQueryService.getSigningPreparationDraft({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        actorEmployeeId: params.actorEmployeeId,
+        actorRole: params.actorRole,
+      })
+      const draftLoadMs = Date.now() - draftLoadStartedAt
+
+      if (!draft) {
+        throw new BusinessRuleError('SIGNING_PREPARATION_DRAFT_NOT_FOUND', 'Signing preparation draft not found')
+      }
+
+      this.assertValidRoutingOrders(
+        draft.recipients.map((recipient) => ({ email: recipient.email, routingOrder: recipient.routingOrder }))
       )
-    }
 
-    const draft = await this.contractQueryService.getSigningPreparationDraft({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      actorEmployeeId: params.actorEmployeeId,
-      actorRole: params.actorRole,
-    })
+      this.assertSignatureFieldPerRecipient({
+        recipients: draft.recipients.map((recipient) => recipient.email),
+        fields: draft.fields.map((field) => ({
+          fieldType: field.fieldType,
+          assignedSignerEmail: field.assignedSignerEmail,
+        })),
+      })
 
-    if (!draft) {
-      throw new BusinessRuleError('SIGNING_PREPARATION_DRAFT_NOT_FOUND', 'Signing preparation draft not found')
-    }
+      const recipients = draft.recipients.map((recipient) => {
+        const recipientEmail = recipient.email.trim().toLowerCase()
+        const recipientFields = draft.fields
+          .filter((field) => field.assignedSignerEmail.trim().toLowerCase() === recipientEmail)
+          .map((field) => ({
+            field_type: field.fieldType,
+            page_number: field.pageNumber ?? undefined,
+            x_position: field.xPosition ?? undefined,
+            y_position: field.yPosition ?? undefined,
+            width: field.width ?? undefined,
+            height: field.height ?? undefined,
+            anchor_string: field.anchorString ?? undefined,
+            assigned_signer_email: field.assignedSignerEmail,
+          }))
 
-    this.assertValidRoutingOrders(
-      draft.recipients.map((recipient) => ({ email: recipient.email, routingOrder: recipient.routingOrder }))
-    )
+        return {
+          signatoryEmail: recipientEmail,
+          recipientType: recipient.recipientType,
+          routingOrder: recipient.routingOrder,
+          fields: recipientFields,
+        }
+      })
 
-    this.assertSignatureFieldPerRecipient({
-      recipients: draft.recipients.map((recipient) => recipient.email),
-      fields: draft.fields.map((field) => ({
-        fieldType: field.fieldType,
-        assignedSignerEmail: field.assignedSignerEmail,
-      })),
-    })
+      this.logger.info('SIGNING_PREPARATION_SEND_TRACE', {
+        phase: 'draft_loaded',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        pendingSignatoryCheckMs,
+        draftLoadMs,
+        draftRecipientCount: draft.recipients.length,
+        draftFieldCount: draft.fields.length,
+        elapsedMs: elapsedMs(),
+      })
 
-    const recipients = draft.recipients.map((recipient) => {
-      const recipientEmail = recipient.email.trim().toLowerCase()
-      const recipientFields = draft.fields
-        .filter((field) => field.assignedSignerEmail.trim().toLowerCase() === recipientEmail)
-        .map((field) => ({
-          field_type: field.fieldType,
-          page_number: field.pageNumber ?? undefined,
-          x_position: field.xPosition ?? undefined,
-          y_position: field.yPosition ?? undefined,
-          width: field.width ?? undefined,
-          height: field.height ?? undefined,
-          anchor_string: field.anchorString ?? undefined,
-          assigned_signer_email: field.assignedSignerEmail,
-        }))
+      const assignSignatoryStartedAt = Date.now()
+      const updatedContractView = await this.assignSignatory({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        actorEmployeeId: params.actorEmployeeId,
+        actorRole: params.actorRole,
+        actorEmail: params.actorEmail,
+        recipients,
+      })
+      const assignSignatoryMs = Date.now() - assignSignatoryStartedAt
+
+      const recipientEmailSet = new Set(recipients.map((recipient) => recipient.signatoryEmail))
+      const envelopeIds = new Set(
+        updatedContractView.signatories
+          .filter((signatory) => recipientEmailSet.has(signatory.signatoryEmail))
+          .map((signatory) => signatory.zohoSignEnvelopeId)
+          .filter((envelopeId) => envelopeId.trim().length > 0)
+      )
+
+      const envelopeId = envelopeIds.values().next().value
+      if (!envelopeId || typeof envelopeId !== 'string') {
+        throw new BusinessRuleError('SIGNING_PREPARATION_ENVELOPE_MISSING', 'Envelope ID missing after signing send')
+      }
+      envelopeIdForTrace = envelopeId
+
+      const moveToSignatureStartedAt = Date.now()
+      await this.contractQueryService.moveContractToInSignature({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        actorEmployeeId: params.actorEmployeeId,
+        actorRole: params.actorRole,
+        actorEmail: params.actorEmail,
+        envelopeId,
+      })
+      const moveToInSignatureMs = Date.now() - moveToSignatureStartedAt
+
+      const deleteDraftStartedAt = Date.now()
+      await this.contractQueryService.deleteSigningPreparationDraft({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+      })
+      const deleteDraftMs = Date.now() - deleteDraftStartedAt
+
+      const finalContractDetailStartedAt = Date.now()
+      const contractView = await this.contractQueryService.getContractDetail({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        employeeId: params.actorEmployeeId,
+        role: params.actorRole,
+      })
+      const finalContractDetailMs = Date.now() - finalContractDetailStartedAt
+
+      this.logger.info('SIGNING_PREPARATION_SEND_TRACE', {
+        phase: 'completed',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        envelopeId,
+        pendingSignatoryCheckMs,
+        draftLoadMs,
+        assignSignatoryMs,
+        moveToInSignatureMs,
+        deleteDraftMs,
+        finalContractDetailMs,
+        elapsedMs: elapsedMs(),
+      })
 
       return {
-        signatoryEmail: recipientEmail,
-        recipientType: recipient.recipientType,
-        routingOrder: recipient.routingOrder,
-        fields: recipientFields,
+        envelopeId,
+        contractView,
       }
-    })
-
-    const updatedContractView = await this.assignSignatory({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      actorEmployeeId: params.actorEmployeeId,
-      actorRole: params.actorRole,
-      actorEmail: params.actorEmail,
-      recipients,
-    })
-
-    const recipientEmailSet = new Set(recipients.map((recipient) => recipient.signatoryEmail))
-    const envelopeIds = new Set(
-      updatedContractView.signatories
-        .filter((signatory) => recipientEmailSet.has(signatory.signatoryEmail))
-        .map((signatory) => signatory.zohoSignEnvelopeId)
-        .filter((envelopeId) => envelopeId.trim().length > 0)
-    )
-
-    const envelopeId = envelopeIds.values().next().value
-    if (!envelopeId || typeof envelopeId !== 'string') {
-      throw new BusinessRuleError('SIGNING_PREPARATION_ENVELOPE_MISSING', 'Envelope ID missing after signing send')
-    }
-
-    await this.contractQueryService.moveContractToInSignature({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      actorEmployeeId: params.actorEmployeeId,
-      actorRole: params.actorRole,
-      actorEmail: params.actorEmail,
-      envelopeId,
-    })
-
-    await this.contractQueryService.deleteSigningPreparationDraft({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-    })
-
-    const contractView = await this.contractQueryService.getContractDetail({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      employeeId: params.actorEmployeeId,
-      role: params.actorRole,
-    })
-
-    return {
-      envelopeId,
-      contractView,
+    } catch (error) {
+      this.logger.error('SIGNING_PREPARATION_SEND_TRACE', {
+        phase: 'failed',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        actorEmployeeId: params.actorEmployeeId,
+        envelopeId: envelopeIdForTrace,
+        elapsedMs: elapsedMs(),
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
     }
   }
 
@@ -438,6 +597,16 @@ export class ContractSignatoryService {
     actorRole?: string
     artifact: 'signed_document' | 'completion_certificate'
   }): Promise<{ fileName: string; contentType: string; fileBytes: Uint8Array }> {
+    const downloadStartedAt = Date.now()
+    const elapsedMs = () => Date.now() - downloadStartedAt
+
+    this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+      phase: 'start',
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      artifact: params.artifact,
+    })
+
     if (!params.actorRole) {
       throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for final artifact download')
     }
@@ -449,12 +618,14 @@ export class ContractSignatoryService {
       )
     }
 
+    const contractDetailStartedAt = Date.now()
     const contractView = await this.contractQueryService.getContractDetail({
       tenantId: params.tenantId,
       contractId: params.contractId,
       employeeId: params.actorEmployeeId,
       role: params.actorRole,
     })
+    const contractDetailMs = Date.now() - contractDetailStartedAt
 
     const envelopeId = contractView.signatories[0]?.zohoSignEnvelopeId
     if (!envelopeId?.trim()) {
@@ -477,8 +648,23 @@ export class ContractSignatoryService {
       .filter((document) => document.documentKind === targetDocumentKind)
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0]
 
+    this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+      phase: 'contract_detail_loaded',
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      artifact: params.artifact,
+      envelopeId,
+      contractDetailMs,
+      documentsCount: contractView.documents.length,
+      signatoriesCount: contractView.signatories.length,
+      hasLocalDocument: Boolean(localDocument),
+      elapsedMs: elapsedMs(),
+    })
+
     if (localDocument) {
+      const storageAttemptStartedAt = Date.now()
       try {
+        const createSignedUrlStartedAt = Date.now()
         const localDownload = await this.contractDocumentDownloadService.createSignedDownloadUrl({
           contractId: params.contractId,
           tenantId: params.tenantId,
@@ -486,41 +672,109 @@ export class ContractSignatoryService {
           requestorRole: params.actorRole,
           documentId: localDocument.id,
         })
+        const createSignedUrlMs = Date.now() - createSignedUrlStartedAt
 
+        const storageFetchStartedAt = Date.now()
         const localDocumentResponse = await fetch(localDownload.signedUrl)
+        const storageFetchMs = Date.now() - storageFetchStartedAt
         if (localDocumentResponse.ok) {
+          const storageReadStartedAt = Date.now()
+          const fileBytes = new Uint8Array(await localDocumentResponse.arrayBuffer())
+          const storageReadMs = Date.now() - storageReadStartedAt
+
+          this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+            phase: 'served_from_storage',
+            source: 'storage',
+            tenantId: params.tenantId,
+            contractId: params.contractId,
+            artifact: params.artifact,
+            envelopeId,
+            localDocumentId: localDocument.id,
+            createSignedUrlMs,
+            storageFetchMs,
+            storageReadMs,
+            storageAttemptMs: Date.now() - storageAttemptStartedAt,
+            elapsedMs: elapsedMs(),
+            fileSizeBytes: fileBytes.byteLength,
+          })
+
           return {
             fileName: localDownload.fileName,
             contentType: localDocumentResponse.headers.get('content-type') ?? 'application/pdf',
-            fileBytes: new Uint8Array(await localDocumentResponse.arrayBuffer()),
+            fileBytes,
           }
         }
-      } catch {
+
+        this.logger.warn('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+          phase: 'storage_non_ok_fallback',
+          source: 'storage',
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          artifact: params.artifact,
+          envelopeId,
+          localDocumentId: localDocument.id,
+          status: localDocumentResponse.status,
+          storageFetchMs,
+          storageAttemptMs: Date.now() - storageAttemptStartedAt,
+          elapsedMs: elapsedMs(),
+        })
+      } catch (error) {
         // If local fetch fails, fallback to Zoho and repersist.
+        this.logger.warn('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+          phase: 'storage_fetch_failed_fallback',
+          source: 'storage',
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          artifact: params.artifact,
+          envelopeId,
+          localDocumentId: localDocument.id,
+          error: error instanceof Error ? error.message : String(error),
+          storageAttemptMs: Date.now() - storageAttemptStartedAt,
+          elapsedMs: elapsedMs(),
+        })
       }
+    } else {
+      this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+        phase: 'storage_document_missing_fallback',
+        source: 'storage',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        artifact: params.artifact,
+        envelopeId,
+        elapsedMs: elapsedMs(),
+      })
     }
 
     try {
       let fileBytes: Uint8Array
+      let zohoStrategy = 'unsupported'
+
+      const zohoDownloadStartedAt = Date.now()
 
       if (isCompletionCertificate) {
         if (this.signatureProvider.downloadCompletionCertificate) {
+          zohoStrategy = 'downloadCompletionCertificate'
           fileBytes = await this.signatureProvider.downloadCompletionCertificate({ envelopeId })
         } else if (this.signatureProvider.downloadCompletedEnvelopeDocuments) {
+          zohoStrategy = 'downloadCompletedEnvelopeDocuments.certificatePdf'
           const legacyArtifacts = await this.signatureProvider.downloadCompletedEnvelopeDocuments({ envelopeId })
           fileBytes = legacyArtifacts.certificatePdf
         } else {
           throw new Error('Completion certificate download is not supported by configured signature provider')
         }
       } else if (this.signatureProvider.downloadEnvelopePdf) {
+        zohoStrategy = 'downloadEnvelopePdf'
         fileBytes = await this.signatureProvider.downloadEnvelopePdf({ envelopeId })
       } else if (this.signatureProvider.downloadCompletedEnvelopeDocuments) {
+        zohoStrategy = 'downloadCompletedEnvelopeDocuments.executedPdf'
         const legacyArtifacts = await this.signatureProvider.downloadCompletedEnvelopeDocuments({ envelopeId })
         fileBytes = legacyArtifacts.executedPdf
       } else {
         throw new Error('Executed envelope download is not supported by configured signature provider')
       }
+      const zohoDownloadMs = Date.now() - zohoDownloadStartedAt
 
+      const storageUploadStartedAt = Date.now()
       await this.uploadCompletionArtifactSafely({
         path: targetFilePath,
         fileBody: fileBytes,
@@ -530,7 +784,9 @@ export class ContractSignatoryService {
         envelopeId,
         artifactKind: targetDocumentKind,
       })
+      const storageUploadMs = Date.now() - storageUploadStartedAt
 
+      const metadataInsertStartedAt = Date.now()
       await this.insertCompletionDocumentSafely({
         tenantId: params.tenantId,
         contractId: params.contractId,
@@ -542,6 +798,22 @@ export class ContractSignatoryService {
         fileMimeType: 'application/pdf',
         envelopeId,
       })
+      const metadataInsertMs = Date.now() - metadataInsertStartedAt
+
+      this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+        phase: 'served_from_zoho',
+        source: 'zoho',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        artifact: params.artifact,
+        envelopeId,
+        zohoStrategy,
+        zohoDownloadMs,
+        storageUploadMs,
+        metadataInsertMs,
+        elapsedMs: elapsedMs(),
+        fileSizeBytes: fileBytes.byteLength,
+      })
 
       return {
         fileName: targetFileName,
@@ -549,6 +821,17 @@ export class ContractSignatoryService {
         fileBytes,
       }
     } catch (error) {
+      this.logger.error('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+        phase: 'zoho_fallback_failed',
+        source: 'zoho',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        artifact: params.artifact,
+        envelopeId,
+        elapsedMs: elapsedMs(),
+        error: error instanceof Error ? error.message : String(error),
+      })
+
       throw new ExternalServiceError(
         'ZOHO_SIGN',
         'Final signing artifact is still being prepared. Please try again shortly.',

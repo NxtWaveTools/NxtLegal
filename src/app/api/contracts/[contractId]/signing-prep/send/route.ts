@@ -6,6 +6,9 @@ import { getContractSignatoryService } from '@/core/registry/service-registry'
 import { logger } from '@/core/infra/logging/logger'
 
 const POSTHandler = withAuth(async (_request: NextRequest, { session, params }) => {
+  const routeStartedAt = Date.now()
+  const elapsedMs = () => Date.now() - routeStartedAt
+
   try {
     if (!session.tenantId) {
       return NextResponse.json(errorResponse('SESSION_INVALID', 'Session tenant is required'), { status: 401 })
@@ -33,6 +36,7 @@ const POSTHandler = withAuth(async (_request: NextRequest, { session, params }) 
       signatoryCount: result.contractView.signatories.length,
       contractStatus: result.contractView.contract.status,
       currentDocumentId: result.contractView.contract.currentDocumentId,
+      elapsedMs: elapsedMs(),
     })
 
     return NextResponse.json(okResponse(result))
@@ -59,6 +63,7 @@ const POSTHandler = withAuth(async (_request: NextRequest, { session, params }) 
       contractId: params?.contractId,
       tenantId: session.tenantId,
       employeeId: session.employeeId,
+      elapsedMs: elapsedMs(),
     })
 
     if (error instanceof BusinessRuleError) {

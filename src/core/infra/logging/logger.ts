@@ -1,5 +1,6 @@
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 type LogContext = Record<string, unknown>
+type SupportedLogLevelOverride = 'DEBUG' | 'ERROR'
 
 type Logger = {
   debug: (message: string, context?: LogContext) => void
@@ -15,12 +16,29 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   error: 3,
 }
 
-const getMinLogLevel = (): number => {
-  const env = process.env.NODE_ENV || 'development'
+const resolveLogLevelOverride = (): SupportedLogLevelOverride | null => {
+  const rawLevel = (process.env.LOG_LEVEL ?? process.env.NEXT_PUBLIC_LOG_LEVEL ?? '').trim().toUpperCase()
+  if (rawLevel === 'DEBUG' || rawLevel === 'ERROR') {
+    return rawLevel
+  }
 
-  // Production: only WARN and ERROR
+  return null
+}
+
+const getMinLogLevel = (): number => {
+  const levelOverride = resolveLogLevelOverride()
+  if (levelOverride === 'ERROR') {
+    return LOG_LEVELS.error
+  }
+  if (levelOverride === 'DEBUG') {
+    return LOG_LEVELS.debug
+  }
+
+  const env = process.env.NODE_ENV ?? 'development'
+
+  // Default behavior without LOG_LEVEL override.
   if (env === 'production') {
-    return LOG_LEVELS.warn
+    return LOG_LEVELS.error
   }
 
   // Development: everything (DEBUG+)

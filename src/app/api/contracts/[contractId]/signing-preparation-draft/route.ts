@@ -8,6 +8,9 @@ import { contractSigningPreparationDraftSchema } from '@/core/domain/contracts/s
 import { logger } from '@/core/infra/logging/logger'
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
+  const routeStartedAt = Date.now()
+  const elapsedMs = () => Date.now() - routeStartedAt
+
   try {
     if (!session.tenantId) {
       return NextResponse.json(errorResponse('SESSION_INVALID', 'Session tenant is required'), { status: 401 })
@@ -44,6 +47,15 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       })),
     })
 
+    logger.info('Contract signing preparation draft saved', {
+      contractId,
+      tenantId: session.tenantId,
+      employeeId: session.employeeId,
+      recipientCount: payload.recipients.length,
+      fieldCount: payload.fields.length,
+      elapsedMs: elapsedMs(),
+    })
+
     return NextResponse.json(okResponse(draft))
   } catch (error) {
     if (error instanceof ZodError) {
@@ -57,6 +69,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       contractId: params?.contractId,
       tenantId: session.tenantId,
       employeeId: session.employeeId,
+      elapsedMs: elapsedMs(),
     })
 
     const status = isAppError(error) ? error.statusCode : 500
