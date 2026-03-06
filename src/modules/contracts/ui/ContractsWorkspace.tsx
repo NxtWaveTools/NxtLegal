@@ -36,6 +36,26 @@ const PrepareForSigningModal = dynamic(() => import('@/modules/contracts/ui/Prep
 const htmlPreviewExtensions = new Set(['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'tsv', 'txt'])
 const defaultDomain = publicConfig.auth.allowedDomains[0] ?? 'example.com'
 const collaboratorEmailPlaceholder = `legalmember@${defaultDomain}`
+const defaultPrepareForSigningRecipients = [
+  {
+    name: 'Rahul Attuluri',
+    email: 'rahul@nxtwave.tech',
+    recipientType: 'INTERNAL' as const,
+    routingOrder: 1,
+  },
+  {
+    name: 'Anupam Pedarla',
+    email: 'anupam@nxtwave.tech',
+    recipientType: 'INTERNAL' as const,
+    routingOrder: 1,
+  },
+  {
+    name: 'Sashank Reddy Gujjula',
+    email: 'sashank@nxtwave.tech',
+    recipientType: 'INTERNAL' as const,
+    routingOrder: 1,
+  },
+]
 
 const resolveFileExtension = (fileName: string): string => {
   const normalizedName = fileName.trim().toLowerCase()
@@ -2170,6 +2190,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           contractId={selectedContractId}
           contractStatus={selectedContract.status}
           pdfUrl={signingPreviewUrl}
+          initialRecipients={defaultPrepareForSigningRecipients}
           onClose={() => setIsPrepareForSigningOpen(false)}
           onSent={(contractView) => void handleSigningPrepared(contractView)}
         />

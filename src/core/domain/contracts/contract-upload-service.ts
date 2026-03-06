@@ -39,6 +39,13 @@ export type UploadContractInput = {
   counterpartyName?: string
   counterparties?: Array<{
     counterpartyName: string
+    backgroundOfRequest?: string
+    budgetApproved?: boolean
+    signatories?: Array<{
+      name: string
+      designation: string
+      email: string
+    }>
     supportingFiles: Array<{
       fileName: string
       fileSizeBytes: number
@@ -298,6 +305,55 @@ export class ContractUploadService {
           .map((counterparty) => counterparty.counterpartyName)
           .filter((name) => name.toUpperCase() !== contractCounterpartyValues.notApplicable),
       })
+
+      const draftRecipients = normalizedCounterparties
+        .filter(
+          (counterparty) => counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable
+        )
+        .flatMap((counterparty) =>
+          counterparty.signatories.map((signatory) => ({
+            name: signatory.name,
+            email: signatory.email,
+            recipientType: 'EXTERNAL' as const,
+          }))
+        )
+      const draftRecipientsByEmail = new Map<
+        string,
+        { name: string; email: string; recipientType: 'INTERNAL' | 'EXTERNAL' }
+      >()
+      for (const recipient of draftRecipients) {
+        if (!recipient.email) {
+          continue
+        }
+        if (!draftRecipientsByEmail.has(recipient.email)) {
+          draftRecipientsByEmail.set(recipient.email, recipient)
+        }
+      }
+
+      const seededDraftRecipients = Array.from(draftRecipientsByEmail.values()).map((recipient, index) => ({
+        ...recipient,
+        routingOrder: index + 1,
+      }))
+
+      if (seededDraftRecipients.length > 0) {
+        try {
+          if (typeof this.contractRepository.seedSigningPreparationDraft === 'function') {
+            await this.contractRepository.seedSigningPreparationDraft({
+              tenantId: input.tenantId,
+              contractId,
+              actorEmployeeId: input.uploadedByEmployeeId,
+              recipients: seededDraftRecipients,
+            })
+          }
+        } catch (error) {
+          this.logger.warn('Signing preparation draft seed failed during upload', {
+            tenantId: input.tenantId,
+            contractId,
+            recipientCount: seededDraftRecipients.length,
+            error: String(error),
+          })
+        }
+      }
     } catch (error) {
       this.logger.error('Contract document metadata persistence failed', {
         tenantId: input.tenantId,
@@ -556,12 +612,79 @@ export class ContractUploadService {
     }
 
     for (const counterparty of normalizedCounterparties) {
+      const isNotApplicableCounterparty =
+        counterparty.counterpartyName.toUpperCase() === contractCounterpartyValues.notApplicable
+
       if (counterparty.counterpartyName.length > 200) {
         throw new BusinessRuleError('COUNTERPARTY_NAME_TOO_LONG', 'Counterparty name exceeds maximum length')
       }
 
+      if (!isLegalSendForSigning && !isNotApplicableCounterparty && !counterparty.backgroundOfRequest.trim()) {
+        throw new BusinessRuleError(
+          'BACKGROUND_OF_REQUEST_REQUIRED',
+          `Background of request is required for counterparty ${counterparty.counterpartyName}`
+        )
+      }
+
+      if (!isLegalSendForSigning && !isNotApplicableCounterparty && counterparty.signatories.length === 0) {
+        throw new BusinessRuleError(
+          'SIGNATORY_NAME_REQUIRED',
+          `At least one signatory is required for counterparty ${counterparty.counterpartyName}`
+        )
+      }
+
+      if (!isLegalSendForSigning && isNotApplicableCounterparty && counterparty.signatories.length > 0) {
+        throw new BusinessRuleError(
+          'SIGNATORY_NAME_REQUIRED',
+          `Signatories are not allowed for counterparty ${counterparty.counterpartyName}`
+        )
+      }
+
+      const seenSignatoryEmails = new Set<string>()
+      for (const signatory of counterparty.signatories) {
+        if (!isLegalSendForSigning && !isNotApplicableCounterparty && !signatory.name.trim()) {
+          throw new BusinessRuleError(
+            'SIGNATORY_NAME_REQUIRED',
+            `Signatory name is required for counterparty ${counterparty.counterpartyName}`
+          )
+        }
+
+        if (!isLegalSendForSigning && !isNotApplicableCounterparty && !signatory.designation.trim()) {
+          throw new BusinessRuleError(
+            'SIGNATORY_DESIGNATION_REQUIRED',
+            `Signatory designation is required for counterparty ${counterparty.counterpartyName}`
+          )
+        }
+
+        if (!isLegalSendForSigning && !isNotApplicableCounterparty && !signatory.email.trim()) {
+          throw new BusinessRuleError(
+            'SIGNATORY_EMAIL_REQUIRED',
+            `Signatory email is required for counterparty ${counterparty.counterpartyName}`
+          )
+        }
+
+        if (!isLegalSendForSigning && !isNotApplicableCounterparty && !this.isValidSignatoryEmail(signatory.email)) {
+          throw new BusinessRuleError(
+            'SIGNATORY_EMAIL_INVALID',
+            `Signatory email format is invalid for counterparty ${counterparty.counterpartyName}`
+          )
+        }
+
+        const normalizedEmail = signatory.email.trim().toLowerCase()
+        if (normalizedEmail) {
+          if (seenSignatoryEmails.has(normalizedEmail)) {
+            throw new BusinessRuleError(
+              'SIGNATORY_EMAIL_INVALID',
+              `Duplicate signatory emails are not allowed for counterparty ${counterparty.counterpartyName}`
+            )
+          }
+          seenSignatoryEmails.add(normalizedEmail)
+        }
+      }
+
       const requiresSupportingDocs =
         !isLegalSendForSigning &&
+        !isNotApplicableCounterparty &&
         counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable
       if (requiresSupportingDocs && counterparty.supportingFiles.length === 0) {
         throw new BusinessRuleError(
@@ -595,6 +718,13 @@ export class ContractUploadService {
 
   private normalizeCounterparties(input: UploadContractInput): Array<{
     counterpartyName: string
+    backgroundOfRequest: string
+    budgetApproved: boolean
+    signatories: Array<{
+      name: string
+      designation: string
+      email: string
+    }>
     supportingFiles: Array<{
       fileName: string
       fileSizeBytes: number
@@ -604,10 +734,25 @@ export class ContractUploadService {
   }> {
     if (input.counterparties && input.counterparties.length > 0) {
       return input.counterparties
-        .map((entry) => ({
-          counterpartyName: entry.counterpartyName.trim(),
-          supportingFiles: entry.supportingFiles,
-        }))
+        .map((entry) => {
+          const normalizedCounterpartyName = entry.counterpartyName.trim()
+          const isNotApplicableCounterparty =
+            normalizedCounterpartyName.toUpperCase() === contractCounterpartyValues.notApplicable
+
+          return {
+            counterpartyName: normalizedCounterpartyName,
+            backgroundOfRequest: isNotApplicableCounterparty ? '' : (entry.backgroundOfRequest?.trim() ?? ''),
+            budgetApproved: isNotApplicableCounterparty ? false : Boolean(entry.budgetApproved),
+            signatories: isNotApplicableCounterparty
+              ? []
+              : (entry.signatories ?? []).map((signatory) => ({
+                  name: signatory.name.trim(),
+                  designation: signatory.designation.trim(),
+                  email: signatory.email.trim().toLowerCase(),
+                })),
+            supportingFiles: isNotApplicableCounterparty ? [] : entry.supportingFiles,
+          }
+        })
         .filter((entry) => entry.counterpartyName.length > 0)
     }
 
@@ -615,11 +760,23 @@ export class ContractUploadService {
     if (!counterpartyName) {
       return []
     }
+    const isNotApplicableCounterparty = counterpartyName.toUpperCase() === contractCounterpartyValues.notApplicable
 
     return [
       {
         counterpartyName,
-        supportingFiles: input.supportingFiles ?? [],
+        backgroundOfRequest: isNotApplicableCounterparty ? '' : input.backgroundOfRequest.trim(),
+        budgetApproved: isNotApplicableCounterparty ? false : input.budgetApproved,
+        signatories: isNotApplicableCounterparty
+          ? []
+          : [
+              {
+                name: input.signatoryName.trim(),
+                designation: input.signatoryDesignation.trim(),
+                email: input.signatoryEmail.trim().toLowerCase(),
+              },
+            ],
+        supportingFiles: isNotApplicableCounterparty ? [] : (input.supportingFiles ?? []),
       },
     ]
   }

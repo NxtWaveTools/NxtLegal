@@ -21,10 +21,64 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
       throw error
     }
 
+    const counterpartyNames = (data ?? []).map((item) => item.name)
+    const normalizedCounterpartyNames = counterpartyNames.filter((name) => name.trim().length > 0)
+    const latestMetadataByCounterpartyName = new Map<
+      string,
+      {
+        backgroundOfRequest: string
+        budgetApproved: boolean
+        signatories: Array<{
+          name: string
+          designation: string
+          email: string
+        }>
+      }
+    >()
+
+    if (normalizedCounterpartyNames.length > 0) {
+      const { data: contractRows, error: contractsError } = await supabase
+        .from('contracts')
+        .select(
+          'counterparty_name, signatory_name, signatory_designation, signatory_email, background_of_request, budget_approved, updated_at'
+        )
+        .eq('tenant_id', session.tenantId)
+        .is('deleted_at', null)
+        .in('counterparty_name', normalizedCounterpartyNames)
+        .order('updated_at', { ascending: false })
+
+      if (contractsError) {
+        throw contractsError
+      }
+
+      for (const row of contractRows ?? []) {
+        const counterpartyName = row.counterparty_name?.trim()
+        if (!counterpartyName || latestMetadataByCounterpartyName.has(counterpartyName)) {
+          continue
+        }
+
+        latestMetadataByCounterpartyName.set(counterpartyName, {
+          backgroundOfRequest: row.background_of_request?.trim() ?? '',
+          budgetApproved: Boolean(row.budget_approved),
+          signatories:
+            row.signatory_name?.trim() && row.signatory_designation?.trim() && row.signatory_email?.trim()
+              ? [
+                  {
+                    name: row.signatory_name.trim(),
+                    designation: row.signatory_designation.trim(),
+                    email: row.signatory_email.trim().toLowerCase(),
+                  },
+                ]
+              : [],
+        })
+      }
+    }
+
     return NextResponse.json(
       okResponse({
         counterparties: (data ?? []).map((item) => ({
           name: item.name,
+          ...(latestMetadataByCounterpartyName.get(item.name.trim()) ?? {}),
         })),
       })
     )

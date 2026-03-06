@@ -402,6 +402,43 @@ class SupabaseContractRepository implements ContractRepository {
     }
   }
 
+  async seedSigningPreparationDraft(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    recipients: Array<{
+      name: string
+      email: string
+      recipientType: 'INTERNAL' | 'EXTERNAL'
+      routingOrder: number
+    }>
+  }): Promise<void> {
+    if (params.recipients.length === 0) {
+      return
+    }
+
+    const supabase = createServiceSupabase()
+    const { error } = await supabase.from('contract_signing_preparation_drafts').upsert(
+      {
+        tenant_id: params.tenantId,
+        contract_id: params.contractId,
+        recipients: params.recipients,
+        fields: [],
+        created_by_employee_id: params.actorEmployeeId,
+        updated_by_employee_id: params.actorEmployeeId,
+      },
+      {
+        onConflict: 'tenant_id,contract_id',
+      }
+    )
+
+    if (error) {
+      throw new DatabaseError('Failed to seed signing preparation draft recipients', new Error(error.message), {
+        code: error.code,
+      })
+    }
+  }
+
   async createDocument(input: CreateContractDocumentInput): Promise<void> {
     const supabase = createServiceSupabase()
 

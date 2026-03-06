@@ -82,15 +82,13 @@ describe('Contracts upload route', () => {
         const values: Record<string, unknown> = {
           title: 'Master Service Agreement',
           contractTypeId: '11111111-1111-1111-1111-111111111111',
-          signatoryName: 'Vendor Signatory',
-          signatoryDesignation: 'Director',
-          signatoryEmail: 'vendor@example.com',
-          backgroundOfRequest: 'Need legal review',
           departmentId: '22222222-2222-2222-2222-222222222222',
-          budgetApproved: 'false',
           counterparties: JSON.stringify([
             {
               counterpartyName: 'Acme Inc',
+              backgroundOfRequest: 'Need legal review',
+              budgetApproved: false,
+              signatories: [{ name: 'Vendor Signatory', designation: 'Director', email: 'vendor@example.com' }],
               supportingFileIndices: [1],
             },
           ]),
@@ -128,6 +126,9 @@ describe('Contracts upload route', () => {
     const mainFile = new File([new Uint8Array([1, 2, 3])], 'contract.docx', {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     })
+    const supportingFile = new File([new Uint8Array([4, 5, 6])], 'supporting.pdf', {
+      type: 'application/pdf',
+    })
 
     const uploadedContract = {
       id: 'contract-1',
@@ -147,13 +148,80 @@ describe('Contracts upload route', () => {
         const values: Record<string, unknown> = {
           title: 'Master Service Agreement',
           contractTypeId: '11111111-1111-1111-1111-111111111111',
-          signatoryName: 'Vendor Signatory',
-          signatoryDesignation: 'Director',
-          signatoryEmail: 'NA',
-          backgroundOfRequest: 'Need legal review',
           departmentId: '22222222-2222-2222-2222-222222222222',
-          budgetApproved: 'false',
-          counterpartyName: 'NA',
+          counterparties: JSON.stringify([
+            {
+              counterpartyName: 'Acme Inc',
+              backgroundOfRequest: 'Need legal review',
+              budgetApproved: false,
+              signatories: [{ name: 'Vendor Signatory', designation: 'Director', email: 'NA' }],
+              supportingFileIndices: [0],
+            },
+          ]),
+          file: mainFile,
+        }
+
+        return values[key] ?? null
+      },
+      getAll: (key: string) => {
+        if (key === 'supportingFiles') {
+          return [supportingFile]
+        }
+        return []
+      },
+    }
+
+    const response = await POST({
+      headers: {
+        get: (name: string) => (name === 'Idempotency-Key' ? 'idem-123' : null),
+      },
+      formData: async () => formData,
+    } as unknown as PostRequestArg)
+
+    const body = await response.json()
+
+    expect(response.status).toBe(201)
+    expect(body.ok).toBe(true)
+    expect(mockContractUploadService.uploadContract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        signatoryEmail: 'na',
+      })
+    )
+  })
+
+  it('allows NA counterparty without signatories', async () => {
+    const mainFile = new File([new Uint8Array([1, 2, 3])], 'contract.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+
+    const uploadedContract = {
+      id: 'contract-1',
+      title: 'Master Service Agreement',
+      status: 'HOD_PENDING',
+      currentAssigneeEmployeeId: 'hod-1',
+      currentAssigneeEmail: 'hod@nxtwave.co.in',
+      fileName: 'contract.docx',
+      fileSizeBytes: 1024,
+    }
+
+    mockContractUploadService.uploadContract.mockResolvedValue(uploadedContract)
+    mockContractApprovalNotificationService.notifyHodOnContractUpload.mockResolvedValue(undefined)
+
+    const formData: FormDataLike = {
+      get: (key: string) => {
+        const values: Record<string, unknown> = {
+          title: 'Master Service Agreement',
+          contractTypeId: '11111111-1111-1111-1111-111111111111',
+          departmentId: '22222222-2222-2222-2222-222222222222',
+          counterparties: JSON.stringify([
+            {
+              counterpartyName: 'NA',
+              backgroundOfRequest: '',
+              budgetApproved: false,
+              signatories: [],
+              supportingFileIndices: [],
+            },
+          ]),
           file: mainFile,
         }
 
@@ -175,7 +243,16 @@ describe('Contracts upload route', () => {
     expect(body.ok).toBe(true)
     expect(mockContractUploadService.uploadContract).toHaveBeenCalledWith(
       expect.objectContaining({
-        signatoryEmail: 'na',
+        signatoryName: 'NA',
+        signatoryDesignation: 'NA',
+        signatoryEmail: 'NA',
+        counterparties: expect.arrayContaining([
+          expect.objectContaining({
+            counterpartyName: 'NA',
+            signatories: [],
+            supportingFiles: [],
+          }),
+        ]),
       })
     )
   })

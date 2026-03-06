@@ -51,6 +51,12 @@ type PrepareForSigningModalProps = {
   contractId: string
   contractStatus: string
   pdfUrl: string
+  initialRecipients?: Array<{
+    name: string
+    email: string
+    recipientType?: RecipientType
+    routingOrder?: number
+  }>
   onClose: () => void
   onSent: (contractView: ContractDetailResponse) => void
 }
@@ -83,11 +89,54 @@ const defaultFieldSizeByType: Record<FieldType, { width: number; height: number 
 const imageFieldTypes: FieldType[] = ['SIGNATURE', 'INITIAL', 'STAMP']
 const isImageFieldType = (fieldType: FieldType) => imageFieldTypes.includes(fieldType)
 
+function mergeRecipientsWithDefaults(
+  recipients: DraftRecipient[],
+  defaultRecipients: DraftRecipient[]
+): DraftRecipient[] {
+  const byEmail = new Map<string, DraftRecipient>()
+
+  for (const recipient of recipients) {
+    const normalizedEmail = recipient.email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      continue
+    }
+
+    byEmail.set(normalizedEmail, {
+      ...recipient,
+      email: normalizedEmail,
+    })
+  }
+
+  for (const defaultRecipient of defaultRecipients) {
+    const normalizedEmail = defaultRecipient.email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      continue
+    }
+
+    const existingRecipient = byEmail.get(normalizedEmail)
+    if (!existingRecipient) {
+      byEmail.set(normalizedEmail, defaultRecipient)
+      continue
+    }
+
+    // Keep saved row identity/position, but enforce default directory values.
+    byEmail.set(normalizedEmail, {
+      ...existingRecipient,
+      name: defaultRecipient.name,
+      recipientType: defaultRecipient.recipientType,
+      routingOrder: defaultRecipient.routingOrder,
+    })
+  }
+
+  return Array.from(byEmail.values())
+}
+
 export default function PrepareForSigningModal({
   isOpen,
   contractId,
   contractStatus,
   pdfUrl,
+  initialRecipients = [],
   onClose,
   onSent,
 }: PrepareForSigningModalProps) {
@@ -116,6 +165,30 @@ export default function PrepareForSigningModal({
 
   const isLocked = contractStatus === contractStatuses.pendingExternal
   const canEdit = !isLocked && !isSending
+  const normalizedInitialRecipients = useMemo(() => {
+    const byEmail = new Map<string, DraftRecipient>()
+
+    for (const recipient of initialRecipients) {
+      const normalizedEmail = recipient.email.trim().toLowerCase()
+      if (!normalizedEmail) {
+        continue
+      }
+
+      if (byEmail.has(normalizedEmail)) {
+        continue
+      }
+
+      byEmail.set(normalizedEmail, {
+        id: createDraftId(),
+        name: recipient.name.trim(),
+        email: normalizedEmail,
+        recipientType: recipient.recipientType ?? 'EXTERNAL',
+        routingOrder: recipient.routingOrder && recipient.routingOrder > 0 ? recipient.routingOrder : 1,
+      })
+    }
+
+    return Array.from(byEmail.values())
+  }, [initialRecipients])
 
   useEffect(() => {
     if (!isSending) {
@@ -156,9 +229,9 @@ export default function PrepareForSigningModal({
 
         const data = response.data
         if (!data) {
-          setRecipients([])
+          setRecipients(normalizedInitialRecipients)
           setFields([])
-          setSelectedRecipientId('')
+          setSelectedRecipientId(normalizedInitialRecipients[0]?.id ?? '')
           return
         }
 
@@ -182,9 +255,10 @@ export default function PrepareForSigningModal({
           assignedSignerEmail: field.assignedSignerEmail,
         }))
 
-        setRecipients(mappedRecipients)
+        const mergedRecipients = mergeRecipientsWithDefaults(mappedRecipients, normalizedInitialRecipients)
+        setRecipients(mergedRecipients)
         setFields(mappedFields)
-        setSelectedRecipientId(mappedRecipients[0]?.id ?? '')
+        setSelectedRecipientId(mergedRecipients[0]?.id ?? '')
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
         toast.error(errorMessage)
@@ -194,7 +268,7 @@ export default function PrepareForSigningModal({
     }
 
     void loadDraft()
-  }, [contractId, isOpen])
+  }, [contractId, isOpen, normalizedInitialRecipients])
 
   const activeRecipient = recipients.find((recipient) => recipient.id === selectedRecipientId) ?? recipients[0] ?? null
   const activeRecipientEmail = activeRecipient?.email ?? ''

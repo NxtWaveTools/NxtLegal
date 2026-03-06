@@ -343,6 +343,13 @@ type ContractTypeOption = {
 
 type CounterpartyOption = {
   name: string
+  backgroundOfRequest?: string
+  budgetApproved?: boolean
+  signatories?: Array<{
+    name: string
+    designation: string
+    email: string
+  }>
 }
 
 type LegalTeamMemberOption = {
@@ -869,6 +876,13 @@ export const contractsClient = {
     counterparties?: Array<{
       counterpartyName: string
       supportingFiles: File[]
+      backgroundOfRequest?: string
+      budgetApproved?: boolean
+      signatories?: Array<{
+        name: string
+        designation: string
+        email: string
+      }>
     }>
     signatoryName?: string
     signatoryDesignation?: string
@@ -934,6 +948,9 @@ export const contractsClient = {
         return {
           counterpartyName: counterparty.counterpartyName,
           supportingFileIndices,
+          backgroundOfRequest: counterparty.backgroundOfRequest,
+          budgetApproved: counterparty.budgetApproved,
+          signatories: counterparty.signatories ?? [],
         }
       })
 

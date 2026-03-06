@@ -124,9 +124,11 @@ describe('PrepareForSigningModal', () => {
     )
 
     await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
-
     fireEvent.click(screen.getByRole('button', { name: '2. Assign Fields' }))
+    await waitFor(() => expect(screen.queryByText('Loading draft…')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('pdf-document')).toBeInTheDocument())
     fireEvent.click(screen.getByLabelText('Add signature on all pages'))
+    await waitFor(() => expect(screen.getByTestId('pdf-document')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('pdf-document'), { clientX: 360, clientY: 500 })
     fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }))
 
@@ -172,6 +174,37 @@ describe('PrepareForSigningModal', () => {
 
     getBoundingClientRectSpy.mockRestore()
     rafSpy.mockRestore()
+  })
+
+  it('pre-populates recipients from initialRecipients when no draft exists', async () => {
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: null,
+    } as never)
+
+    render(
+      <PrepareForSigningModal
+        isOpen
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        pdfUrl="/api/contracts/contract-1/preview"
+        initialRecipients={[
+          {
+            name: 'Vendor Signatory',
+            email: 'Vendor@Example.com',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+          },
+        ]}
+        onClose={jest.fn()}
+        onSent={jest.fn()}
+      />
+    )
+
+    await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
+
+    expect((screen.getByPlaceholderText('Name') as HTMLInputElement).value).toBe('Vendor Signatory')
+    expect((screen.getByPlaceholderText('Email') as HTMLInputElement).value).toBe('vendor@example.com')
   })
 
   it('adds SIGNATURE field only on current page by default', async () => {
@@ -228,8 +261,9 @@ describe('PrepareForSigningModal', () => {
     )
 
     await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
-
     fireEvent.click(screen.getByRole('button', { name: '2. Assign Fields' }))
+    await waitFor(() => expect(screen.queryByText('Loading draft…')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTestId('pdf-document')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('pdf-document'), { clientX: 360, clientY: 500 })
     fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }))
 

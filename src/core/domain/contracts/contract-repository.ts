@@ -17,6 +17,17 @@ export interface ContractRepository {
   listMasterCounterpartyNames(tenantId: string): Promise<string[]>
   upsertMasterCounterpartyNames(params: { tenantId: string; names: string[] }): Promise<void>
   setCounterpartyName(params: { tenantId: string; contractId: string; counterpartyName: string }): Promise<void>
+  seedSigningPreparationDraft(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    recipients: Array<{
+      name: string
+      email: string
+      recipientType: 'INTERNAL' | 'EXTERNAL'
+      routingOrder: number
+    }>
+  }): Promise<void>
   createDocument(input: CreateContractDocumentInput): Promise<void>
   getForAccess(contractId: string, tenantId: string): Promise<ContractAccessRecord | null>
   getDocumentForAccess(params: {

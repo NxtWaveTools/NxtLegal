@@ -6,38 +6,59 @@ import { contractCounterpartyValues } from '@/core/constants/contracts'
 import { formatFileSize } from '@/lib/format-file-size'
 import styles from '../third-party-upload.module.css'
 
+type CounterpartySignatoryEntry = {
+  name: string
+  designation: string
+  email: string
+}
+
+type CounterpartyEntry = {
+  counterpartyName: string
+  supportingFiles: File[]
+  backgroundOfRequest: string
+  budgetApproved: boolean
+  signatories: CounterpartySignatoryEntry[]
+}
+
 type AdditionalDataStepProps = {
   isSendForSigningFlow?: boolean
   mainFileName: string | null
   contractType: string
   contractTypes: Array<{ id: string; name: string }>
-  counterparties: Array<{
-    counterpartyName: string
-    supportingFiles: File[]
-  }>
+  counterparties: CounterpartyEntry[]
   counterpartyOptions: string[]
   showCounterpartyModal: boolean
   onContractTypeChange: (value: string) => void
   onCounterpartyNameChange: (index: number, value: string) => void
+  onCounterpartyBackgroundOfRequestChange: (index: number, value: string) => void
+  onCounterpartyBudgetApprovedChange: (index: number, value: boolean) => void
+  onCounterpartySignatoryChange: (
+    counterpartyIndex: number,
+    signatoryIndex: number,
+    field: keyof CounterpartySignatoryEntry,
+    value: string
+  ) => void
+  onCounterpartySignatoryAdd: (counterpartyIndex: number) => void
+  onCounterpartySignatoryRemove: (counterpartyIndex: number, signatoryIndex: number) => void
+  onCounterpartyAutofill: (
+    counterpartyIndex: number,
+    value: {
+      backgroundOfRequest: string
+      budgetApproved: boolean
+      signatories: CounterpartySignatoryEntry[]
+    }
+  ) => void
   onAddCounterparty: () => void
   onRemoveCounterparty: (index: number) => void
-  signatoryName: string
-  signatoryDesignation: string
-  signatoryEmail: string
-  backgroundOfRequest: string
+  legalCounterpartyName: string
   departmentId: string
   departments: Array<{ id: string; name: string }>
   isDepartmentLocked?: boolean
   lockedDepartmentName?: string
-  budgetApproved: boolean
   bypassHodApproval?: boolean
   bypassReason?: string
-  onSignatoryNameChange: (value: string) => void
-  onSignatoryDesignationChange: (value: string) => void
-  onSignatoryEmailChange: (value: string) => void
-  onBackgroundOfRequestChange: (value: string) => void
+  onLegalCounterpartyNameChange: (value: string) => void
   onDepartmentIdChange: (value: string) => void
-  onBudgetApprovedChange: (value: boolean) => void
   onBypassHodApprovalChange?: (value: boolean) => void
   onBypassReasonChange?: (value: string) => void
   onSupportingFilesSelected: (counterpartyIndex: number, files: File[]) => void
@@ -54,31 +75,39 @@ export default function AdditionalDataStep({
   showCounterpartyModal,
   onContractTypeChange,
   onCounterpartyNameChange,
+  onCounterpartyBackgroundOfRequestChange,
+  onCounterpartyBudgetApprovedChange,
+  onCounterpartySignatoryChange,
+  onCounterpartySignatoryAdd,
+  onCounterpartySignatoryRemove,
+  onCounterpartyAutofill,
   onAddCounterparty,
   onRemoveCounterparty,
-  signatoryName,
-  signatoryDesignation,
-  signatoryEmail,
-  backgroundOfRequest,
+  legalCounterpartyName,
   departmentId,
   departments,
   isDepartmentLocked = false,
   lockedDepartmentName,
-  budgetApproved,
   bypassHodApproval = false,
   bypassReason = '',
-  onSignatoryNameChange,
-  onSignatoryDesignationChange,
-  onSignatoryEmailChange,
-  onBackgroundOfRequestChange,
+  onLegalCounterpartyNameChange,
   onDepartmentIdChange,
-  onBudgetApprovedChange,
   onBypassHodApprovalChange,
   onBypassReasonChange,
   onSupportingFilesSelected,
   onSupportingFileRemoved,
 }: AdditionalDataStepProps) {
   const [loadedCounterpartyOptions, setLoadedCounterpartyOptions] = useState<string[]>(counterpartyOptions)
+  const [counterpartyMetadataByName, setCounterpartyMetadataByName] = useState<
+    Record<
+      string,
+      {
+        backgroundOfRequest: string
+        budgetApproved: boolean
+        signatories: CounterpartySignatoryEntry[]
+      }
+    >
+  >({})
 
   useEffect(() => {
     setLoadedCounterpartyOptions(counterpartyOptions)
@@ -97,11 +126,46 @@ export default function AdditionalDataStep({
         return
       }
 
-      const names = response.data.counterparties
-        .map((item) => item.name.trim())
-        .filter((name) => name.length > 0 && name.toUpperCase() !== contractCounterpartyValues.notApplicable)
+      const validCounterparties = response.data.counterparties
+        .map((item) => ({
+          name: item.name.trim(),
+          backgroundOfRequest: item.backgroundOfRequest?.trim() ?? '',
+          budgetApproved: Boolean(item.budgetApproved),
+          signatories: (item.signatories ?? [])
+            .map((signatory) => ({
+              name: signatory.name.trim(),
+              designation: signatory.designation.trim(),
+              email: signatory.email.trim().toLowerCase(),
+            }))
+            .filter((signatory) => signatory.name && signatory.designation && signatory.email),
+        }))
+        .filter((counterparty) => {
+          return (
+            counterparty.name.length > 0 && counterparty.name.toUpperCase() !== contractCounterpartyValues.notApplicable
+          )
+        })
+
+      const names = validCounterparties.map((item) => item.name)
+      const nextMetadataByName = validCounterparties.reduce<
+        Record<
+          string,
+          {
+            backgroundOfRequest: string
+            budgetApproved: boolean
+            signatories: CounterpartySignatoryEntry[]
+          }
+        >
+      >((accumulator, item) => {
+        accumulator[item.name.toLowerCase()] = {
+          backgroundOfRequest: item.backgroundOfRequest,
+          budgetApproved: item.budgetApproved,
+          signatories: item.signatories,
+        }
+        return accumulator
+      }, {})
 
       setLoadedCounterpartyOptions([contractCounterpartyValues.notApplicable, ...names])
+      setCounterpartyMetadataByName(nextMetadataByName)
     })()
 
     return () => {
@@ -117,6 +181,24 @@ export default function AdditionalDataStep({
     }
 
     return !isCounterpartyNa(counterparties[index]?.counterpartyName ?? '')
+  }
+
+  const maybeAutofillCounterparty = (counterpartyIndex: number, rawValue: string) => {
+    const normalizedValue = rawValue.trim().toLowerCase()
+    if (!normalizedValue) {
+      return
+    }
+
+    if (normalizedValue === contractCounterpartyValues.notApplicable.toLowerCase()) {
+      return
+    }
+
+    const metadata = counterpartyMetadataByName[normalizedValue]
+    if (!metadata) {
+      return
+    }
+
+    onCounterpartyAutofill(counterpartyIndex, metadata)
   }
 
   const handleCounterpartyNameKeyDown = (event: KeyboardEvent<HTMLInputElement>, counterpartyIndex: number) => {
@@ -229,83 +311,11 @@ export default function AdditionalDataStep({
             ) : null
           ) : null}
 
-          <div className={styles.fieldGroup}>
-            <label className={styles.label} htmlFor="signatory-name">
-              {isSendForSigningFlow ? 'Counterparty Name*' : 'Counterparty Signatory Name*'}
-            </label>
-            <input
-              id="signatory-name"
-              className={styles.input}
-              value={signatoryName}
-              onChange={(event) => onSignatoryNameChange(event.target.value)}
-              placeholder={isSendForSigningFlow ? 'Enter counterparty name' : 'Enter signatory name'}
-            />
-          </div>
-
-          {!isSendForSigningFlow ? (
-            <>
-              <div className={styles.fieldGroup}>
-                <label className={styles.label} htmlFor="signatory-designation">
-                  Counterparty Signatory Designation*
-                </label>
-                <input
-                  id="signatory-designation"
-                  className={styles.input}
-                  value={signatoryDesignation}
-                  onChange={(event) => onSignatoryDesignationChange(event.target.value)}
-                  placeholder="Enter designation"
-                />
-              </div>
-
-              <div className={styles.fieldGroup}>
-                <label className={styles.label} htmlFor="signatory-email">
-                  Counterparty Signatory Email*
-                </label>
-                <input
-                  id="signatory-email"
-                  className={styles.input}
-                  type="email"
-                  value={signatoryEmail}
-                  onChange={(event) => onSignatoryEmailChange(event.target.value)}
-                  placeholder="name@company.com"
-                />
-              </div>
-
-              <div className={styles.fieldGroup}>
-                <label className={styles.label} htmlFor="background-of-request">
-                  Background of Request*
-                </label>
-                <textarea
-                  id="background-of-request"
-                  className={styles.input}
-                  value={backgroundOfRequest}
-                  onChange={(event) => onBackgroundOfRequestChange(event.target.value)}
-                  placeholder="Describe the request context"
-                  rows={4}
-                />
-              </div>
-
-              <div className={styles.fieldGroup}>
-                <label className={styles.label} htmlFor="budget-approved">
-                  Budget Approved*
-                </label>
-                <select
-                  id="budget-approved"
-                  className={styles.select}
-                  value={budgetApproved ? 'true' : 'false'}
-                  onChange={(event) => onBudgetApprovedChange(event.target.value === 'true')}
-                >
-                  <option value="false">No</option>
-                  <option value="true">Yes</option>
-                </select>
-              </div>
-            </>
-          ) : null}
-
           {!isSendForSigningFlow
             ? counterparties.map((counterparty, counterpartyIndex) => {
+                const isNotApplicableCounterparty = isCounterpartyNa(counterparty.counterpartyName)
                 const requiresSupportingDocs =
-                  counterparty.counterpartyName.trim() !== '' && !isCounterpartyNa(counterparty.counterpartyName)
+                  counterparty.counterpartyName.trim() !== '' && !isNotApplicableCounterparty
 
                 return (
                   <div key={`counterparty-${counterpartyIndex}`} className={styles.counterpartyCard}>
@@ -337,9 +347,165 @@ export default function AdditionalDataStep({
                       list="counterparty-options"
                       placeholder="Select or type counterparty"
                       value={counterparty.counterpartyName}
-                      onChange={(event) => onCounterpartyNameChange(counterpartyIndex, event.target.value)}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        onCounterpartyNameChange(counterpartyIndex, value)
+                        maybeAutofillCounterparty(counterpartyIndex, value)
+                      }}
+                      onBlur={(event) => maybeAutofillCounterparty(counterpartyIndex, event.target.value)}
                       onKeyDown={(event) => handleCounterpartyNameKeyDown(event, counterpartyIndex)}
                     />
+
+                    <div className={styles.fieldGroup}>
+                      <label
+                        className={styles.label}
+                        htmlFor={`counterparty-background-of-request-${counterpartyIndex}`}
+                      >
+                        Background of Request*
+                      </label>
+                      <textarea
+                        id={`counterparty-background-of-request-${counterpartyIndex}`}
+                        className={styles.input}
+                        value={counterparty.backgroundOfRequest}
+                        disabled={isNotApplicableCounterparty}
+                        onChange={(event) =>
+                          onCounterpartyBackgroundOfRequestChange(counterpartyIndex, event.target.value)
+                        }
+                        placeholder="Describe the request context"
+                        rows={4}
+                      />
+                    </div>
+
+                    <div className={styles.fieldGroup}>
+                      <label className={styles.label} htmlFor={`counterparty-budget-approved-${counterpartyIndex}`}>
+                        Budget Approved*
+                      </label>
+                      <select
+                        id={`counterparty-budget-approved-${counterpartyIndex}`}
+                        className={styles.select}
+                        value={counterparty.budgetApproved ? 'true' : 'false'}
+                        disabled={isNotApplicableCounterparty}
+                        onChange={(event) =>
+                          onCounterpartyBudgetApprovedChange(counterpartyIndex, event.target.value === 'true')
+                        }
+                      >
+                        <option value="false">No</option>
+                        <option value="true">Yes</option>
+                      </select>
+                    </div>
+
+                    {counterparty.signatories.map((signatory, signatoryIndex) => (
+                      <div
+                        key={`counterparty-${counterpartyIndex}-signatory-${signatoryIndex}`}
+                        className={styles.counterpartyCard}
+                      >
+                        <div className={styles.counterpartyHeader}>
+                          <label
+                            className={styles.label}
+                            htmlFor={`counterparty-${counterpartyIndex}-signatory-name-${signatoryIndex}`}
+                          >
+                            Counterparty Signatory {counterparty.signatories.length > 1 ? `${signatoryIndex + 1}` : ''}
+                          </label>
+                          <div className={styles.counterpartyActions}>
+                            {signatoryIndex > 0 ? (
+                              <button
+                                type="button"
+                                className={styles.counterpartyRemoveButton}
+                                disabled={isNotApplicableCounterparty}
+                                onClick={() => onCounterpartySignatoryRemove(counterpartyIndex, signatoryIndex)}
+                                aria-label={`Remove signatory ${signatoryIndex + 1}`}
+                              >
+                                −
+                              </button>
+                            ) : null}
+                            {signatoryIndex === counterparty.signatories.length - 1 ? (
+                              <button
+                                type="button"
+                                className={styles.counterpartyAddButton}
+                                disabled={isNotApplicableCounterparty}
+                                onClick={() => onCounterpartySignatoryAdd(counterpartyIndex)}
+                              >
+                                +
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className={styles.fieldGroup}>
+                          <label
+                            className={styles.label}
+                            htmlFor={`counterparty-${counterpartyIndex}-signatory-name-${signatoryIndex}`}
+                          >
+                            Counterparty Signatory Name*
+                          </label>
+                          <input
+                            id={`counterparty-${counterpartyIndex}-signatory-name-${signatoryIndex}`}
+                            className={styles.input}
+                            value={signatory.name}
+                            disabled={isNotApplicableCounterparty}
+                            onChange={(event) =>
+                              onCounterpartySignatoryChange(
+                                counterpartyIndex,
+                                signatoryIndex,
+                                'name',
+                                event.target.value
+                              )
+                            }
+                            placeholder="Enter signatory name"
+                          />
+                        </div>
+
+                        <div className={styles.fieldGroup}>
+                          <label
+                            className={styles.label}
+                            htmlFor={`counterparty-${counterpartyIndex}-signatory-designation-${signatoryIndex}`}
+                          >
+                            Counterparty Signatory Designation*
+                          </label>
+                          <input
+                            id={`counterparty-${counterpartyIndex}-signatory-designation-${signatoryIndex}`}
+                            className={styles.input}
+                            value={signatory.designation}
+                            disabled={isNotApplicableCounterparty}
+                            onChange={(event) =>
+                              onCounterpartySignatoryChange(
+                                counterpartyIndex,
+                                signatoryIndex,
+                                'designation',
+                                event.target.value
+                              )
+                            }
+                            placeholder="Enter designation"
+                          />
+                        </div>
+
+                        <div className={styles.fieldGroup}>
+                          <label
+                            className={styles.label}
+                            htmlFor={`counterparty-${counterpartyIndex}-signatory-email-${signatoryIndex}`}
+                          >
+                            Counterparty Signatory Email*
+                          </label>
+                          <input
+                            id={`counterparty-${counterpartyIndex}-signatory-email-${signatoryIndex}`}
+                            className={styles.input}
+                            type="email"
+                            value={signatory.email}
+                            disabled={isNotApplicableCounterparty}
+                            onChange={(event) =>
+                              onCounterpartySignatoryChange(
+                                counterpartyIndex,
+                                signatoryIndex,
+                                'email',
+                                event.target.value
+                              )
+                            }
+                            placeholder="name@company.com"
+                          />
+                        </div>
+                      </div>
+                    ))}
+
                     {requiresSupportingDocs && (
                       <div className={styles.fieldGroup}>
                         <label className={styles.label} htmlFor={`supporting-docs-${counterpartyIndex}`}>
@@ -386,6 +552,23 @@ export default function AdditionalDataStep({
                 )
               })
             : null}
+
+          {isSendForSigningFlow ? (
+            <>
+              <div className={styles.fieldGroup}>
+                <label className={styles.label} htmlFor="signatory-name">
+                  Counterparty Name*
+                </label>
+                <input
+                  id="signatory-name"
+                  className={styles.input}
+                  value={legalCounterpartyName}
+                  onChange={(event) => onLegalCounterpartyNameChange(event.target.value)}
+                  placeholder="Enter counterparty name"
+                />
+              </div>
+            </>
+          ) : null}
 
           {!isSendForSigningFlow ? (
             <datalist id="counterparty-options">
