@@ -10,6 +10,7 @@ export const contractStatuses = {
   offlineExecution: 'OFFLINE_EXECUTION',
   onHold: 'ON_HOLD',
   completed: 'COMPLETED',
+  signing: 'SIGNING',
   executed: 'EXECUTED',
   void: 'VOID',
   rejected: 'REJECTED',
@@ -233,6 +234,7 @@ export const contractStatusLabels: Record<ContractStatus, string> = {
   OFFLINE_EXECUTION: 'Offline Execution',
   ON_HOLD: 'On Hold',
   COMPLETED: 'Completed',
+  SIGNING: 'Signing',
   EXECUTED: 'Executed',
   VOID: 'Voided',
   REJECTED: 'Rejected',
@@ -248,6 +250,7 @@ export const contractRepositoryStatuses = {
   offlineExecution: 'OFFLINE_EXECUTION',
   pendingExternal: 'PENDING_WITH_EXTERNAL_STAKEHOLDERS',
   pendingInternal: 'PENDING_WITH_INTERNAL_STAKEHOLDERS',
+  signing: 'SIGNING',
   onHold: 'ON_HOLD',
   void: 'VOID',
   rejected: 'REJECTED',
@@ -263,6 +266,7 @@ export const contractRepositoryStatusLabels: Record<ContractRepositoryStatus, st
   OFFLINE_EXECUTION: 'Offline Execution',
   PENDING_WITH_EXTERNAL_STAKEHOLDERS: 'Pending with External Stakeholders',
   PENDING_WITH_INTERNAL_STAKEHOLDERS: 'Pending with Internal Stakeholders',
+  SIGNING: 'Signing',
   ON_HOLD: 'On Hold',
   VOID: 'Voided',
   REJECTED: 'Rejected',
@@ -278,6 +282,7 @@ export const contractRepositoryTatPolicy = {
 export const contractRepositoryReportStatusBuckets = {
   executed: [contractStatuses.executed],
   completed: [contractStatuses.completed],
+  signing: [contractStatuses.signing],
   underReview: [contractStatuses.underReview],
   pendingInternal: [contractStatuses.pendingInternal],
   pendingExternal: [contractStatuses.pendingExternal],
@@ -295,6 +300,7 @@ export const contractRepositoryDepartmentMetricKeys = {
 export const contractRepositoryStatusMetricKeys = {
   executed: 'executed',
   completed: 'completed',
+  signing: 'signing',
   underReview: 'under_review',
   pendingInternal: 'pending_internal',
   pendingExternal: 'pending_external',
@@ -308,6 +314,7 @@ export const contractRepositoryStatusMetricLabels: Record<
 > = {
   [contractRepositoryStatusMetricKeys.executed]: 'Executed',
   [contractRepositoryStatusMetricKeys.completed]: 'Completed',
+  [contractRepositoryStatusMetricKeys.signing]: 'Signing',
   [contractRepositoryStatusMetricKeys.underReview]: 'Under Review',
   [contractRepositoryStatusMetricKeys.pendingInternal]: 'Pending Internal',
   [contractRepositoryStatusMetricKeys.pendingExternal]: 'Pending External',
@@ -405,6 +412,10 @@ export const resolveRepositoryStatus = (params: {
     return contractRepositoryStatuses.completed
   }
 
+  if (params.status === contractStatuses.signing) {
+    return contractRepositoryStatuses.signing
+  }
+
   if (params.status === contractStatuses.executed) {
     return contractRepositoryStatuses.executed
   }
@@ -430,6 +441,7 @@ export const repositoryStatusToWorkflowStatuses: Record<ContractRepositoryStatus
   OFFLINE_EXECUTION: [contractStatuses.offlineExecution],
   PENDING_WITH_EXTERNAL_STAKEHOLDERS: [contractStatuses.pendingExternal],
   PENDING_WITH_INTERNAL_STAKEHOLDERS: [contractStatuses.pendingInternal],
+  SIGNING: [contractStatuses.signing],
   ON_HOLD: [contractStatuses.onHold, contractStatuses.draft, contractStatuses.uploaded],
   VOID: [contractStatuses.void],
   REJECTED: [contractStatuses.rejected],

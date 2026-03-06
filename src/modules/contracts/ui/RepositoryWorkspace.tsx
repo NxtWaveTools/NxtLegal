@@ -99,6 +99,7 @@ const stuckStateStatuses = new Set([
   'UNDER_REVIEW',
   'PENDING_WITH_INTERNAL_STAKEHOLDERS',
   'PENDING_WITH_EXTERNAL_STAKEHOLDERS',
+  'SIGNING',
 ])
 
 function resolveSavedViews(role?: string | null): RepositorySavedView[] {

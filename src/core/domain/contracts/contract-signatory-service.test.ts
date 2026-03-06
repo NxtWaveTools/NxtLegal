@@ -5,7 +5,7 @@ const mockContractView = {
   contract: {
     id: 'contract-1',
     title: 'Master Service Agreement',
-    status: 'COMPLETED',
+    status: 'UNDER_REVIEW',
     currentDocumentId: 'document-primary-1',
   },
   documents: [],
@@ -516,7 +516,7 @@ describe('ContractSignatoryService', () => {
     ).rejects.toBeInstanceOf(ExternalServiceError)
   })
 
-  it('rejects signatory assignment outside COMPLETED', async () => {
+  it('rejects signatory assignment outside UNDER_REVIEW', async () => {
     const contractQueryService = {
       getContractDetail: jest.fn().mockResolvedValue({
         ...mockContractView,
@@ -945,7 +945,7 @@ describe('ContractSignatoryService', () => {
           ...mockContractView,
           contract: {
             ...mockContractView.contract,
-            status: 'IN_SIGNATURE',
+            status: 'SIGNING',
           },
           signatories: [
             {

@@ -405,7 +405,7 @@ export class ContractUploadService {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
     }
 
-    if (contract.status === contractStatuses.pendingExternal) {
+    if (contract.status === contractStatuses.signing || contract.status === contractStatuses.pendingExternal) {
       throw new BusinessRuleError(
         'CONTRACT_IN_SIGNATURE_REPLACEMENT_FORBIDDEN',
         'Main document replacement is blocked while contract is in signature'

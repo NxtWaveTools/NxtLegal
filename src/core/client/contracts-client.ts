@@ -107,6 +107,7 @@ type RepositoryStatusFilter =
   | 'OFFLINE_EXECUTION'
   | 'PENDING_WITH_EXTERNAL_STAKEHOLDERS'
   | 'PENDING_WITH_INTERNAL_STAKEHOLDERS'
+  | 'SIGNING'
   | 'ON_HOLD'
   | 'REJECTED'
   | 'COMPLETED'
@@ -144,6 +145,7 @@ type RepositoryStatusMetric = {
   key:
     | 'executed'
     | 'completed'
+    | 'signing'
     | 'under_review'
     | 'pending_internal'
     | 'pending_external'

@@ -68,6 +68,7 @@ export type RepositoryDatePreset = 'week' | 'month' | 'multiple_months' | 'quart
 export type RepositoryStatusMetricKey =
   | 'executed'
   | 'completed'
+  | 'signing'
   | 'under_review'
   | 'pending_internal'
   | 'pending_external'

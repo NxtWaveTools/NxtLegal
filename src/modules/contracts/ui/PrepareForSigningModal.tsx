@@ -168,7 +168,7 @@ export default function PrepareForSigningModal({
   const suppressPlacementUntilMsRef = useRef(0)
   const [activeResizeFieldId, setActiveResizeFieldId] = useState<string | null>(null)
 
-  const isLocked = contractStatus === contractStatuses.pendingExternal
+  const isLocked = contractStatus === contractStatuses.signing || contractStatus === contractStatuses.pendingExternal
   const canEdit = !isLocked && !isSending
   const normalizedInitialRecipients = useMemo(() => {
     const byEmail = new Map<string, DraftRecipient>()

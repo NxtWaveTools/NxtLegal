@@ -16,6 +16,7 @@ const statusClassName: Record<ContractStatus, string> = {
   OFFLINE_EXECUTION: styles.offlineExecution,
   ON_HOLD: styles.onHold,
   COMPLETED: styles.completed,
+  SIGNING: styles.signing,
   EXECUTED: styles.executed,
   VOID: styles.voided,
   REJECTED: styles.rejected,

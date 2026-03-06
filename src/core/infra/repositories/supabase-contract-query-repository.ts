@@ -1366,6 +1366,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       contractStatuses.underReview,
       contractStatuses.pendingInternal,
       contractStatuses.pendingExternal,
+      contractStatuses.signing,
       contractStatuses.offlineExecution,
       contractStatuses.onHold,
     ])
@@ -1424,6 +1425,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         key: contractRepositoryStatusMetricKeys.completed,
         label: contractRepositoryStatusMetricLabels[contractRepositoryStatusMetricKeys.completed],
         count: statusValues.filter((status) => status === 'COMPLETED').length,
+      },
+      {
+        key: contractRepositoryStatusMetricKeys.signing,
+        label: contractRepositoryStatusMetricLabels[contractRepositoryStatusMetricKeys.signing],
+        count: statusValues.filter((status) => status === 'SIGNING').length,
       },
       {
         key: contractRepositoryStatusMetricKeys.underReview,
@@ -2356,10 +2362,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    if (contract.status !== contractStatuses.completed) {
+    const draftAllowedStatuses: ContractStatus[] = [contractStatuses.underReview, contractStatuses.completed]
+    if (!draftAllowedStatuses.includes(contract.status)) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation drafts can only be saved in COMPLETED'
+        'Signing preparation drafts can only be saved in UNDER_REVIEW or COMPLETED'
       )
     }
 
@@ -2553,11 +2560,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const { data: contractUpdate, error: contractUpdateError } = await supabase
       .from('contracts')
       .update({
-        status: contractStatuses.pendingExternal,
+        status: contractStatuses.signing,
       })
       .eq('tenant_id', params.tenantId)
       .eq('id', params.contractId)
-      .eq('status', contractStatuses.completed)
+      .in('status', [contractStatuses.underReview, contractStatuses.completed])
       .is('deleted_at', null)
       .select('id')
       .maybeSingle<{ id: string }>()
@@ -2566,8 +2573,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     logger.warn('TEMP_DIAG moveContractToInSignature update result', {
       contractId: params.contractId,
       requestedTenantId: params.tenantId,
-      requiredFromStatus: contractStatuses.completed,
-      targetStatus: contractStatuses.pendingExternal,
+      requiredFromStatuses: [contractStatuses.underReview, contractStatuses.completed],
+      targetStatus: contractStatuses.signing,
       rowsAffected,
       contractUpdateErrorCode: contractUpdateError?.code ?? null,
       contractUpdateErrorMessage: contractUpdateError?.message ?? null,
@@ -2582,7 +2589,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     if (!contractUpdate?.id) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation send is only allowed in COMPLETED'
+        'Signing preparation send is only allowed in UNDER_REVIEW'
       )
     }
 
@@ -3581,8 +3588,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    if (contract.status !== contractStatuses.completed) {
-      throw new BusinessRuleError('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in COMPLETED')
+    const assignAllowedStatuses: ContractStatus[] = [contractStatuses.underReview, contractStatuses.completed]
+    if (!assignAllowedStatuses.includes(contract.status)) {
+      throw new BusinessRuleError(
+        'SIGNATORY_ASSIGN_INVALID_STATUS',
+        'Signatories can only be assigned in UNDER_REVIEW or COMPLETED'
+      )
     }
 
     const existingSignatories = await this.getSignatories(params.tenantId, params.contractId)
@@ -3838,7 +3849,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         })
         .eq('tenant_id', params.tenantId)
         .eq('id', updated.contract_id)
-        .eq('status', contractStatuses.pendingExternal)
+        .in('status', [contractStatuses.signing, contractStatuses.pendingExternal])
         .is('deleted_at', null)
         .select('id')
         .maybeSingle<{ id: string }>()
@@ -3861,7 +3872,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
             resource_type: 'contract',
             resource_id: updated.contract_id,
             metadata: {
-              from_status: contractStatuses.pendingExternal,
+              from_status: contractStatuses.signing,
+              from_status_fallback: contractStatuses.pendingExternal,
               to_status: contractStatuses.executed,
               zoho_sign_envelope_id: params.envelopeId,
             },

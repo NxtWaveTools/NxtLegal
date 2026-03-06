@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import { contractsClient, type ContractDocument } from '@/core/client/contracts-client'
-import { contractDocumentKinds } from '@/core/constants/contracts'
+import { contractDocumentKinds, contractStatuses } from '@/core/constants/contracts'
 import Spinner from '@/components/ui/Spinner'
 import { toast } from 'sonner'
 import workspaceStyles from '@/modules/contracts/ui/contracts-workspace.module.css'
@@ -279,12 +279,13 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     return primaryDocuments[0]
   }, [currentDocumentId, primaryDocuments])
 
-  const canReplace = userRole === 'LEGAL_TEAM' && contractStatus !== 'PENDING_WITH_EXTERNAL_STAKEHOLDERS'
+  const isInSignature =
+    contractStatus === contractStatuses.signing || contractStatus === contractStatuses.pendingExternal
+  const canReplace = userRole === 'LEGAL_TEAM' && !isInSignature
 
-  const replaceDisabledMessage =
-    contractStatus === 'PENDING_WITH_EXTERNAL_STAKEHOLDERS'
-      ? 'Replacement is unavailable while contract is in signature.'
-      : undefined
+  const replaceDisabledMessage = isInSignature
+    ? 'Replacement is unavailable while contract is in signature.'
+    : undefined
 
   const openFilePicker = () => {
     fileInputRef.current?.click()

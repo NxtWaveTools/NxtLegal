@@ -1865,7 +1865,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         <>
                           <div className={styles.card}>
                             <div className={styles.sectionTitle}>Signatories</div>
-                            {selectedContract.status === contractStatuses.completed ? (
+                            {([contractStatuses.underReview, contractStatuses.completed] as string[]).includes(
+                              selectedContract.status
+                            ) ? (
                               <div className={styles.inlineForm}>
                                 <button
                                   type="button"
@@ -1877,9 +1879,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 </button>
                               </div>
                             ) : (
-                              <div className={styles.eventMeta}>Sign is available only after COMPLETED.</div>
+                              <div className={styles.eventMeta}>
+                                Sign is available only in UNDER REVIEW or COMPLETED.
+                              </div>
                             )}
-                            {selectedContract.status === contractStatuses.completed && !signingPreviewDocument ? (
+                            {([contractStatuses.underReview, contractStatuses.completed] as string[]).includes(
+                              selectedContract.status
+                            ) && !signingPreviewDocument ? (
                               <div className={styles.eventMeta}>
                                 Prepare for Signing requires a PDF primary document.
                               </div>

@@ -61,6 +61,10 @@ describe('resolveRepositoryStatus', () => {
     expect(resolveRepositoryStatus({ status: contractStatuses.completed })).toBe(contractRepositoryStatuses.completed)
   })
 
+  it('maps SIGNING → signing', () => {
+    expect(resolveRepositoryStatus({ status: contractStatuses.signing })).toBe(contractRepositoryStatuses.signing)
+  })
+
   it('maps EXECUTED → executed', () => {
     expect(resolveRepositoryStatus({ status: contractStatuses.executed })).toBe(contractRepositoryStatuses.executed)
   })
@@ -125,6 +129,7 @@ describe('resolveContractStatusDisplayLabel', () => {
       ['underReview', 'Under Review'],
       ['onHold', 'On Hold'],
       ['completed', 'Completed'],
+      ['signing', 'Signing'],
       ['executed', 'Executed'],
       ['void', 'Voided'],
       ['rejected', 'Rejected'],
@@ -139,8 +144,8 @@ describe('resolveContractStatusDisplayLabel', () => {
 // ─── Status transition matrix sanity checks ──────────────────────────────────
 
 describe('Contract status constants completeness', () => {
-  it('has exactly 12 workflow statuses', () => {
-    expect(Object.keys(contractStatuses)).toHaveLength(12)
+  it('has exactly 13 workflow statuses', () => {
+    expect(Object.keys(contractStatuses)).toHaveLength(13)
   })
 
   it('VOID and REJECTED are terminal statuses (not mapped to active repo statuses)', () => {

@@ -75,7 +75,7 @@ describe('Contract signing prep send route', () => {
     mockContractSignatoryService.sendSigningPreparationDraft.mockResolvedValueOnce({
       envelopeId: 'env-1',
       contractView: {
-        contract: { id: 'contract-1', status: 'IN_SIGNATURE' },
+        contract: { id: 'contract-1', status: 'SIGNING' },
         documents: [],
         availableActions: [],
         additionalApprovers: [],
