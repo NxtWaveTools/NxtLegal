@@ -1,5 +1,6 @@
 import { ContractSignatoryService } from '@/core/domain/contracts/contract-signatory-service'
 import { BusinessRuleError, ExternalServiceError } from '@/core/http/errors'
+import { PDFDocument } from 'pdf-lib'
 
 const mockContractView = {
   contract: {
@@ -24,6 +25,227 @@ const createLogger = () => ({
 describe('ContractSignatoryService', () => {
   beforeEach(() => {
     jest.restoreAllMocks()
+  })
+
+  it('downloads merged signing artifact with certificate pages first', async () => {
+    const createPdf = async (width: number, height: number): Promise<Uint8Array> => {
+      const pdf = await PDFDocument.create()
+      pdf.addPage([width, height])
+      return await pdf.save()
+    }
+
+    const certificatePdf = await createPdf(320, 220)
+    const executedPdf = await createPdf(640, 480)
+
+    const contractQueryService = {
+      getContractDetail: jest.fn().mockResolvedValue({
+        ...createContractView(),
+        signatories: [{ zohoSignEnvelopeId: 'env-merged-1' }],
+      }),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn(),
+    }
+
+    const contractRepository = {
+      createDocument: jest.fn(),
+    }
+
+    const signatureProvider = {
+      createSigningEnvelope: jest.fn(),
+      downloadCompletedEnvelopeDocuments: jest.fn().mockResolvedValue({
+        executedPdf,
+        certificatePdf,
+      }),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService as never,
+      { createSignedDownloadUrl: jest.fn() },
+      contractRepository as never,
+      contractStorageRepository as never,
+      signatureProvider,
+      { sendTemplateEmail: jest.fn() },
+      {
+        signatoryLinkTemplateId: 101,
+        signingCompletedTemplateId: 102,
+      },
+      'https://app.example.com',
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    )
+
+    const result = await service.downloadFinalSigningArtifact({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      artifact: 'merged_pdf',
+    })
+
+    if (!('fileBytes' in result)) {
+      throw new Error('Expected merged artifact bytes in response')
+    }
+
+    const mergedDoc = await PDFDocument.load(result.fileBytes)
+    const pages = mergedDoc.getPages()
+
+    expect(pages).toHaveLength(2)
+    expect(pages[0].getWidth()).toBe(320)
+    expect(pages[0].getHeight()).toBe(220)
+    expect(pages[1].getWidth()).toBe(640)
+    expect(pages[1].getHeight()).toBe(480)
+    expect(result.fileName).toBe('completion-certificate-and-signed-env-merged-1.pdf')
+    expect(signatureProvider.downloadCompletedEnvelopeDocuments).toHaveBeenCalledWith({
+      envelopeId: 'env-merged-1',
+    })
+    expect(contractStorageRepository.upload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: 'tenant-1/contract-1/executed/env-merged-1/completion-certificate-and-executed-merged.pdf',
+        contentType: 'application/pdf',
+      })
+    )
+    expect(contractRepository.createDocument).not.toHaveBeenCalled()
+  })
+
+  it('sends signed confirmation email to internal signer on SIGNED webhook', async () => {
+    const contractQueryService = {
+      getContractDetail: jest.fn(),
+      addSignatory: jest.fn(),
+      markSignatoryAsSigned: jest.fn().mockResolvedValue(undefined),
+      getContractDocumentsBySystem: jest.fn().mockResolvedValue([]),
+      resolveEnvelopeContext: jest.fn().mockResolvedValue({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        signatoryEmail: 'internal@nxtwave.co.in',
+        recipientType: 'INTERNAL',
+        routingOrder: 1,
+      }),
+      recordZohoSignWebhookEvent: jest.fn().mockResolvedValue({ inserted: true }),
+      addSignatoryWebhookAuditEvent: jest.fn().mockResolvedValue(undefined),
+      recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
+      getLatestNotificationDelivery: jest.fn().mockResolvedValue(null),
+      getEnvelopeNotificationProfile: jest.fn().mockResolvedValue({
+        contractTitle: 'Master Service Agreement',
+        recipientEmails: ['internal@nxtwave.co.in'],
+      }),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      createSignedDownloadUrl: jest.fn().mockResolvedValue('https://storage.example/executed.pdf'),
+    }
+
+    const signatoryMailer = {
+      sendTemplateEmail: jest.fn().mockResolvedValue({ providerMessageId: 'msg-3' }),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService as never,
+      { createSignedDownloadUrl: jest.fn() },
+      { createDocument: jest.fn() } as never,
+      contractStorageRepository as never,
+      {
+        createSigningEnvelope: jest.fn(),
+        downloadCompletedEnvelopeDocuments: jest.fn(),
+      },
+      signatoryMailer,
+      {
+        signatoryLinkTemplateId: 101,
+        signingCompletedTemplateId: 102,
+      },
+      'https://app.example.com',
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    )
+
+    await service.handleZohoSignSignedWebhook({
+      envelopeId: 'env-1',
+      recipientEmail: 'internal@nxtwave.co.in',
+      status: 'signed',
+      payload: {
+        envelopeId: 'env-1',
+        status: 'signed',
+      },
+    })
+
+    expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientEmail: 'internal@nxtwave.co.in',
+        subject: 'You Signed: Master Service Agreement',
+        htmlContent: expect.stringContaining('https://storage.example/executed.pdf'),
+      })
+    )
+    expect(contractQueryService.recordContractNotificationDelivery).toHaveBeenCalled()
+  })
+
+  it('dedupes internal signer confirmation when already sent for same envelope', async () => {
+    const contractQueryService = {
+      getContractDetail: jest.fn(),
+      addSignatory: jest.fn(),
+      markSignatoryAsSigned: jest.fn().mockResolvedValue(undefined),
+      getContractDocumentsBySystem: jest.fn().mockResolvedValue([]),
+      resolveEnvelopeContext: jest.fn().mockResolvedValue({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        signatoryEmail: 'internal@nxtwave.co.in',
+        recipientType: 'INTERNAL',
+        routingOrder: 1,
+      }),
+      recordZohoSignWebhookEvent: jest.fn().mockResolvedValue({ inserted: true }),
+      addSignatoryWebhookAuditEvent: jest.fn().mockResolvedValue(undefined),
+      getLatestNotificationDelivery: jest.fn().mockResolvedValue({
+        id: 'delivery-1',
+        createdAt: new Date().toISOString(),
+        status: 'SENT',
+      }),
+      recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
+      getEnvelopeNotificationProfile: jest.fn().mockResolvedValue({
+        contractTitle: 'Master Service Agreement',
+        recipientEmails: ['internal@nxtwave.co.in'],
+      }),
+    }
+
+    const signatoryMailer = {
+      sendTemplateEmail: jest.fn().mockResolvedValue({ providerMessageId: 'msg-3' }),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService as never,
+      { createSignedDownloadUrl: jest.fn() },
+      { createDocument: jest.fn() } as never,
+      { upload: jest.fn(), createSignedDownloadUrl: jest.fn() } as never,
+      {
+        createSigningEnvelope: jest.fn(),
+        downloadCompletedEnvelopeDocuments: jest.fn(),
+      },
+      signatoryMailer,
+      {
+        signatoryLinkTemplateId: 101,
+        signingCompletedTemplateId: 102,
+      },
+      'https://app.example.com',
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    )
+
+    await service.handleZohoSignSignedWebhook({
+      envelopeId: 'env-1',
+      recipientEmail: 'internal@nxtwave.co.in',
+      status: 'signed',
+      payload: {
+        envelopeId: 'env-1',
+        status: 'signed',
+      },
+    })
+
+    expect(contractQueryService.getLatestNotificationDelivery).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      envelopeId: 'env-1',
+      recipientEmail: 'internal@nxtwave.co.in',
+      notificationType: 'SIGNING_COMPLETED',
+    })
+    expect(signatoryMailer.sendTemplateEmail).not.toHaveBeenCalled()
+    expect(contractQueryService.recordContractNotificationDelivery).not.toHaveBeenCalled()
   })
 
   it('sends Brevo email with embedded link for internal recipient', async () => {

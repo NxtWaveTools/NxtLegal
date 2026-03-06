@@ -112,6 +112,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [generatedSigningLinksByEmail, setGeneratedSigningLinksByEmail] = useState<Record<string, string>>({})
   const [isDownloadingFinalSignedDoc, setIsDownloadingFinalSignedDoc] = useState(false)
   const [isDownloadingCompletionCertificate, setIsDownloadingCompletionCertificate] = useState(false)
+  const [isDownloadingMergedArtifact, setIsDownloadingMergedArtifact] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [isActivityComposerOpen, setIsActivityComposerOpen] = useState(false)
   const [isSubmittingActivity, setIsSubmittingActivity] = useState(false)
@@ -728,6 +729,35 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     triggerBlobDownload(response.data.blob, response.data.fileName)
     setIsDownloadingCompletionCertificate(false)
+  }
+
+  const handleDownloadMergedSigningArtifact = async () => {
+    if (!selectedContractId) {
+      return
+    }
+
+    setIsDownloadingMergedArtifact(true)
+    const response = await contractsClient.downloadFinalSigningArtifact(selectedContractId, 'merged_pdf')
+    if (!response.ok || !response.data) {
+      toast.error(response.error?.message ?? 'Failed to download merged signed artifact')
+      setIsDownloadingMergedArtifact(false)
+      return
+    }
+
+    if (response.data.signedUrl) {
+      window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+      setIsDownloadingMergedArtifact(false)
+      return
+    }
+
+    if (!response.data.blob) {
+      toast.error('Failed to download merged signed artifact')
+      setIsDownloadingMergedArtifact(false)
+      return
+    }
+
+    triggerBlobDownload(response.data.blob, response.data.fileName)
+    setIsDownloadingMergedArtifact(false)
   }
 
   const handleViewDocument = async (document?: ContractDocument) => {
@@ -2143,6 +2173,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 disabled={
                                   isDownloadingFinalSignedDoc ||
                                   isDownloadingCompletionCertificate ||
+                                  isDownloadingMergedArtifact ||
                                   !selectedContractId
                                 }
                               >
@@ -2158,14 +2189,31 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 disabled={
                                   isDownloadingCompletionCertificate ||
                                   isDownloadingFinalSignedDoc ||
+                                  isDownloadingMergedArtifact ||
                                   !selectedContractId
                                 }
                               >
                                 <span className={styles.buttonContent}>
                                   {isDownloadingCompletionCertificate ? <Spinner size={14} /> : null}
                                   {isDownloadingCompletionCertificate
-                                    ? 'Preparing…'
+                                    ? 'Preparing...'
                                     : 'Download Completion Certificate'}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                className={`${styles.button} ${styles.buttonGhost}`}
+                                onClick={() => void handleDownloadMergedSigningArtifact()}
+                                disabled={
+                                  isDownloadingMergedArtifact ||
+                                  isDownloadingCompletionCertificate ||
+                                  isDownloadingFinalSignedDoc ||
+                                  !selectedContractId
+                                }
+                              >
+                                <span className={styles.buttonContent}>
+                                  {isDownloadingMergedArtifact ? <Spinner size={14} /> : null}
+                                  {isDownloadingMergedArtifact ? 'Preparing...' : 'Download Combined PDF'}
                                 </span>
                               </button>
                             </div>

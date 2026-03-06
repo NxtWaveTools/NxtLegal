@@ -825,6 +825,7 @@ export class ContractQueryService {
   async getLatestNotificationDelivery(params: {
     tenantId: string
     contractId: string
+    envelopeId?: string
     recipientEmail: string
     notificationType: ContractNotificationType
   }): Promise<ContractNotificationDeliverySummary | null> {

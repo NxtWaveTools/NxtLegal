@@ -233,7 +233,7 @@ type ContractSignatory = {
   createdAt: string
 }
 
-type FinalSigningArtifactType = 'signed_document' | 'completion_certificate'
+type FinalSigningArtifactType = 'signed_document' | 'completion_certificate' | 'merged_pdf'
 
 type ContractSigningPreparationDraft = {
   contractId: string
@@ -1241,7 +1241,11 @@ export const contractsClient = {
             signedUrl: parsed.data.signedUrl,
             fileName:
               parsed.data.fileName ??
-              (artifact === 'completion_certificate' ? 'completion-certificate.pdf' : 'signed-document.pdf'),
+              (artifact === 'completion_certificate'
+                ? 'completion-certificate.pdf'
+                : artifact === 'merged_pdf'
+                  ? 'completion-certificate-and-signed.pdf'
+                  : 'signed-document.pdf'),
             contentType: parsed.data.contentType ?? 'application/pdf',
           },
         }
@@ -1262,7 +1266,9 @@ export const contractsClient = {
           })()
         : artifact === 'completion_certificate'
           ? 'completion-certificate.pdf'
-          : 'signed-document.pdf'
+          : artifact === 'merged_pdf'
+            ? 'completion-certificate-and-signed.pdf'
+            : 'signed-document.pdf'
 
       return {
         ok: true,

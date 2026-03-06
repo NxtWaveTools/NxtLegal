@@ -4067,6 +4067,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   async getLatestNotificationDelivery(params: {
     tenantId: string
     contractId: string
+    envelopeId?: string
     recipientEmail: string
     notificationType:
       | 'SIGNATORY_LINK'
@@ -4077,13 +4078,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   }): Promise<ContractNotificationDeliverySummary | null> {
     const supabase = createServiceSupabase()
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('contract_notification_deliveries')
       .select('id, created_at, status')
       .eq('tenant_id', params.tenantId)
       .eq('contract_id', params.contractId)
       .eq('recipient_email', params.recipientEmail.trim().toLowerCase())
       .eq('notification_type', params.notificationType)
+
+    if (params.envelopeId?.trim()) {
+      query = query.eq('envelope_id', params.envelopeId.trim())
+    }
+
+    const { data, error } = await query
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle<{ id: string; created_at: string; status: 'SENT' | 'FAILED' }>()
