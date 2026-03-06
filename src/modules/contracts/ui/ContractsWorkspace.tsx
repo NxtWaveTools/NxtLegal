@@ -16,6 +16,7 @@ import {
 } from '@/core/client/contracts-client'
 import { publicConfig } from '@/core/config/public-config'
 import {
+  getContractSignatoryRecipientTypeLabel,
   contractDocumentKinds,
   contractLegalAssignmentEditableStatuses,
   contractStatuses,
@@ -67,6 +68,63 @@ const resolveFileExtension = (fileName: string): string => {
   }
 
   return normalizedName.slice(lastDotIndex + 1)
+}
+
+const copyTextToClipboard = async (value: string): Promise<boolean> => {
+  const text = value.trim()
+  if (!text) {
+    return false
+  }
+
+  if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // Fallback for browsers/contexts that block Clipboard API (Safari, permission-restricted windows).
+    }
+  }
+
+  if (typeof document === 'undefined') {
+    return false
+  }
+
+  const textArea = document.createElement('textarea')
+  textArea.value = text
+  textArea.setAttribute('readonly', 'true')
+  textArea.style.position = 'fixed'
+  textArea.style.top = '0'
+  textArea.style.left = '-9999px'
+  textArea.style.opacity = '0'
+  document.body.appendChild(textArea)
+
+  const selection = document.getSelection()
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  const originalRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null
+
+  textArea.focus()
+  textArea.select()
+  textArea.setSelectionRange(0, textArea.value.length)
+
+  let copied = false
+  try {
+    copied = document.execCommand('copy')
+  } catch {
+    copied = false
+  } finally {
+    document.body.removeChild(textArea)
+
+    if (selection) {
+      selection.removeAllRanges()
+      if (originalRange) {
+        selection.addRange(originalRange)
+      }
+    }
+
+    activeElement?.focus()
+  }
+
+  return copied
 }
 
 type ContractsWorkspaceProps = {
@@ -902,44 +960,39 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
 
     if (recipientType !== 'INTERNAL') {
-      setError('Signing link can only be generated for internal recipients')
+      setError('Signing link can only be generated for Nxtwave recipients')
       return
     }
     setIsGeneratingLinkFor(recipientEmail)
     try {
       const normalizedRecipientEmail = recipientEmail.trim().toLowerCase()
       const response = await fetch(
-        `/api/contracts/${selectedContractId}/signatories/link?email=${encodeURIComponent(recipientEmail)}`,
+        `/api/contracts/${selectedContractId}/signatories/link?email=${encodeURIComponent(normalizedRecipientEmail)}`,
         { method: 'GET' }
       )
       const json = await response.json()
       if (!response.ok || !json?.ok || !json.data?.signing_url) {
         throw new Error(json?.error?.message ?? 'Failed to generate signing link')
       }
-      const signingUrl = String(json.data.signing_url)
+      const signingUrl = String(json.data.signing_url).trim()
       setGeneratedSigningLinksByEmail((current) => ({
         ...current,
         [normalizedRecipientEmail]: signingUrl,
       }))
       setError(null)
 
-      if (typeof navigator?.clipboard?.writeText === 'function') {
-        try {
-          await navigator.clipboard.writeText(signingUrl)
-          setCopiedSigningLinkFor(recipientEmail)
-          if (copiedSigningLinkResetTimerRef.current) {
-            window.clearTimeout(copiedSigningLinkResetTimerRef.current)
-          }
-          copiedSigningLinkResetTimerRef.current = window.setTimeout(() => {
-            setCopiedSigningLinkFor((current) => (current === recipientEmail ? null : current))
-          }, 2000)
-        } catch {
-          setCopiedSigningLinkFor(null)
-          setError('Signing link generated. Clipboard copy failed, copy the link shown below.')
+      const copied = await copyTextToClipboard(signingUrl)
+      if (copied) {
+        setCopiedSigningLinkFor(normalizedRecipientEmail)
+        if (copiedSigningLinkResetTimerRef.current) {
+          window.clearTimeout(copiedSigningLinkResetTimerRef.current)
         }
+        copiedSigningLinkResetTimerRef.current = window.setTimeout(() => {
+          setCopiedSigningLinkFor((current) => (current === normalizedRecipientEmail ? null : current))
+        }, 2000)
       } else {
         setCopiedSigningLinkFor(null)
-        setError('Signing link generated. Clipboard is unavailable, copy the link shown below.')
+        setError('Signing link generated. Clipboard copy failed, copy the link shown below.')
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to generate signing link')
@@ -1929,7 +1982,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                   <div key={signatory.id} className={styles.event}>
                                     <div className={styles.signatoryHeader}>
                                       <div>
-                                        {signatory.signatoryEmail} · {signatory.recipientType} · Step{' '}
+                                        {signatory.signatoryEmail} ·{' '}
+                                        {getContractSignatoryRecipientTypeLabel(signatory.recipientType)} · Step{' '}
                                         {signatory.routingOrder}
                                       </div>
                                       <span
@@ -1957,12 +2011,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                         >
                                           {isGeneratingLinkFor === signatory.signatoryEmail
                                             ? 'Generating link...'
-                                            : copiedSigningLinkFor === signatory.signatoryEmail
+                                            : copiedSigningLinkFor === signatory.signatoryEmail.trim().toLowerCase()
                                               ? 'Copied'
                                               : 'Copy Signing Link'}
                                         </button>
                                         <span className={styles.signatoryActionHint}>
-                                          {copiedSigningLinkFor === signatory.signatoryEmail
+                                          {copiedSigningLinkFor === signatory.signatoryEmail.trim().toLowerCase()
                                             ? 'Copied to clipboard'
                                             : 'Generates fresh secure link'}
                                         </span>
@@ -1980,7 +2034,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                       </div>
                                     ) : (
                                       <div className={styles.signatoryActionHint}>
-                                        Signing link available for internal users.
+                                        Signing link available for Nxtwave users.
                                       </div>
                                     )}
                                   </div>
@@ -2228,7 +2282,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                               <div key={signatory.id} className={styles.event}>
                                 <div className={styles.signatoryHeader}>
                                   <div>
-                                    {signatory.signatoryEmail} · {signatory.recipientType} · Step{' '}
+                                    {signatory.signatoryEmail} ·{' '}
+                                    {getContractSignatoryRecipientTypeLabel(signatory.recipientType)} · Step{' '}
                                     {signatory.routingOrder}
                                   </div>
                                   <span

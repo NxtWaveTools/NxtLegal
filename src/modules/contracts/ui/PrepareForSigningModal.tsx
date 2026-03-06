@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { toast } from 'sonner'
 import { contractsClient, type ContractDetailResponse } from '@/core/client/contracts-client'
-import { contractStatuses } from '@/core/constants/contracts'
+import { contractStatuses, getContractSignatoryRecipientTypeLabel } from '@/core/constants/contracts'
 import styles from './prepare-for-signing-modal.module.css'
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
@@ -975,8 +975,8 @@ export default function PrepareForSigningModal({
                         handleRecipientChange(recipient.id, { recipientType: event.target.value as RecipientType })
                       }
                     >
-                      <option value="INTERNAL">INTERNAL</option>
-                      <option value="EXTERNAL">EXTERNAL</option>
+                      <option value="INTERNAL">{getContractSignatoryRecipientTypeLabel('INTERNAL')}</option>
+                      <option value="EXTERNAL">{getContractSignatoryRecipientTypeLabel('EXTERNAL')}</option>
                     </select>
                     <input
                       className={styles.input}

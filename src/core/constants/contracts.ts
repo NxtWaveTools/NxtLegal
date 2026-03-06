@@ -135,6 +135,15 @@ export const contractSignatoryRecipientTypes = {
 export type ContractSignatoryRecipientType =
   (typeof contractSignatoryRecipientTypes)[keyof typeof contractSignatoryRecipientTypes]
 
+export const contractSignatoryRecipientTypeLabels: Record<ContractSignatoryRecipientType, string> = {
+  INTERNAL: 'Nxtwave',
+  EXTERNAL: 'Counter Party',
+}
+
+export const getContractSignatoryRecipientTypeLabel = (recipientType: ContractSignatoryRecipientType): string => {
+  return contractSignatoryRecipientTypeLabels[recipientType]
+}
+
 export const contractSignatoryFieldTypes = {
   signature: 'SIGNATURE',
   initial: 'INITIAL',

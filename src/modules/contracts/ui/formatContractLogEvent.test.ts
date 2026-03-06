@@ -38,7 +38,7 @@ describe('formatContractLogEvent legal send-for-signing semantics', () => {
       createdAt: '2026-02-28T13:00:00.000Z',
     })
 
-    expect(result.actorLabel).toBe('External signer (signer@example.com)')
+    expect(result.actorLabel).toBe('Counter Party signer (signer@example.com)')
     expect(result.message).toBe('Signed by signer@example.com via Zoho Sign.')
     expect(result.category).toBe('SIGNING')
   })
