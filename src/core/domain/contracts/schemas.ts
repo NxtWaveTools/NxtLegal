@@ -274,6 +274,10 @@ const contractSigningPreparationRecipientSchema = z.object({
   email: z.string().trim().toLowerCase().email('Valid recipient email is required'),
   recipient_type: z.enum(contractSignatoryRecipientTypeValues),
   routing_order: z.number().int().min(1),
+  designation: z.string().trim().optional(),
+  counterparty_name: z.string().trim().optional(),
+  background_of_request: z.string().trim().optional(),
+  budget_approved: z.boolean().optional(),
 })
 
 const contractSigningPreparationFieldSchema = z

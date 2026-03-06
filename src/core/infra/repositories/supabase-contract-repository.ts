@@ -411,6 +411,10 @@ class SupabaseContractRepository implements ContractRepository {
       email: string
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
+      designation?: string
+      counterpartyName?: string
+      backgroundOfRequest?: string
+      budgetApproved?: boolean
     }>
   }): Promise<void> {
     if (params.recipients.length === 0) {

@@ -205,6 +205,10 @@ type SigningPreparationDraftEntity = {
     email: string
     recipientType: 'INTERNAL' | 'EXTERNAL'
     routingOrder: number
+    designation?: string
+    counterpartyName?: string
+    backgroundOfRequest?: string
+    budgetApproved?: boolean
   }>
   fields: Array<{
     fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -2305,6 +2309,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       email: string
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
+      designation?: string
+      counterpartyName?: string
+      backgroundOfRequest?: string
+      budgetApproved?: boolean
     }>
     fields: Array<{
       fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -2323,6 +2331,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       email: string
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
+      designation?: string
+      counterpartyName?: string
+      backgroundOfRequest?: string
+      budgetApproved?: boolean
     }>
     fields: Array<{
       fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -2419,6 +2431,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       email: string
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
+      designation?: string
+      counterpartyName?: string
+      backgroundOfRequest?: string
+      budgetApproved?: boolean
     }>
     fields: Array<{
       fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'

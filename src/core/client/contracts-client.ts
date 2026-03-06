@@ -240,6 +240,10 @@ type ContractSigningPreparationDraft = {
     email: string
     recipientType: 'INTERNAL' | 'EXTERNAL'
     routingOrder: number
+    designation?: string
+    counterpartyName?: string
+    backgroundOfRequest?: string
+    budgetApproved?: boolean
   }>
   fields: Array<{
     fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -1109,6 +1113,10 @@ export const contractsClient = {
         email: string
         recipient_type: 'INTERNAL' | 'EXTERNAL'
         routing_order: number
+        designation?: string
+        counterparty_name?: string
+        background_of_request?: string
+        budget_approved?: boolean
       }>
       fields: Array<{
         field_type: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'

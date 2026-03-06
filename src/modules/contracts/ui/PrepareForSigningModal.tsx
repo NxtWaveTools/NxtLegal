@@ -18,6 +18,10 @@ type DraftRecipient = {
   email: string
   recipientType: RecipientType
   routingOrder: number
+  designation?: string
+  counterpartyName?: string
+  backgroundOfRequest?: string
+  budgetApproved?: boolean
 }
 
 type DraftField = {
@@ -161,6 +165,7 @@ export default function PrepareForSigningModal({
   const pageRenderRef = useRef<HTMLDivElement | null>(null)
   const resizeSessionRef = useRef<ResizeSession | null>(null)
   const suppressDeleteForFieldRef = useRef<string | null>(null)
+  const suppressPlacementUntilMsRef = useRef(0)
   const [activeResizeFieldId, setActiveResizeFieldId] = useState<string | null>(null)
 
   const isLocked = contractStatus === contractStatuses.pendingExternal
@@ -241,6 +246,10 @@ export default function PrepareForSigningModal({
           email: recipient.email,
           recipientType: recipient.recipientType,
           routingOrder: recipient.routingOrder,
+          designation: recipient.designation,
+          counterpartyName: recipient.counterpartyName,
+          backgroundOfRequest: recipient.backgroundOfRequest,
+          budgetApproved: recipient.budgetApproved,
         }))
 
         const mappedFields: DraftField[] = data.fields.map((field) => ({
@@ -529,6 +538,9 @@ export default function PrepareForSigningModal({
     if (!canEdit || !activeRecipientEmail || step < 2) {
       return
     }
+    if (Date.now() < suppressPlacementUntilMsRef.current) {
+      return
+    }
 
     const pageSurface = pageSurfaceRef.current
     if (!pageSurface) {
@@ -559,29 +571,62 @@ export default function PrepareForSigningModal({
         : [currentPage]
     const mirrorGroupId = selectedFieldType === 'SIGNATURE' && applySignatureToAllPages ? createDraftId() : undefined
 
-    setFields((current) => [
-      ...current,
-      ...placementPages.map((pageNumber) => ({
-        // Keep mirrored placement aligned to each page's dimensions.
-        ...((): Pick<DraftField, 'xPosition' | 'yPosition'> => {
-          const targetMetrics = getPageMetrics(pageNumber) ?? metrics
-          const rawX = xRatio * targetMetrics.width
-          const rawY = yRatio * targetMetrics.height
-          const clampedX = Number(Math.max(0, Math.min(targetMetrics.width - defaultDimensions.width, rawX)).toFixed(2))
-          const clampedY = Number(
-            Math.max(0, Math.min(targetMetrics.height - defaultDimensions.height, rawY)).toFixed(2)
+    setFields((current) => {
+      if (selectedFieldType === 'SIGNATURE' && applySignatureToAllPages) {
+        const hitField = current.find((field) => {
+          if (
+            field.fieldType !== 'SIGNATURE' ||
+            field.assignedSignerEmail.trim().toLowerCase() !== normalizedSignerEmail ||
+            (field.pageNumber ?? 1) !== currentPage ||
+            typeof field.xPosition !== 'number' ||
+            typeof field.yPosition !== 'number'
+          ) {
+            return false
+          }
+
+          const dimensions = resolveFieldDimensions(field)
+          return (
+            xInPdfSpace >= field.xPosition &&
+            xInPdfSpace <= field.xPosition + dimensions.width &&
+            yInPdfSpace >= field.yPosition &&
+            yInPdfSpace <= field.yPosition + dimensions.height
           )
-          return { xPosition: clampedX, yPosition: clampedY }
-        })(),
-        id: createDraftId(),
-        fieldType: selectedFieldType,
-        pageNumber,
-        width: defaultDimensions.width,
-        height: defaultDimensions.height,
-        mirrorGroupId,
-        assignedSignerEmail: normalizedSignerEmail,
-      })),
-    ])
+        })
+
+        if (hitField) {
+          if (hitField.mirrorGroupId) {
+            return current.filter((field) => field.mirrorGroupId !== hitField.mirrorGroupId)
+          }
+          return current.filter((field) => field.id !== hitField.id)
+        }
+      }
+
+      return [
+        ...current,
+        ...placementPages.map((pageNumber) => ({
+          // Keep mirrored placement aligned to each page's dimensions.
+          ...((): Pick<DraftField, 'xPosition' | 'yPosition'> => {
+            const targetMetrics = getPageMetrics(pageNumber) ?? metrics
+            const rawX = xRatio * targetMetrics.width
+            const rawY = yRatio * targetMetrics.height
+            const clampedX = Number(
+              Math.max(0, Math.min(targetMetrics.width - defaultDimensions.width, rawX)).toFixed(2)
+            )
+            const clampedY = Number(
+              Math.max(0, Math.min(targetMetrics.height - defaultDimensions.height, rawY)).toFixed(2)
+            )
+            return { xPosition: clampedX, yPosition: clampedY }
+          })(),
+          id: createDraftId(),
+          fieldType: selectedFieldType,
+          pageNumber,
+          width: defaultDimensions.width,
+          height: defaultDimensions.height,
+          mirrorGroupId,
+          assignedSignerEmail: normalizedSignerEmail,
+        })),
+      ]
+    })
   }
 
   const resolveFieldChipStyle = (field: DraftField): { left: string; top: string; width: string; height: string } => {
@@ -701,6 +746,8 @@ export default function PrepareForSigningModal({
 
     const onMouseUp = () => {
       if (resizeSessionRef.current?.fieldId) {
+        // Prevent synthetic click after resize from creating a new field on page surface.
+        suppressPlacementUntilMsRef.current = Date.now() + 250
         suppressDeleteForFieldRef.current = resizeSessionRef.current.fieldId
         window.setTimeout(() => {
           if (suppressDeleteForFieldRef.current) {
@@ -772,6 +819,10 @@ export default function PrepareForSigningModal({
         email: recipient.email.trim().toLowerCase(),
         recipient_type: recipient.recipientType,
         routing_order: recipient.routingOrder,
+        designation: recipient.designation?.trim() || undefined,
+        counterparty_name: recipient.counterpartyName?.trim() || undefined,
+        background_of_request: recipient.backgroundOfRequest?.trim() || undefined,
+        budget_approved: recipient.budgetApproved,
       })),
       fields: normalizedFields.map((field) => ({
         field_type: field.fieldType,
@@ -821,6 +872,10 @@ export default function PrepareForSigningModal({
         email: recipient.email.trim().toLowerCase(),
         recipient_type: recipient.recipientType,
         routing_order: recipient.routingOrder,
+        designation: recipient.designation?.trim() || undefined,
+        counterparty_name: recipient.counterpartyName?.trim() || undefined,
+        background_of_request: recipient.backgroundOfRequest?.trim() || undefined,
+        budget_approved: recipient.budgetApproved,
       })),
       fields: normalizedFields.map((field) => ({
         field_type: field.fieldType,
@@ -1093,7 +1148,11 @@ export default function PrepareForSigningModal({
                         if (suppressDeleteForFieldRef.current === field.id) {
                           return
                         }
-                        setFields((current) => current.filter((item) => item.id !== field.id))
+                        setFields((current) =>
+                          field.mirrorGroupId
+                            ? current.filter((item) => item.mirrorGroupId !== field.mirrorGroupId)
+                            : current.filter((item) => item.id !== field.id)
+                        )
                       }}
                       title={`${field.fieldType} → ${field.assignedSignerEmail} (${Math.round(resolveFieldDimensions(field).width)}x${Math.round(resolveFieldDimensions(field).height)})`}
                     >

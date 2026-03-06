@@ -671,7 +671,7 @@ export class ContractQueryService {
       throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for signing preparation')
     }
 
-    const contractView = await this.getContractDetail({
+    await this.getContractDetail({
       tenantId: params.tenantId,
       contractId: params.contractId,
       employeeId: params.actorEmployeeId,
@@ -710,13 +710,6 @@ export class ContractQueryService {
       employeeId: params.actorEmployeeId,
       role: params.actorRole,
     })
-
-    if (contractView.contract.status !== contractStatuses.completed) {
-      throw new BusinessRuleError(
-        'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation drafts can only be loaded in COMPLETED'
-      )
-    }
 
     return this.contractRepository.getSigningPreparationDraft({
       tenantId: params.tenantId,

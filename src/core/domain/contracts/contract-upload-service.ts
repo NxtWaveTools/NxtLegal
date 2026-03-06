@@ -314,12 +314,24 @@ export class ContractUploadService {
           counterparty.signatories.map((signatory) => ({
             name: signatory.name,
             email: signatory.email,
+            designation: signatory.designation,
+            counterpartyName: counterparty.counterpartyName,
+            backgroundOfRequest: counterparty.backgroundOfRequest,
+            budgetApproved: counterparty.budgetApproved,
             recipientType: 'EXTERNAL' as const,
           }))
         )
       const draftRecipientsByEmail = new Map<
         string,
-        { name: string; email: string; recipientType: 'INTERNAL' | 'EXTERNAL' }
+        {
+          name: string
+          email: string
+          designation?: string
+          counterpartyName?: string
+          backgroundOfRequest?: string
+          budgetApproved?: boolean
+          recipientType: 'INTERNAL' | 'EXTERNAL'
+        }
       >()
       for (const recipient of draftRecipients) {
         if (!recipient.email) {

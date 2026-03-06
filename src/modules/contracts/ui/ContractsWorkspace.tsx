@@ -11,6 +11,7 @@ import {
   type ContractDocument,
   type ContractDetailResponse,
   type ContractRecord,
+  type ContractSigningPreparationDraft,
   type ContractTimelineEvent,
 } from '@/core/client/contracts-client'
 import { publicConfig } from '@/core/config/public-config'
@@ -94,6 +95,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [legalCollaborators, setLegalCollaborators] = useState<ContractDetailResponse['legalCollaborators']>([])
   const [signatories, setSignatories] = useState<ContractDetailResponse['signatories']>([])
   const [counterparties, setCounterparties] = useState<ContractDetailResponse['counterparties']>([])
+  const [signingDraftRecipients, setSigningDraftRecipients] = useState<ContractSigningPreparationDraft['recipients']>(
+    []
+  )
   const [documents, setDocuments] = useState<ContractDocument[]>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
@@ -292,9 +296,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
   const loadContractContext = useCallback(
     async (contractId: string) => {
-      const [detailResponse, timelineResponse] = await Promise.all([
+      const [detailResponse, timelineResponse, signingDraftResponse] = await Promise.all([
         contractsClient.detail(contractId),
         contractsClient.timeline(contractId),
+        contractsClient.getSigningPreparationDraft(contractId),
       ])
 
       if (!detailResponse.ok || !detailResponse.data?.contract) {
@@ -308,11 +313,17 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setApprovers([])
         setLegalCollaborators([])
         setSignatories([])
+        setSigningDraftRecipients([])
         return
       }
 
       applyContractView(detailResponse.data)
       upsertContractInSidebarList(detailResponse.data.contract)
+      if (signingDraftResponse.ok) {
+        setSigningDraftRecipients(signingDraftResponse.data?.recipients ?? [])
+      } else {
+        setSigningDraftRecipients([])
+      }
 
       if (timelineResponse.ok && timelineResponse.data) {
         setTimeline(timelineResponse.data.events)
@@ -361,9 +372,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     const loadSelectedContract = async () => {
       setIsContractContextLoading(true)
-      const [detailResponse, timelineResponse] = await Promise.all([
+      const [detailResponse, timelineResponse, signingDraftResponse] = await Promise.all([
         contractsClient.detail(selectedContractId),
         contractsClient.timeline(selectedContractId),
+        contractsClient.getSigningPreparationDraft(selectedContractId),
       ])
 
       if (isCancelled) {
@@ -381,12 +393,18 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setApprovers([])
         setLegalCollaborators([])
         setSignatories([])
+        setSigningDraftRecipients([])
         setIsContractContextLoading(false)
         return
       }
 
       applyContractView(detailResponse.data)
       upsertContractInSidebarList(detailResponse.data.contract)
+      if (signingDraftResponse.ok) {
+        setSigningDraftRecipients(signingDraftResponse.data?.recipients ?? [])
+      } else {
+        setSigningDraftRecipients([])
+      }
 
       if (timelineResponse.ok && timelineResponse.data) {
         setTimeline(timelineResponse.data.events)
@@ -407,6 +425,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const selectContract = (contractId: string) => {
     setIsContractContextLoading(true)
     setSelectedContractId(contractId)
+    setSigningDraftRecipients([])
     setActiveTab('overview')
     setIsIntakeOpen(false)
     setIsPrepareForSigningOpen(false)
@@ -1058,7 +1077,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const noteEvents = useMemo(() => timeline.filter((event) => isContractNoteEvent(event)), [timeline])
   const timelineById = useMemo(() => new Map(timeline.map((event) => [event.id, event])), [timeline])
   const selectedCurrentDocumentId = selectedContract?.currentDocumentId
-  const signingPreviewDocumentId = useMemo(() => {
+  const signingPreviewDocument = useMemo(() => {
     const primaryDocuments = documents.filter((document) => document.documentKind === 'PRIMARY')
     const orderedPrimaryDocuments = [...primaryDocuments].sort(
       (first, second) => (second.versionNumber ?? 0) - (first.versionNumber ?? 0)
@@ -1070,34 +1089,27 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     if (selectedCurrentDocumentId) {
       const currentDocument = primaryDocuments.find((document) => document.id === selectedCurrentDocumentId)
       if (currentDocument && isPdfDocument(currentDocument)) {
-        return currentDocument.id
+        return currentDocument
       }
     }
 
     const latestPrimaryPdf = orderedPrimaryDocuments.find(isPdfDocument)
     if (latestPrimaryPdf) {
-      return latestPrimaryPdf.id
+      return latestPrimaryPdf
     }
 
-    if (selectedCurrentDocumentId) {
-      const currentDocument = primaryDocuments.find((document) => document.id === selectedCurrentDocumentId)
-      if (currentDocument) {
-        return currentDocument.id
-      }
-    }
-
-    return orderedPrimaryDocuments[0]?.id ?? documents[0]?.id
+    return null
   }, [documents, selectedCurrentDocumentId])
   const signingPreviewUrl = useMemo(() => {
-    if (!selectedContractId) {
+    if (!selectedContractId || !signingPreviewDocument?.id) {
       return ''
     }
 
     return contractsClient.previewUrl(selectedContractId, {
-      documentId: signingPreviewDocumentId,
+      documentId: signingPreviewDocument.id,
       renderAs: 'binary',
     })
-  }, [selectedContractId, signingPreviewDocumentId])
+  }, [selectedContractId, signingPreviewDocument?.id])
   const formattedLogs = useMemo(() => {
     if (activeTab !== 'activity') {
       return []
@@ -1122,6 +1134,96 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       }),
     [signatories]
   )
+  const intakeCounterparties = useMemo(() => {
+    type IntakeCounterparty = {
+      counterpartyName: string
+      backgroundOfRequest: string
+      budgetApproved: boolean | null
+      signatories: Array<{
+        name: string
+        designation: string
+        email: string
+      }>
+    }
+
+    const externalDraftRecipients = [...signingDraftRecipients]
+      .filter((recipient) => recipient.recipientType === 'EXTERNAL')
+      .sort((left, right) => {
+        if (left.routingOrder !== right.routingOrder) {
+          return left.routingOrder - right.routingOrder
+        }
+        return left.email.localeCompare(right.email)
+      })
+      .map((recipient) => ({
+        name: recipient.name.trim(),
+        designation: recipient.designation?.trim() ?? '',
+        email: recipient.email.trim(),
+        counterpartyName: recipient.counterpartyName?.trim() ?? '',
+        backgroundOfRequest: recipient.backgroundOfRequest?.trim() ?? '',
+        budgetApproved: typeof recipient.budgetApproved === 'boolean' ? recipient.budgetApproved : null,
+      }))
+
+    const normalizedCounterparties = counterparties
+      .map((counterparty) => counterparty.counterpartyName?.trim() ?? '')
+      .filter((counterpartyName) => counterpartyName.length > 0)
+
+    if (normalizedCounterparties.length === 0) {
+      return [] as IntakeCounterparty[]
+    }
+
+    const signatoriesByCounterparty = normalizedCounterparties.map(
+      () =>
+        [] as Array<{
+          name: string
+          designation: string
+          email: string
+          backgroundOfRequest: string
+          budgetApproved: boolean | null
+        }>
+    )
+    const unmatchedSignatories: Array<{
+      name: string
+      designation: string
+      email: string
+      backgroundOfRequest: string
+      budgetApproved: boolean | null
+    }> = []
+
+    const normalizedCounterpartyNameByIndex = normalizedCounterparties.map((name) => name.toLowerCase())
+    for (const signatory of externalDraftRecipients) {
+      if (!signatory.counterpartyName) {
+        unmatchedSignatories.push(signatory)
+        continue
+      }
+      const matchedCounterpartyIndex = normalizedCounterpartyNameByIndex.findIndex(
+        (counterpartyName) => counterpartyName === signatory.counterpartyName.toLowerCase()
+      )
+      if (matchedCounterpartyIndex === -1) {
+        unmatchedSignatories.push(signatory)
+        continue
+      }
+      signatoriesByCounterparty[matchedCounterpartyIndex]?.push(signatory)
+    }
+
+    for (const [index, signatory] of unmatchedSignatories.entries()) {
+      const targetCounterpartyIndex = Math.min(index, signatoriesByCounterparty.length - 1)
+      signatoriesByCounterparty[targetCounterpartyIndex]?.push(signatory)
+    }
+
+    return normalizedCounterparties.map((counterpartyName, index) => {
+      const mappedSignatories = signatoriesByCounterparty[index] ?? []
+      return {
+        counterpartyName,
+        backgroundOfRequest: mappedSignatories[0]?.backgroundOfRequest ?? '',
+        budgetApproved: mappedSignatories[0]?.budgetApproved ?? null,
+        signatories: mappedSignatories.map((signatory) => ({
+          name: signatory.name,
+          designation: signatory.designation,
+          email: signatory.email,
+        })),
+      }
+    })
+  }, [counterparties, signingDraftRecipients])
   const allSignatoriesSigned = useMemo(
     () => orderedSignatories.length > 0 && orderedSignatories.every((signatory) => signatory.status === 'SIGNED'),
     [orderedSignatories]
@@ -1648,24 +1750,69 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         </button>
                         {isIntakeOpen ? (
                           <div id="intake-details-panel" className={styles.accordionBody}>
-                            <div className={styles.row}>
-                              <span>Counterparty Signatory Name</span>
-                              <span>{selectedContract.signatoryName ?? '—'}</span>
-                            </div>
-                            <div className={styles.row}>
-                              <span>Counterparty Signatory Designation</span>
-                              <span>{selectedContract.signatoryDesignation ?? '—'}</span>
-                            </div>
-                            <div className={styles.row}>
-                              <span>Counterparty Signatory Email</span>
-                              <span>{selectedContract.signatoryEmail ?? '—'}</span>
-                            </div>
-                            <div className={styles.row}>
-                              <span>Background</span>
-                              <span className={styles.multilineValue}>
-                                {selectedContract.backgroundOfRequest ?? '—'}
-                              </span>
-                            </div>
+                            {intakeCounterparties.length === 0 ? (
+                              <div className={styles.row}>
+                                <span>Counterparties</span>
+                                <span>—</span>
+                              </div>
+                            ) : (
+                              intakeCounterparties.map((counterparty, counterpartyIndex) => (
+                                <div key={`${counterparty.counterpartyName}-${counterpartyIndex}`}>
+                                  <div className={styles.row}>
+                                    <span>Counterparty {counterpartyIndex + 1}</span>
+                                    <span>{counterparty.counterpartyName}</span>
+                                  </div>
+                                  {counterparty.signatories.length === 0 ? (
+                                    <div className={styles.row}>
+                                      <span>Signatories</span>
+                                      <span>—</span>
+                                    </div>
+                                  ) : (
+                                    counterparty.signatories.map((signatory, signatoryIndex) => (
+                                      <div
+                                        key={`${counterparty.counterpartyName}-${counterpartyIndex}-signatory-${signatoryIndex}`}
+                                      >
+                                        <div className={styles.row}>
+                                          <span>
+                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Name
+                                          </span>
+                                          <span>{signatory.name || '—'}</span>
+                                        </div>
+                                        <div className={styles.row}>
+                                          <span>
+                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1}{' '}
+                                            Designation
+                                          </span>
+                                          <span>{signatory.designation || '—'}</span>
+                                        </div>
+                                        <div className={styles.row}>
+                                          <span>
+                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Email
+                                          </span>
+                                          <span>{signatory.email || '—'}</span>
+                                        </div>
+                                      </div>
+                                    ))
+                                  )}
+                                  <div className={styles.row}>
+                                    <span>Counterparty {counterpartyIndex + 1} Background</span>
+                                    <span className={styles.multilineValue}>
+                                      {counterparty.backgroundOfRequest || '—'}
+                                    </span>
+                                  </div>
+                                  <div className={styles.row}>
+                                    <span>Counterparty {counterpartyIndex + 1} Budget Approved</span>
+                                    <span>
+                                      {counterparty.budgetApproved === null
+                                        ? '—'
+                                        : counterparty.budgetApproved
+                                          ? 'Yes'
+                                          : 'No'}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))
+                            )}
                           </div>
                         ) : null}
                       </div>
@@ -1723,7 +1870,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 <button
                                   type="button"
                                   className={styles.button}
-                                  disabled={!selectedContractId}
+                                  disabled={!selectedContractId || !signingPreviewDocument}
                                   onClick={() => setIsPrepareForSigningOpen(true)}
                                 >
                                   Prepare for Signing
@@ -1732,6 +1879,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                             ) : (
                               <div className={styles.eventMeta}>Sign is available only after COMPLETED.</div>
                             )}
+                            {selectedContract.status === contractStatuses.completed && !signingPreviewDocument ? (
+                              <div className={styles.eventMeta}>
+                                Prepare for Signing requires a PDF primary document.
+                              </div>
+                            ) : null}
                             <div className={styles.timeline}>
                               {signatories.map((signatory) => {
                                 const generatedSigningLink =
@@ -2184,7 +2336,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         </div>
       ) : null}
 
-      {selectedContractId && selectedContract && signingPreviewUrl ? (
+      {selectedContractId && selectedContract && signingPreviewDocument && signingPreviewUrl ? (
         <PrepareForSigningModal
           isOpen={isPrepareForSigningOpen}
           contractId={selectedContractId}

@@ -26,6 +26,10 @@ export interface ContractRepository {
       email: string
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
+      designation?: string
+      counterpartyName?: string
+      backgroundOfRequest?: string
+      budgetApproved?: boolean
     }>
   }): Promise<void>
   createDocument(input: CreateContractDocumentInput): Promise<void>
