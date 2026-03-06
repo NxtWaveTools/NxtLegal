@@ -24,9 +24,9 @@ const GETHandler = withAuth(async (request: NextRequest, { session, params }) =>
     }
 
     const artifact = request.nextUrl.searchParams.get('artifact')
-    if (artifact !== 'signed_document' && artifact !== 'completion_certificate') {
+    if (artifact !== 'signed_document' && artifact !== 'completion_certificate' && artifact !== 'merged_pdf') {
       return NextResponse.json(
-        errorResponse('INVALID_ARTIFACT', 'artifact must be signed_document or completion_certificate'),
+        errorResponse('INVALID_ARTIFACT', 'artifact must be signed_document, completion_certificate, or merged_pdf'),
         { status: 400 }
       )
     }

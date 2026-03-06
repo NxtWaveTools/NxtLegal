@@ -20,7 +20,7 @@ type ContractActionName =
   | 'approver.approve'
   | 'approver.reject'
 
-type ContractBypassApprovalActionName = 'BYPASS_APPROVAL'
+type ContractSkipApprovalActionName = 'BYPASS_APPROVAL'
 
 type ContractRecord = {
   id: string
@@ -107,6 +107,7 @@ type RepositoryStatusFilter =
   | 'OFFLINE_EXECUTION'
   | 'PENDING_WITH_EXTERNAL_STAKEHOLDERS'
   | 'PENDING_WITH_INTERNAL_STAKEHOLDERS'
+  | 'SIGNING'
   | 'ON_HOLD'
   | 'REJECTED'
   | 'COMPLETED'
@@ -144,6 +145,7 @@ type RepositoryStatusMetric = {
   key:
     | 'executed'
     | 'completed'
+    | 'signing'
     | 'under_review'
     | 'pending_internal'
     | 'pending_external'
@@ -193,7 +195,7 @@ type ContractAdditionalApprover = {
   approverEmployeeId: string
   approverEmail: string
   sequenceOrder: number
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
   approvedAt: string | null
 }
 
@@ -231,7 +233,7 @@ type ContractSignatory = {
   createdAt: string
 }
 
-type FinalSigningArtifactType = 'signed_document' | 'completion_certificate'
+type FinalSigningArtifactType = 'signed_document' | 'completion_certificate' | 'merged_pdf'
 
 type ContractSigningPreparationDraft = {
   contractId: string
@@ -240,6 +242,10 @@ type ContractSigningPreparationDraft = {
     email: string
     recipientType: 'INTERNAL' | 'EXTERNAL'
     routingOrder: number
+    designation?: string
+    counterpartyName?: string
+    backgroundOfRequest?: string
+    budgetApproved?: boolean
   }>
   fields: Array<{
     fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -343,6 +349,13 @@ type ContractTypeOption = {
 
 type CounterpartyOption = {
   name: string
+  backgroundOfRequest?: string
+  budgetApproved?: boolean
+  signatories?: Array<{
+    name: string
+    designation: string
+    email: string
+  }>
 }
 
 type LegalTeamMemberOption = {
@@ -869,6 +882,13 @@ export const contractsClient = {
     counterparties?: Array<{
       counterpartyName: string
       supportingFiles: File[]
+      backgroundOfRequest?: string
+      budgetApproved?: boolean
+      signatories?: Array<{
+        name: string
+        designation: string
+        email: string
+      }>
     }>
     signatoryName?: string
     signatoryDesignation?: string
@@ -934,6 +954,9 @@ export const contractsClient = {
         return {
           counterpartyName: counterparty.counterpartyName,
           supportingFileIndices,
+          backgroundOfRequest: counterparty.backgroundOfRequest,
+          budgetApproved: counterparty.budgetApproved,
+          signatories: counterparty.signatories ?? [],
         }
       })
 
@@ -958,9 +981,11 @@ export const contractsClient = {
     contractId: string
     file: File
     idempotencyKey: string
+    isFinalExecuted?: boolean
   }): Promise<ApiResponse<{ document: ContractDocument }>> {
     const formData = new FormData()
     formData.set('file', params.file)
+    formData.set('isFinalExecuted', params.isFinalExecuted ? 'true' : 'false')
 
     return safeFetch<{ document: ContractDocument }>(
       resolveContractPath(routeRegistry.api.contracts.replaceMainDocument, params.contractId),
@@ -979,7 +1004,7 @@ export const contractsClient = {
     contractId: string,
     payload:
       | { action: ContractActionName; noteText?: string }
-      | { action: ContractBypassApprovalActionName; approverId: string; reason: string }
+      | { action: ContractSkipApprovalActionName; approverId: string; reason: string }
   ) {
     return safeFetch<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.action, contractId), {
       method: 'POST',
@@ -1092,6 +1117,10 @@ export const contractsClient = {
         email: string
         recipient_type: 'INTERNAL' | 'EXTERNAL'
         routing_order: number
+        designation?: string
+        counterparty_name?: string
+        background_of_request?: string
+        budget_approved?: boolean
       }>
       fields: Array<{
         field_type: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -1214,7 +1243,11 @@ export const contractsClient = {
             signedUrl: parsed.data.signedUrl,
             fileName:
               parsed.data.fileName ??
-              (artifact === 'completion_certificate' ? 'completion-certificate.pdf' : 'signed-document.pdf'),
+              (artifact === 'completion_certificate'
+                ? 'completion-certificate.pdf'
+                : artifact === 'merged_pdf'
+                  ? 'completion-certificate-and-signed.pdf'
+                  : 'signed-document.pdf'),
             contentType: parsed.data.contentType ?? 'application/pdf',
           },
         }
@@ -1235,7 +1268,9 @@ export const contractsClient = {
           })()
         : artifact === 'completion_certificate'
           ? 'completion-certificate.pdf'
-          : 'signed-document.pdf'
+          : artifact === 'merged_pdf'
+            ? 'completion-certificate-and-signed.pdf'
+            : 'signed-document.pdf'
 
       return {
         ok: true,

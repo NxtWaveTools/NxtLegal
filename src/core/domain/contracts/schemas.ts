@@ -172,7 +172,7 @@ export const bypassApprovalActionName = 'BYPASS_APPROVAL' as const
 export const contractBypassApprovalSchema = z.object({
   action: z.literal(bypassApprovalActionName),
   approverId: z.string().trim().uuid('Valid approverId is required'),
-  reason: z.string().trim().min(1, 'Bypass reason is required').max(2000, 'Bypass reason exceeds maximum length'),
+  reason: z.string().trim().min(1, 'Skip reason is required').max(2000, 'Skip reason exceeds maximum length'),
 })
 
 export const contractActionCommandSchema = z.union([contractActionSchema, contractBypassApprovalSchema])
@@ -274,6 +274,10 @@ const contractSigningPreparationRecipientSchema = z.object({
   email: z.string().trim().toLowerCase().email('Valid recipient email is required'),
   recipient_type: z.enum(contractSignatoryRecipientTypeValues),
   routing_order: z.number().int().min(1),
+  designation: z.string().trim().optional(),
+  counterparty_name: z.string().trim().optional(),
+  background_of_request: z.string().trim().optional(),
+  budget_approved: z.boolean().optional(),
 })
 
 const contractSigningPreparationFieldSchema = z

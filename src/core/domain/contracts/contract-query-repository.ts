@@ -68,6 +68,7 @@ export type RepositoryDatePreset = 'week' | 'month' | 'multiple_months' | 'quart
 export type RepositoryStatusMetricKey =
   | 'executed'
   | 'completed'
+  | 'signing'
   | 'under_review'
   | 'pending_internal'
   | 'pending_external'
@@ -205,7 +206,7 @@ export type ContractAdditionalApprover = {
   approverEmployeeId: string
   approverEmail: string
   sequenceOrder: number
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
   approvedAt: string | null
 }
 
@@ -251,6 +252,10 @@ export type ContractSigningPreparationDraftRecipient = {
   email: string
   recipientType: ContractSignatoryRecipientType
   routingOrder: number
+  designation?: string
+  counterpartyName?: string
+  backgroundOfRequest?: string
+  budgetApproved?: boolean
 }
 
 export type ContractSigningPreparationDraftField = {
@@ -584,6 +589,7 @@ export interface ContractQueryRepository {
   getLatestNotificationDelivery(params: {
     tenantId: string
     contractId: string
+    envelopeId?: string
     recipientEmail: string
     notificationType: ContractNotificationType
   }): Promise<ContractNotificationDeliverySummary | null>

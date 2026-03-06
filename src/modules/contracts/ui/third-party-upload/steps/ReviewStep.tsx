@@ -10,13 +10,16 @@ type ReviewStepProps = {
     counterpartyName: string
     supportingCount: number
     supportingFileNames: string[]
+    backgroundOfRequest: string
+    budgetApproved: boolean
+    signatories: Array<{
+      name: string
+      designation: string
+      email: string
+    }>
   }>
   departmentName: string
   signatoryName: string
-  signatoryDesignation: string
-  signatoryEmail: string
-  backgroundOfRequest: string
-  budgetApproved: boolean
   bypassHodApproval?: boolean
   bypassReason?: string
   organizationEntity: string
@@ -29,10 +32,6 @@ export default function ReviewStep({
   counterparties,
   departmentName,
   signatoryName,
-  signatoryDesignation,
-  signatoryEmail,
-  backgroundOfRequest,
-  budgetApproved,
   bypassHodApproval = false,
   bypassReason,
   organizationEntity,
@@ -50,7 +49,7 @@ export default function ReviewStep({
         <span>{contractType || 'Not set'}</span>
       </div>
       <div className={styles.summaryRow}>
-        <span>{isSendForSigningFlow ? 'Counterparty Name' : 'Counterparties'}</span>
+        <span>{isSendForSigningFlow ? 'Counterparty Name' : 'Counterparty Count'}</span>
         <span>
           {isSendForSigningFlow ? counterparties[0]?.counterpartyName || 'Not set' : counterparties.length || 0}
         </span>
@@ -70,6 +69,34 @@ export default function ReviewStep({
                     : 'Not provided'}
                 </span>
               </div>
+              <div className={styles.summaryRow}>
+                <span>{`Counterparty ${index + 1} Background`}</span>
+                <span>{counterparty.backgroundOfRequest || 'Not set'}</span>
+              </div>
+              <div className={styles.summaryRow}>
+                <span>{`Counterparty ${index + 1} Budget Approved`}</span>
+                <span>{counterparty.budgetApproved ? 'Yes' : 'No'}</span>
+              </div>
+              <div className={styles.summaryRow}>
+                <span>{`Counterparty ${index + 1} Signatories`}</span>
+                <span>{counterparty.signatories.length || 0}</span>
+              </div>
+              {counterparty.signatories.map((signatory, signatoryIndex) => (
+                <div key={`${counterparty.counterpartyName}-${index}-signatory-${signatoryIndex}`}>
+                  <div className={styles.summaryRow}>
+                    <span>{`Counterparty ${index + 1} Signatory ${signatoryIndex + 1} Name`}</span>
+                    <span>{signatory.name || 'Not set'}</span>
+                  </div>
+                  <div className={styles.summaryRow}>
+                    <span>{`Counterparty ${index + 1} Signatory ${signatoryIndex + 1} Designation`}</span>
+                    <span>{signatory.designation || 'Not set'}</span>
+                  </div>
+                  <div className={styles.summaryRow}>
+                    <span>{`Counterparty ${index + 1} Signatory ${signatoryIndex + 1} Email`}</span>
+                    <span>{signatory.email || 'Not set'}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           ))
         : null}
@@ -77,24 +104,13 @@ export default function ReviewStep({
         <span>Department</span>
         <span>{departmentName || 'Not set'}</span>
       </div>
-      <div className={styles.summaryRow}>
-        <span>{isSendForSigningFlow ? 'Counterparty Name' : 'Counterparty Signatory Name'}</span>
-        <span>{signatoryName || 'Not set'}</span>
-      </div>
-      {!isSendForSigningFlow ? (
+      {isSendForSigningFlow ? (
+        <div className={styles.summaryRow}>
+          <span>Counterparty Name</span>
+          <span>{signatoryName || 'Not set'}</span>
+        </div>
+      ) : (
         <>
-          <div className={styles.summaryRow}>
-            <span>Counterparty Signatory Designation</span>
-            <span>{signatoryDesignation || 'Not set'}</span>
-          </div>
-          <div className={styles.summaryRow}>
-            <span>Counterparty Signatory Email</span>
-            <span>{signatoryEmail || 'Not set'}</span>
-          </div>
-          <div className={styles.summaryRow}>
-            <span>Budget Approved</span>
-            <span>{budgetApproved ? 'Yes' : 'No'}</span>
-          </div>
           <div className={styles.summaryRow}>
             <span>Bypass HOD Approval</span>
             <span>{bypassHodApproval ? 'Yes' : 'No'}</span>
@@ -105,12 +121,8 @@ export default function ReviewStep({
               <span>{bypassReason || 'Not set'}</span>
             </div>
           ) : null}
-          <div className={styles.summaryRow}>
-            <span>Background</span>
-            <span>{backgroundOfRequest || 'Not set'}</span>
-          </div>
         </>
-      ) : null}
+      )}
       <div className={styles.summaryRow}>
         <span>Organization Entity</span>
         <span>{organizationEntity}</span>

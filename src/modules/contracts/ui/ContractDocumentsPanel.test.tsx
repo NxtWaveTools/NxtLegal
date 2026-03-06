@@ -4,6 +4,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import ContractDocumentsPanel from '@/modules/contracts/ui/ContractDocumentsPanel'
 import { contractsClient, type ContractDocument } from '@/core/client/contracts-client'
 
+jest.mock('sonner', () => ({
+  toast: {
+    success: jest.fn(),
+    error: jest.fn(),
+    promise: jest.fn((promise: Promise<unknown>) => promise),
+  },
+}))
+
 const makeDoc = (overrides: Partial<ContractDocument> = {}): ContractDocument => ({
   id: 'doc-1',
   documentKind: 'PRIMARY',
@@ -124,13 +132,14 @@ describe('ContractDocumentsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Replace Document' }))
 
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement
     const file = new File(['new version'], 'contract-v2.pdf', { type: 'application/pdf' })
-    fireEvent.change(input, { target: { files: [file] } })
+    fireEvent.change(screen.getByLabelText('Replacement file'), { target: { files: [file] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
 
     await waitFor(() => expect(replaceSpy).toHaveBeenCalled())
     expect(replaceSpy.mock.calls[0][0].contractId).toBe('contract-1')
     expect(replaceSpy.mock.calls[0][0].file.name).toBe('contract-v2.pdf')
+    expect(replaceSpy.mock.calls[0][0].isFinalExecuted).toBe(false)
   })
 
   it('refreshes and shows replaced version as current after replace', async () => {
@@ -157,13 +166,86 @@ describe('ContractDocumentsPanel', () => {
       />
     )
 
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement
-    fireEvent.change(input, {
+    fireEvent.click(screen.getByRole('button', { name: 'Replace Document' }))
+    fireEvent.change(screen.getByLabelText('Replacement file'), {
       target: { files: [new File(['new version'], 'contract-v2.pdf', { type: 'application/pdf' })] },
     })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
 
     await waitFor(() => expect(handleRefreshDocuments).toHaveBeenCalledTimes(1))
     expect(screen.getByText('contract-v2.pdf')).toBeTruthy()
+  })
+
+  it('forwards isFinalExecuted when checkbox is selected', async () => {
+    const replaceSpy = jest.spyOn(contractsClient, 'replaceMainDocument').mockResolvedValue({
+      ok: true,
+      data: { document: makeDoc({ id: 'doc-2', versionNumber: 2 }) },
+    } as never)
+
+    render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        userRole="LEGAL_TEAM"
+        currentDocumentId="doc-1"
+        documents={[makeDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace Document' }))
+    fireEvent.change(screen.getByLabelText('Replacement file'), {
+      target: { files: [new File(['executed'], 'contract-executed.pdf', { type: 'application/pdf' })] },
+    })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Is this the final executed document?' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalled())
+    expect(replaceSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isFinalExecuted: true,
+      })
+    )
+  })
+
+  it('closes modal immediately after submit while upload continues in background', async () => {
+    let resolveUpload: ((value: unknown) => void) | null = null
+    const pendingUpload = new Promise((resolve) => {
+      resolveUpload = resolve
+    })
+
+    jest.spyOn(contractsClient, 'replaceMainDocument').mockReturnValue(pendingUpload as never)
+    const handleRefreshDocuments = jest.fn().mockResolvedValue(undefined)
+
+    render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        userRole="LEGAL_TEAM"
+        currentDocumentId="doc-1"
+        documents={[makeDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={handleRefreshDocuments}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace Document' }))
+    fireEvent.change(screen.getByLabelText('Replacement file'), {
+      target: { files: [new File(['new version'], 'contract-v2.pdf', { type: 'application/pdf' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Replace document' })).toBeNull()
+
+    resolveUpload?.({
+      ok: true,
+      data: { document: makeDoc({ id: 'doc-2', versionNumber: 2 }) },
+    })
+
+    await waitFor(() => expect(handleRefreshDocuments).toHaveBeenCalledTimes(1))
   })
 
   it('keeps preview and download actions available for versions', async () => {

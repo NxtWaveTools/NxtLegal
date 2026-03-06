@@ -10,15 +10,16 @@ type ApprovalsTabProps = {
   approvers: ContractDetailResponse['additionalApprovers']
   isMutating: boolean
   canManageApprovals: boolean
-  canBypassApprovals: boolean
+  canSkipApprovals: boolean
   approverEmail: string
   onApproverEmailChange: (value: string) => void
   onAddApprover: () => Promise<void>
   onRemindApprover: (email?: string) => Promise<void>
-  onBypassApprover: (approverId: string, reason: string) => Promise<void>
+  onSkipApprover: (params: { approverRole: 'HOD' | 'ADDITIONAL'; approverId?: string; reason: string }) => Promise<void>
+  onSkipRefresh: () => void | Promise<void>
 }
 
-type ApprovalStatus = 'PENDING' | 'NOT_SENT' | 'APPROVED' | 'BYPASSED'
+type ApprovalStatus = 'PENDING' | 'NOT_SENT' | 'APPROVED' | 'SKIPPED'
 
 type ApprovalStep = {
   id: string
@@ -31,8 +32,9 @@ type ApprovalStep = {
 
 function resolveStepStatus(input: {
   contractStatus: string
+  hodApprovedAt?: string | null
   role: 'HOD' | 'ADDITIONAL'
-  additionalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
+  additionalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
 }): ApprovalStatus {
   if (input.role === 'HOD') {
     if (input.contractStatus === 'HOD_PENDING') {
@@ -41,6 +43,10 @@ function resolveStepStatus(input: {
 
     if (input.contractStatus === 'REJECTED') {
       return 'NOT_SENT'
+    }
+
+    if (!input.hodApprovedAt) {
+      return 'SKIPPED'
     }
 
     return 'APPROVED'
@@ -54,8 +60,8 @@ function resolveStepStatus(input: {
     return 'PENDING'
   }
 
-  if (input.additionalStatus === 'BYPASSED') {
-    return 'BYPASSED'
+  if (input.additionalStatus === 'SKIPPED' || input.additionalStatus === 'BYPASSED') {
+    return 'SKIPPED'
   }
 
   return 'NOT_SENT'
@@ -84,6 +90,7 @@ function buildSteps(params: {
     approverLabel: hodApproverLabel,
     status: resolveStepStatus({
       contractStatus: params.contract.status,
+      hodApprovedAt: params.contract.hodApprovedAt,
       role: 'HOD',
     }),
     timeLabel: params.contract.hodApprovedAt ? new Date(params.contract.hodApprovedAt).toLocaleString() : '—',
@@ -120,6 +127,10 @@ function statusClass(status: ApprovalStatus): string {
     return styles.approvalStatusPending
   }
 
+  if (status === 'SKIPPED') {
+    return styles.approvalStatusSkipped
+  }
+
   return styles.approvalStatusNotSent
 }
 
@@ -128,20 +139,20 @@ export default function ApprovalsTab({
   approvers,
   isMutating,
   canManageApprovals,
-  canBypassApprovals,
+  canSkipApprovals,
   approverEmail,
   onApproverEmailChange,
   onAddApprover,
   onRemindApprover,
-  onBypassApprover,
+  onSkipApprover,
+  onSkipRefresh,
 }: ApprovalsTabProps) {
   const steps = buildSteps({ contract, approvers })
   const [isSubmittingCurrentReminder, setIsSubmittingCurrentReminder] = useState(false)
   const [isSubmittingAddApprover, setIsSubmittingAddApprover] = useState(false)
   const [remindingStepId, setRemindingStepId] = useState<string | null>(null)
-  const [isSubmittingBypass, setIsSubmittingBypass] = useState(false)
-  const [bypassStep, setBypassStep] = useState<ApprovalStep | null>(null)
-  const [bypassReason, setBypassReason] = useState('')
+  const [skipStep, setSkipStep] = useState<ApprovalStep | null>(null)
+  const [skipReason, setSkipReason] = useState('')
 
   const handleCurrentReminder = async () => {
     if (isSubmittingCurrentReminder || isMutating) {
@@ -207,44 +218,45 @@ export default function ApprovalsTab({
     void handleAddApproval()
   }
 
-  const closeBypassDialog = () => {
-    if (isSubmittingBypass) {
-      return
-    }
-
-    setBypassStep(null)
-    setBypassReason('')
+  const closeSkipDialog = () => {
+    setSkipStep(null)
+    setSkipReason('')
   }
 
-  const submitBypass = async () => {
-    if (!bypassStep || isSubmittingBypass || isMutating) {
+  const submitSkip = async () => {
+    if (!skipStep || isMutating) {
       return
     }
 
-    const trimmedReason = bypassReason.trim()
+    const trimmedReason = skipReason.trim()
     if (!trimmedReason) {
-      toast.error('Bypass reason is required')
+      toast.error('Skip reason is required')
       return
     }
 
-    setIsSubmittingBypass(true)
+    const activeSkipStep = skipStep
+    closeSkipDialog()
 
-    try {
-      await onBypassApprover(bypassStep.id, trimmedReason)
-      toast.success('Approval bypassed successfully')
-      setBypassStep(null)
-      setBypassReason('')
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
-      toast.error(errorMessage)
-    } finally {
-      setIsSubmittingBypass(false)
-    }
+    const skipPromise = onSkipApprover({
+      approverRole: activeSkipStep.approverRole,
+      approverId: activeSkipStep.approverRole === 'ADDITIONAL' ? activeSkipStep.id : undefined,
+      reason: trimmedReason,
+    }).then(async () => {
+      await onSkipRefresh()
+    })
+
+    toast.promise(skipPromise, {
+      loading: 'Skipping approval...',
+      success: 'Approval skipped successfully',
+      error: (error) => (error instanceof Error ? error.message : 'An unexpected error occurred'),
+    })
+
+    void skipPromise
   }
 
-  const handleBypassSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSkipSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    void submitBypass()
+    void submitSkip()
   }
 
   return (
@@ -274,7 +286,7 @@ export default function ApprovalsTab({
         <div className={styles.approvalTimeline}>
           {steps.map((step, index) => {
             const canRemindStep = canManageApprovals && step.status === 'PENDING'
-            const canBypassStep = canBypassApprovals && step.approverRole === 'ADDITIONAL' && step.status === 'PENDING'
+            const canSkipStep = canSkipApprovals && step.status === 'PENDING'
 
             return (
               <div key={step.id} className={styles.approvalStep}>
@@ -293,8 +305,8 @@ export default function ApprovalsTab({
                         ? 'Not Sent'
                         : step.status === 'PENDING'
                           ? 'Pending'
-                          : step.status === 'BYPASSED'
-                            ? 'Bypassed'
+                          : step.status === 'SKIPPED'
+                            ? 'Skipped'
                             : 'Approved'}
                     </span>
                   </div>
@@ -303,7 +315,7 @@ export default function ApprovalsTab({
                   <div className={styles.approvalStepMeta}>Approver: {step.approverLabel}</div>
                   <div className={styles.approvalStepMeta}>Time: {step.timeLabel}</div>
 
-                  {canRemindStep || canBypassStep ? (
+                  {canRemindStep || canSkipStep ? (
                     <div className={styles.approvalStepActions}>
                       {canRemindStep ? (
                         <button
@@ -313,8 +325,7 @@ export default function ApprovalsTab({
                             isMutating ||
                             isSubmittingCurrentReminder ||
                             isSubmittingAddApprover ||
-                            Boolean(remindingStepId) ||
-                            isSubmittingBypass
+                            Boolean(remindingStepId)
                           }
                           onClick={() => {
                             void handleStepReminder(step)
@@ -327,7 +338,7 @@ export default function ApprovalsTab({
                         </button>
                       ) : null}
 
-                      {canBypassStep ? (
+                      {canSkipStep ? (
                         <button
                           type="button"
                           className={`${styles.button} ${styles.buttonDanger}`}
@@ -335,15 +346,14 @@ export default function ApprovalsTab({
                             isMutating ||
                             isSubmittingCurrentReminder ||
                             isSubmittingAddApprover ||
-                            Boolean(remindingStepId) ||
-                            isSubmittingBypass
+                            Boolean(remindingStepId)
                           }
                           onClick={() => {
-                            setBypassStep(step)
-                            setBypassReason('')
+                            setSkipStep(step)
+                            setSkipReason('')
                           }}
                         >
-                          <span className={styles.buttonContent}>Bypass</span>
+                          <span className={styles.buttonContent}>Skip Approval</span>
                         </button>
                       ) : null}
                     </div>
@@ -382,32 +392,25 @@ export default function ApprovalsTab({
         </div>
       ) : null}
 
-      {bypassStep ? (
-        <div className={styles.actionRemarkOverlay} role="dialog" aria-modal="true" aria-label="Bypass approval reason">
-          <form className={styles.actionRemarkModal} onSubmit={handleBypassSubmit}>
-            <div className={styles.sectionTitle}>Bypass Approval</div>
-            <div className={styles.eventMeta}>Approver: {bypassStep.approverLabel}</div>
+      {skipStep ? (
+        <div className={styles.actionRemarkOverlay} role="dialog" aria-modal="true" aria-label="Skip approval reason">
+          <form className={styles.actionRemarkModal} onSubmit={handleSkipSubmit}>
+            <div className={styles.sectionTitle}>Skip Approval</div>
+            <div className={styles.eventMeta}>Approver: {skipStep.approverLabel}</div>
             <textarea
               className={styles.textarea}
-              value={bypassReason}
-              onChange={(event) => setBypassReason(event.target.value)}
+              value={skipReason}
+              onChange={(event) => setSkipReason(event.target.value)}
               rows={4}
-              placeholder="Enter bypass reason"
+              placeholder="Enter skip reason"
               autoFocus
             />
             <div className={styles.actionRemarkActions}>
-              <button type="button" className={styles.button} onClick={closeBypassDialog} disabled={isSubmittingBypass}>
+              <button type="button" className={styles.button} onClick={closeSkipDialog}>
                 Cancel
               </button>
-              <button
-                type="submit"
-                className={`${styles.button} ${styles.buttonDanger}`}
-                disabled={isSubmittingBypass || isMutating}
-              >
-                <span className={styles.buttonContent}>
-                  {isSubmittingBypass ? <Spinner size={14} /> : null}
-                  {isSubmittingBypass ? 'Bypassing…' : 'Confirm Bypass'}
-                </span>
+              <button type="submit" className={`${styles.button} ${styles.buttonDanger}`} disabled={isMutating}>
+                <span className={styles.buttonContent}>Confirm Skip</span>
               </button>
             </div>
           </form>

@@ -1,5 +1,11 @@
 import type { ContractTimelineEvent } from '@/core/client/contracts-client'
-import { contractStatusLabels, type ContractStatus } from '@/core/constants/contracts'
+import {
+  contractSignatoryRecipientTypes,
+  contractStatusLabels,
+  getContractSignatoryRecipientTypeLabel,
+  type ContractSignatoryRecipientType,
+  type ContractStatus,
+} from '@/core/constants/contracts'
 
 type CanonicalContractLogEventType =
   | 'CONTRACT_CREATED'
@@ -389,11 +395,12 @@ function resolveActorLabel(
   }
 
   if (isSystemActor(event) && isSignatoryCanonicalType(canonicalType)) {
+    const recipientTypeLabel = resolveRecipientTypeLabel(getMetadataString(event.metadata, ['recipient_type']))
     if (recipientEmail) {
-      return `External signer (${recipientEmail})`
+      return `${recipientTypeLabel ?? 'Counter Party'} signer (${recipientEmail})`
     }
 
-    return 'External signer'
+    return `${recipientTypeLabel ?? 'Counter Party'} signer`
   }
 
   return 'System'
@@ -401,6 +408,22 @@ function resolveActorLabel(
 
 function toRecipientSuffix(recipientEmail: string | null): string {
   return recipientEmail ? ` ${recipientEmail}` : ''
+}
+
+function resolveRecipientTypeLabel(recipientType: string | null): string | null {
+  if (!recipientType) {
+    return null
+  }
+
+  const normalizedRecipientType = recipientType.trim().toUpperCase()
+  if (
+    normalizedRecipientType !== contractSignatoryRecipientTypes.internal &&
+    normalizedRecipientType !== contractSignatoryRecipientTypes.external
+  ) {
+    return null
+  }
+
+  return getContractSignatoryRecipientTypeLabel(normalizedRecipientType as ContractSignatoryRecipientType)
 }
 
 function resolveCategory(canonicalType: CanonicalContractLogEventType | null): TimelineEventCategory {
@@ -549,7 +572,7 @@ function resolveLogMessage(
     case 'LEGAL_VOIDED':
       return 'Marked this contract as Void Documents.'
     case 'HOD_BYPASSED':
-      return 'Bypassed HOD approval.'
+      return 'Skipped HOD approval.'
     case 'CONTRACT_REROUTED_TO_HOD':
       return 'Rerouted the contract to HOD.'
     case 'LEGAL_OWNER_SET':
@@ -569,11 +592,12 @@ function resolveLogMessage(
     case 'ADDITIONAL_REJECTED':
       return 'Rejected as additional approver.'
     case 'ADDITIONAL_BYPASSED':
-      return `Bypassed ${target ?? 'an additional approver'} as additional approver.`
+      return `Skipped ${target ?? 'an additional approver'} as additional approver.`
     case 'SIGNATORY_ADDED': {
-      const recipientTypeLabel = recipientType ? `, ${recipientType.toUpperCase()}` : ''
+      const recipientTypeLabel = resolveRecipientTypeLabel(recipientType)
+      const recipientTypeSuffix = recipientTypeLabel ? `, ${recipientTypeLabel}` : ''
       const routingLabel = typeof routingOrder === 'number' ? `, Order #${routingOrder}` : ''
-      return `Added ${target ?? recipientEmail ?? 'a signer'} as signer${recipientTypeLabel}${routingLabel}.`
+      return `Added ${target ?? recipientEmail ?? 'a signer'} as signer${recipientTypeSuffix}${routingLabel}.`
     }
     case 'SIGNATORY_SENT':
       return `Sent the contract for signing${toRecipientSuffix(recipientEmail)}.`

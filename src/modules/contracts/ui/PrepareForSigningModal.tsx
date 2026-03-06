@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { toast } from 'sonner'
 import { contractsClient, type ContractDetailResponse } from '@/core/client/contracts-client'
-import { contractStatuses } from '@/core/constants/contracts'
+import { contractStatuses, getContractSignatoryRecipientTypeLabel } from '@/core/constants/contracts'
 import styles from './prepare-for-signing-modal.module.css'
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
@@ -18,6 +18,10 @@ type DraftRecipient = {
   email: string
   recipientType: RecipientType
   routingOrder: number
+  designation?: string
+  counterpartyName?: string
+  backgroundOfRequest?: string
+  budgetApproved?: boolean
 }
 
 type DraftField = {
@@ -51,6 +55,12 @@ type PrepareForSigningModalProps = {
   contractId: string
   contractStatus: string
   pdfUrl: string
+  initialRecipients?: Array<{
+    name: string
+    email: string
+    recipientType?: RecipientType
+    routingOrder?: number
+  }>
   onClose: () => void
   onSent: (contractView: ContractDetailResponse) => void
 }
@@ -83,11 +93,54 @@ const defaultFieldSizeByType: Record<FieldType, { width: number; height: number 
 const imageFieldTypes: FieldType[] = ['SIGNATURE', 'INITIAL', 'STAMP']
 const isImageFieldType = (fieldType: FieldType) => imageFieldTypes.includes(fieldType)
 
+function mergeRecipientsWithDefaults(
+  recipients: DraftRecipient[],
+  defaultRecipients: DraftRecipient[]
+): DraftRecipient[] {
+  const byEmail = new Map<string, DraftRecipient>()
+
+  for (const recipient of recipients) {
+    const normalizedEmail = recipient.email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      continue
+    }
+
+    byEmail.set(normalizedEmail, {
+      ...recipient,
+      email: normalizedEmail,
+    })
+  }
+
+  for (const defaultRecipient of defaultRecipients) {
+    const normalizedEmail = defaultRecipient.email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      continue
+    }
+
+    const existingRecipient = byEmail.get(normalizedEmail)
+    if (!existingRecipient) {
+      byEmail.set(normalizedEmail, defaultRecipient)
+      continue
+    }
+
+    // Keep saved row identity/position, but enforce default directory values.
+    byEmail.set(normalizedEmail, {
+      ...existingRecipient,
+      name: defaultRecipient.name,
+      recipientType: defaultRecipient.recipientType,
+      routingOrder: defaultRecipient.routingOrder,
+    })
+  }
+
+  return Array.from(byEmail.values())
+}
+
 export default function PrepareForSigningModal({
   isOpen,
   contractId,
   contractStatus,
   pdfUrl,
+  initialRecipients = [],
   onClose,
   onSent,
 }: PrepareForSigningModalProps) {
@@ -112,10 +165,35 @@ export default function PrepareForSigningModal({
   const pageRenderRef = useRef<HTMLDivElement | null>(null)
   const resizeSessionRef = useRef<ResizeSession | null>(null)
   const suppressDeleteForFieldRef = useRef<string | null>(null)
+  const suppressPlacementUntilMsRef = useRef(0)
   const [activeResizeFieldId, setActiveResizeFieldId] = useState<string | null>(null)
 
-  const isLocked = contractStatus === contractStatuses.pendingExternal
+  const isLocked = contractStatus === contractStatuses.signing || contractStatus === contractStatuses.pendingExternal
   const canEdit = !isLocked && !isSending
+  const normalizedInitialRecipients = useMemo(() => {
+    const byEmail = new Map<string, DraftRecipient>()
+
+    for (const recipient of initialRecipients) {
+      const normalizedEmail = recipient.email.trim().toLowerCase()
+      if (!normalizedEmail) {
+        continue
+      }
+
+      if (byEmail.has(normalizedEmail)) {
+        continue
+      }
+
+      byEmail.set(normalizedEmail, {
+        id: createDraftId(),
+        name: recipient.name.trim(),
+        email: normalizedEmail,
+        recipientType: recipient.recipientType ?? 'EXTERNAL',
+        routingOrder: recipient.routingOrder && recipient.routingOrder > 0 ? recipient.routingOrder : 1,
+      })
+    }
+
+    return Array.from(byEmail.values())
+  }, [initialRecipients])
 
   useEffect(() => {
     if (!isSending) {
@@ -156,9 +234,9 @@ export default function PrepareForSigningModal({
 
         const data = response.data
         if (!data) {
-          setRecipients([])
+          setRecipients(normalizedInitialRecipients)
           setFields([])
-          setSelectedRecipientId('')
+          setSelectedRecipientId(normalizedInitialRecipients[0]?.id ?? '')
           return
         }
 
@@ -168,6 +246,10 @@ export default function PrepareForSigningModal({
           email: recipient.email,
           recipientType: recipient.recipientType,
           routingOrder: recipient.routingOrder,
+          designation: recipient.designation,
+          counterpartyName: recipient.counterpartyName,
+          backgroundOfRequest: recipient.backgroundOfRequest,
+          budgetApproved: recipient.budgetApproved,
         }))
 
         const mappedFields: DraftField[] = data.fields.map((field) => ({
@@ -182,9 +264,10 @@ export default function PrepareForSigningModal({
           assignedSignerEmail: field.assignedSignerEmail,
         }))
 
-        setRecipients(mappedRecipients)
+        const mergedRecipients = mergeRecipientsWithDefaults(mappedRecipients, normalizedInitialRecipients)
+        setRecipients(mergedRecipients)
         setFields(mappedFields)
-        setSelectedRecipientId(mappedRecipients[0]?.id ?? '')
+        setSelectedRecipientId(mergedRecipients[0]?.id ?? '')
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
         toast.error(errorMessage)
@@ -194,7 +277,7 @@ export default function PrepareForSigningModal({
     }
 
     void loadDraft()
-  }, [contractId, isOpen])
+  }, [contractId, isOpen, normalizedInitialRecipients])
 
   const activeRecipient = recipients.find((recipient) => recipient.id === selectedRecipientId) ?? recipients[0] ?? null
   const activeRecipientEmail = activeRecipient?.email ?? ''
@@ -455,6 +538,9 @@ export default function PrepareForSigningModal({
     if (!canEdit || !activeRecipientEmail || step < 2) {
       return
     }
+    if (Date.now() < suppressPlacementUntilMsRef.current) {
+      return
+    }
 
     const pageSurface = pageSurfaceRef.current
     if (!pageSurface) {
@@ -485,29 +571,62 @@ export default function PrepareForSigningModal({
         : [currentPage]
     const mirrorGroupId = selectedFieldType === 'SIGNATURE' && applySignatureToAllPages ? createDraftId() : undefined
 
-    setFields((current) => [
-      ...current,
-      ...placementPages.map((pageNumber) => ({
-        // Keep mirrored placement aligned to each page's dimensions.
-        ...((): Pick<DraftField, 'xPosition' | 'yPosition'> => {
-          const targetMetrics = getPageMetrics(pageNumber) ?? metrics
-          const rawX = xRatio * targetMetrics.width
-          const rawY = yRatio * targetMetrics.height
-          const clampedX = Number(Math.max(0, Math.min(targetMetrics.width - defaultDimensions.width, rawX)).toFixed(2))
-          const clampedY = Number(
-            Math.max(0, Math.min(targetMetrics.height - defaultDimensions.height, rawY)).toFixed(2)
+    setFields((current) => {
+      if (selectedFieldType === 'SIGNATURE' && applySignatureToAllPages) {
+        const hitField = current.find((field) => {
+          if (
+            field.fieldType !== 'SIGNATURE' ||
+            field.assignedSignerEmail.trim().toLowerCase() !== normalizedSignerEmail ||
+            (field.pageNumber ?? 1) !== currentPage ||
+            typeof field.xPosition !== 'number' ||
+            typeof field.yPosition !== 'number'
+          ) {
+            return false
+          }
+
+          const dimensions = resolveFieldDimensions(field)
+          return (
+            xInPdfSpace >= field.xPosition &&
+            xInPdfSpace <= field.xPosition + dimensions.width &&
+            yInPdfSpace >= field.yPosition &&
+            yInPdfSpace <= field.yPosition + dimensions.height
           )
-          return { xPosition: clampedX, yPosition: clampedY }
-        })(),
-        id: createDraftId(),
-        fieldType: selectedFieldType,
-        pageNumber,
-        width: defaultDimensions.width,
-        height: defaultDimensions.height,
-        mirrorGroupId,
-        assignedSignerEmail: normalizedSignerEmail,
-      })),
-    ])
+        })
+
+        if (hitField) {
+          if (hitField.mirrorGroupId) {
+            return current.filter((field) => field.mirrorGroupId !== hitField.mirrorGroupId)
+          }
+          return current.filter((field) => field.id !== hitField.id)
+        }
+      }
+
+      return [
+        ...current,
+        ...placementPages.map((pageNumber) => ({
+          // Keep mirrored placement aligned to each page's dimensions.
+          ...((): Pick<DraftField, 'xPosition' | 'yPosition'> => {
+            const targetMetrics = getPageMetrics(pageNumber) ?? metrics
+            const rawX = xRatio * targetMetrics.width
+            const rawY = yRatio * targetMetrics.height
+            const clampedX = Number(
+              Math.max(0, Math.min(targetMetrics.width - defaultDimensions.width, rawX)).toFixed(2)
+            )
+            const clampedY = Number(
+              Math.max(0, Math.min(targetMetrics.height - defaultDimensions.height, rawY)).toFixed(2)
+            )
+            return { xPosition: clampedX, yPosition: clampedY }
+          })(),
+          id: createDraftId(),
+          fieldType: selectedFieldType,
+          pageNumber,
+          width: defaultDimensions.width,
+          height: defaultDimensions.height,
+          mirrorGroupId,
+          assignedSignerEmail: normalizedSignerEmail,
+        })),
+      ]
+    })
   }
 
   const resolveFieldChipStyle = (field: DraftField): { left: string; top: string; width: string; height: string } => {
@@ -627,6 +746,8 @@ export default function PrepareForSigningModal({
 
     const onMouseUp = () => {
       if (resizeSessionRef.current?.fieldId) {
+        // Prevent synthetic click after resize from creating a new field on page surface.
+        suppressPlacementUntilMsRef.current = Date.now() + 250
         suppressDeleteForFieldRef.current = resizeSessionRef.current.fieldId
         window.setTimeout(() => {
           if (suppressDeleteForFieldRef.current) {
@@ -698,6 +819,10 @@ export default function PrepareForSigningModal({
         email: recipient.email.trim().toLowerCase(),
         recipient_type: recipient.recipientType,
         routing_order: recipient.routingOrder,
+        designation: recipient.designation?.trim() || undefined,
+        counterparty_name: recipient.counterpartyName?.trim() || undefined,
+        background_of_request: recipient.backgroundOfRequest?.trim() || undefined,
+        budget_approved: recipient.budgetApproved,
       })),
       fields: normalizedFields.map((field) => ({
         field_type: field.fieldType,
@@ -747,6 +872,10 @@ export default function PrepareForSigningModal({
         email: recipient.email.trim().toLowerCase(),
         recipient_type: recipient.recipientType,
         routing_order: recipient.routingOrder,
+        designation: recipient.designation?.trim() || undefined,
+        counterparty_name: recipient.counterpartyName?.trim() || undefined,
+        background_of_request: recipient.backgroundOfRequest?.trim() || undefined,
+        budget_approved: recipient.budgetApproved,
       })),
       fields: normalizedFields.map((field) => ({
         field_type: field.fieldType,
@@ -846,8 +975,8 @@ export default function PrepareForSigningModal({
                         handleRecipientChange(recipient.id, { recipientType: event.target.value as RecipientType })
                       }
                     >
-                      <option value="INTERNAL">INTERNAL</option>
-                      <option value="EXTERNAL">EXTERNAL</option>
+                      <option value="INTERNAL">{getContractSignatoryRecipientTypeLabel('INTERNAL')}</option>
+                      <option value="EXTERNAL">{getContractSignatoryRecipientTypeLabel('EXTERNAL')}</option>
                     </select>
                     <input
                       className={styles.input}
@@ -1019,7 +1148,11 @@ export default function PrepareForSigningModal({
                         if (suppressDeleteForFieldRef.current === field.id) {
                           return
                         }
-                        setFields((current) => current.filter((item) => item.id !== field.id))
+                        setFields((current) =>
+                          field.mirrorGroupId
+                            ? current.filter((item) => item.mirrorGroupId !== field.mirrorGroupId)
+                            : current.filter((item) => item.id !== field.id)
+                        )
                       }}
                       title={`${field.fieldType} → ${field.assignedSignerEmail} (${Math.round(resolveFieldDimensions(field).width)}x${Math.round(resolveFieldDimensions(field).height)})`}
                     >

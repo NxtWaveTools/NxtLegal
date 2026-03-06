@@ -23,6 +23,10 @@ const mockContractApprovalNotificationService = {
   notifyContractRejected: jest.fn(),
 }
 
+const mockContractSignatoryService = {
+  recallSigningEnvelopes: jest.fn(),
+}
+
 type MockRequest = {
   headers: {
     get: (name: string) => string | null
@@ -54,6 +58,7 @@ jest.mock('@/core/registry/service-registry', () => ({
   getIdempotencyService: () => mockIdempotencyService,
   getContractQueryService: () => mockContractQueryService,
   getContractApprovalNotificationService: () => mockContractApprovalNotificationService,
+  getContractSignatoryService: () => mockContractSignatoryService,
 }))
 
 import { POST } from '@/app/api/contracts/[contractId]/action/route'
@@ -123,5 +128,51 @@ describe('Contract action route idempotency', () => {
       expect.objectContaining({ ok: true }),
       200
     )
+  })
+
+  it('recalls Zoho envelopes when legal.void is applied', async () => {
+    mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
+    mockContractSignatoryService.recallSigningEnvelopes.mockResolvedValue(undefined)
+    mockContractQueryService.applyContractAction.mockResolvedValue({
+      contract: {
+        id: '33333333-3333-3333-3333-333333333333',
+        title: 'NDA',
+        status: 'VOID',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+        departmentHodEmail: 'hod@nxtwave.co.in',
+      },
+      counterparties: [],
+      documents: [],
+      availableActions: [],
+      additionalApprovers: [],
+      legalCollaborators: [],
+      signatories: [
+        { zohoSignEnvelopeId: 'envelope-1' },
+        { zohoSignEnvelopeId: 'envelope-1' },
+        { zohoSignEnvelopeId: 'envelope-2' },
+      ],
+    })
+
+    const response = await POST(
+      {
+        headers: {
+          get: (name: string) => (name === 'Idempotency-Key' ? 'idem-action-3' : null),
+        },
+        json: async () => ({ action: 'legal.void', noteText: 'Incorrect recipient' }),
+      } as unknown as PostRequestArg,
+      { params: { contractId: '33333333-3333-3333-3333-333333333333' } } as PostContextArg
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockContractSignatoryService.recallSigningEnvelopes).toHaveBeenCalledWith({
+      tenantId: mockSession.tenantId,
+      contractId: '33333333-3333-3333-3333-333333333333',
+      envelopeIds: ['envelope-1', 'envelope-2'],
+      actorEmployeeId: mockSession.employeeId,
+      actorRole: mockSession.role,
+      actorEmail: mockSession.email,
+      reason: 'Incorrect recipient',
+    })
   })
 })

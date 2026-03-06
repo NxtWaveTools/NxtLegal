@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { contractsClient, type ContractDocument } from '@/core/client/contracts-client'
-import { contractDocumentKinds } from '@/core/constants/contracts'
+import { contractDocumentKinds, contractStatuses } from '@/core/constants/contracts'
 import Spinner from '@/components/ui/Spinner'
 import { toast } from 'sonner'
 import workspaceStyles from '@/modules/contracts/ui/contracts-workspace.module.css'
@@ -83,7 +83,6 @@ const getVersionLabel = (document: ContractDocument): string => {
 const ActiveVersionCard = (props: {
   document: ExtendedDocument
   canReplace: boolean
-  isReplacing: boolean
   onPreview: () => void
   onDownload: () => void
   onReplace: () => void
@@ -129,12 +128,8 @@ const ActiveVersionCard = (props: {
             type="button"
             className={`${workspaceStyles.button} ${workspaceStyles.buttonPrimary}`}
             onClick={props.onReplace}
-            disabled={props.isReplacing}
           >
-            <span className={workspaceStyles.buttonContent}>
-              {props.isReplacing ? <Spinner size={14} /> : null}
-              {props.isReplacing ? 'Replacing…' : 'Replace Document'}
-            </span>
+            Replace Document
           </button>
         ) : null}
       </div>
@@ -209,8 +204,9 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     onRefreshDocuments,
   } = props
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const [isReplacing, setIsReplacing] = useState(false)
+  const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false)
+  const [replacementFile, setReplacementFile] = useState<File | null>(null)
+  const [isFinalExecuted, setIsFinalExecuted] = useState(false)
 
   const primaryDocuments = useMemo(() => {
     return documents
@@ -279,51 +275,68 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     return primaryDocuments[0]
   }, [currentDocumentId, primaryDocuments])
 
-  const canReplace = userRole === 'LEGAL_TEAM' && contractStatus !== 'PENDING_WITH_EXTERNAL_STAKEHOLDERS'
+  const isInSignature =
+    contractStatus === contractStatuses.signing || contractStatus === contractStatuses.pendingExternal
+  const canReplace = userRole === 'LEGAL_TEAM' && !isInSignature
 
-  const replaceDisabledMessage =
-    contractStatus === 'PENDING_WITH_EXTERNAL_STAKEHOLDERS'
-      ? 'Replacement is unavailable while contract is in signature.'
-      : undefined
+  const replaceDisabledMessage = isInSignature
+    ? 'Replacement is unavailable while contract is in signature.'
+    : undefined
 
-  const openFilePicker = () => {
-    fileInputRef.current?.click()
+  const openReplaceModal = () => {
+    setIsReplaceModalOpen(true)
   }
 
-  const handleReplaceFilePicked = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    event.target.value = ''
+  const closeReplaceModal = () => {
+    setIsReplaceModalOpen(false)
+    setReplacementFile(null)
+    setIsFinalExecuted(false)
+  }
 
-    if (!file) {
+  const handleReplaceSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!replacementFile) {
+      toast.error('Please select a file to replace the active document')
       return
     }
 
-    setIsReplacing(true)
+    const selectedFile = replacementFile
+    const shouldMarkExecuted = isFinalExecuted
+
+    // Close immediately so upload runs in the background without blocking the workspace.
+    closeReplaceModal()
+
     const idempotencyKey =
       typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
-    try {
-      const response = await contractsClient.replaceMainDocument({
+    const uploadPromise = contractsClient
+      .replaceMainDocument({
         contractId,
-        file,
+        file: selectedFile,
         idempotencyKey,
+        isFinalExecuted: shouldMarkExecuted,
+      })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(response.error?.message ?? 'Failed to replace document')
+        }
+
+        await onRefreshDocuments()
+        return response
       })
 
-      if (!response.ok) {
-        toast.error(response.error?.message ?? 'Failed to replace document')
-        return
-      }
+    toast.promise(uploadPromise, {
+      loading: 'Uploading replacement document...',
+      success: shouldMarkExecuted
+        ? 'Document replaced and contract marked as Executed'
+        : 'Document replaced successfully',
+      error: (error) => (error instanceof Error ? error.message : 'Failed to replace document'),
+    })
 
-      await onRefreshDocuments()
-      toast.success('Document version uploaded successfully')
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
-      toast.error(errorMessage)
-    } finally {
-      setIsReplacing(false)
-    }
+    void uploadPromise
   }
 
   if (!activeDocument) {
@@ -340,10 +353,9 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
       <ActiveVersionCard
         document={activeDocument}
         canReplace={canReplace}
-        isReplacing={isReplacing}
         onPreview={() => props.onPreviewDocument(activeDocument)}
         onDownload={() => props.onDownloadDocument(activeDocument)}
-        onReplace={openFilePicker}
+        onReplace={openReplaceModal}
         replaceDisabledMessage={replaceDisabledMessage}
         defaultUploaderEmail={defaultUploaderEmail}
       />
@@ -434,13 +446,48 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
         </div>
       ) : null}
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".doc,.docx,.pdf"
-        style={{ display: 'none' }}
-        onChange={(event) => void handleReplaceFilePicked(event)}
-      />
+      {isReplaceModalOpen ? (
+        <div
+          className={workspaceStyles.actionRemarkOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Replace document"
+        >
+          <form className={workspaceStyles.actionRemarkModal} onSubmit={handleReplaceSubmit}>
+            <div className={workspaceStyles.replacementModalTitle}>Replace Document</div>
+            <label className={workspaceStyles.replacementModalField}>
+              <span>Replacement file</span>
+              <input
+                type="file"
+                className={workspaceStyles.input}
+                accept=".doc,.docx,.pdf"
+                onChange={(event) => setReplacementFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            <label className={workspaceStyles.replacementCheckboxRow}>
+              <input
+                type="checkbox"
+                name="isFinalExecuted"
+                checked={isFinalExecuted}
+                onChange={(event) => setIsFinalExecuted(event.target.checked)}
+              />
+              <span>Is this the final executed document?</span>
+            </label>
+            <div className={workspaceStyles.actionRemarkActions}>
+              <button
+                type="button"
+                className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
+                onClick={closeReplaceModal}
+              >
+                Cancel
+              </button>
+              <button type="submit" className={`${workspaceStyles.button} ${workspaceStyles.buttonPrimary}`}>
+                Upload
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   )
 }

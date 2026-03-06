@@ -59,13 +59,20 @@ describe('Replace main contract document route', () => {
     mockSession.tenantId = '00000000-0000-0000-0000-000000000000'
   })
 
-  function createRequest(params?: { idempotencyKey?: string; file?: File | null }): PostRequestArg {
+  function createRequest(params?: {
+    idempotencyKey?: string
+    file?: File | null
+    isFinalExecuted?: string
+  }): PostRequestArg {
     const form = new FormData()
     if (params?.file !== null) {
       form.set(
         'file',
         params?.file ?? new File([new Uint8Array([1, 2, 3])], 'replacement.pdf', { type: 'application/pdf' })
       )
+    }
+    if (typeof params?.isFinalExecuted === 'string') {
+      form.set('isFinalExecuted', params.isFinalExecuted)
     }
 
     return {
@@ -154,5 +161,31 @@ describe('Replace main contract document route', () => {
     expect(response.status).toBe(422)
     expect(body.ok).toBe(false)
     expect(body.error.code).toBe('CONTRACT_IN_SIGNATURE_REPLACEMENT_FORBIDDEN')
+  })
+
+  it('parses isFinalExecuted and forwards it to the domain service', async () => {
+    mockIdempotencyService.claimOrGet.mockResolvedValueOnce({ status: 'claimed' })
+    mockContractUploadService.replacePrimaryDocument.mockResolvedValueOnce({
+      id: 'document-2',
+      documentKind: 'PRIMARY',
+      versionNumber: 2,
+      displayName: 'Primary Contract',
+      fileName: 'replacement.pdf',
+      fileSizeBytes: 3,
+      fileMimeType: 'application/pdf',
+      createdAt: new Date().toISOString(),
+    })
+
+    const response = await POST(createRequest({ isFinalExecuted: 'true' }), {
+      params: { contractId: 'contract-1' },
+    } as PostContextArg)
+
+    expect(response.status).toBe(200)
+    expect(mockContractUploadService.replacePrimaryDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contractId: 'contract-1',
+        isFinalExecuted: true,
+      })
+    )
   })
 })

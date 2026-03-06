@@ -461,11 +461,11 @@ export class ContractQueryService {
     reason: string
   }): Promise<ContractDetailView> {
     if (!params.actorRole) {
-      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'User role is required for approval bypass')
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'User role is required for approval skip')
     }
 
     if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
-      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can bypass approvals')
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can skip approvals')
     }
 
     if (!params.actorEmail) {
@@ -678,10 +678,11 @@ export class ContractQueryService {
       role: params.actorRole,
     })
 
-    if (contractView.contract.status !== contractStatuses.completed) {
+    const allowedSigningPrepStatuses: ContractStatus[] = [contractStatuses.underReview, contractStatuses.completed]
+    if (!allowedSigningPrepStatuses.includes(contractView.contract.status)) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation drafts can only be saved in COMPLETED'
+        'Signing preparation drafts can only be saved in UNDER_REVIEW or COMPLETED'
       )
     }
 
@@ -710,13 +711,6 @@ export class ContractQueryService {
       employeeId: params.actorEmployeeId,
       role: params.actorRole,
     })
-
-    if (contractView.contract.status !== contractStatuses.completed) {
-      throw new BusinessRuleError(
-        'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation drafts can only be loaded in COMPLETED'
-      )
-    }
 
     return this.contractRepository.getSigningPreparationDraft({
       tenantId: params.tenantId,
@@ -831,6 +825,7 @@ export class ContractQueryService {
   async getLatestNotificationDelivery(params: {
     tenantId: string
     contractId: string
+    envelopeId?: string
     recipientEmail: string
     notificationType: ContractNotificationType
   }): Promise<ContractNotificationDeliverySummary | null> {

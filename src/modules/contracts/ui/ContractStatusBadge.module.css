@@ -22,7 +22,8 @@
 
 /* Pending states */
 .hodPending,
-.pendingExternal {
+.pendingExternal,
+.signing {
   background: var(--color-accent-soft);
   color: var(--color-accent);
 }

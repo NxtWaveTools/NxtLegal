@@ -50,7 +50,7 @@ function createContractView() {
     contract: {
       id: 'contract-1',
       title: 'Master Service Agreement',
-      status: 'PENDING_WITH_EXTERNAL_STAKEHOLDERS',
+      status: 'SIGNING',
       uploadedByEmployeeId: 'employee-1',
       uploadedByEmail: 'legal@nxtwave.co.in',
       currentAssigneeEmployeeId: 'employee-2',
@@ -116,7 +116,7 @@ describe('PrepareForSigningModal', () => {
       <PrepareForSigningModal
         isOpen
         contractId="contract-1"
-        contractStatus="COMPLETED"
+        contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
         onSent={jest.fn()}
@@ -124,9 +124,11 @@ describe('PrepareForSigningModal', () => {
     )
 
     await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
-
     fireEvent.click(screen.getByRole('button', { name: '2. Assign Fields' }))
+    await waitFor(() => expect(screen.queryByText('Loading draft…')).toBeNull())
+    await waitFor(() => expect(screen.getByTestId('pdf-document')).toBeTruthy())
     fireEvent.click(screen.getByLabelText('Add signature on all pages'))
+    await waitFor(() => expect(screen.getByTestId('pdf-document')).toBeTruthy())
     fireEvent.click(screen.getByTestId('pdf-document'), { clientX: 360, clientY: 500 })
     fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }))
 
@@ -172,6 +174,37 @@ describe('PrepareForSigningModal', () => {
 
     getBoundingClientRectSpy.mockRestore()
     rafSpy.mockRestore()
+  })
+
+  it('pre-populates recipients from initialRecipients when no draft exists', async () => {
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: null,
+    } as never)
+
+    render(
+      <PrepareForSigningModal
+        isOpen
+        contractId="contract-1"
+        contractStatus="UNDER_REVIEW"
+        pdfUrl="/api/contracts/contract-1/preview"
+        initialRecipients={[
+          {
+            name: 'Vendor Signatory',
+            email: 'Vendor@Example.com',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+          },
+        ]}
+        onClose={jest.fn()}
+        onSent={jest.fn()}
+      />
+    )
+
+    await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
+
+    expect((screen.getByPlaceholderText('Name') as HTMLInputElement).value).toBe('Vendor Signatory')
+    expect((screen.getByPlaceholderText('Email') as HTMLInputElement).value).toBe('vendor@example.com')
   })
 
   it('adds SIGNATURE field only on current page by default', async () => {
@@ -220,7 +253,7 @@ describe('PrepareForSigningModal', () => {
       <PrepareForSigningModal
         isOpen
         contractId="contract-1"
-        contractStatus="COMPLETED"
+        contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
         onSent={jest.fn()}
@@ -228,8 +261,9 @@ describe('PrepareForSigningModal', () => {
     )
 
     await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
-
     fireEvent.click(screen.getByRole('button', { name: '2. Assign Fields' }))
+    await waitFor(() => expect(screen.queryByText('Loading draft…')).toBeNull())
+    await waitFor(() => expect(screen.getByTestId('pdf-document')).toBeTruthy())
     fireEvent.click(screen.getByTestId('pdf-document'), { clientX: 360, clientY: 500 })
     fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }))
 
@@ -287,7 +321,7 @@ describe('PrepareForSigningModal', () => {
       <PrepareForSigningModal
         isOpen
         contractId="contract-1"
-        contractStatus="COMPLETED"
+        contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
         onSent={jest.fn()}
@@ -341,7 +375,7 @@ describe('PrepareForSigningModal', () => {
       <PrepareForSigningModal
         isOpen
         contractId="contract-1"
-        contractStatus="COMPLETED"
+        contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
         onSent={jest.fn()}
@@ -430,7 +464,7 @@ describe('PrepareForSigningModal', () => {
       <PrepareForSigningModal
         isOpen
         contractId="contract-1"
-        contractStatus="COMPLETED"
+        contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
         onSent={jest.fn()}
@@ -492,7 +526,7 @@ describe('PrepareForSigningModal', () => {
       <PrepareForSigningModal
         isOpen
         contractId="contract-1"
-        contractStatus="COMPLETED"
+        contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={onClose}
         onSent={onSent}

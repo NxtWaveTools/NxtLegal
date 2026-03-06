@@ -8,7 +8,7 @@ import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { logger } from '@/core/infra/logging/logger'
 import { DatabaseError, isAppError } from '@/core/http/errors'
-import { contractUploadModes, contractWorkflowRoles } from '@/core/constants/contracts'
+import { contractCounterpartyValues, contractUploadModes, contractWorkflowRoles } from '@/core/constants/contracts'
 import { z } from 'zod'
 
 // Route segment config — extends the serverless function execution timeout
@@ -40,7 +40,7 @@ const uploadContractFormSchema = z
   .object({
     title: z.string().trim().min(1, 'Contract title is required').max(200, 'Contract title exceeds maximum length'),
     contractTypeId: z.string().trim().uuid('Valid contractTypeId is required'),
-    signatoryName: z.string().trim().min(1, 'Signatory name is required').max(200, 'Signatory name is too long'),
+    signatoryName: z.string().trim().max(200, 'Signatory name is too long').optional(),
     signatoryDesignation: z.string().trim().max(200, 'Signatory designation is too long').optional(),
     signatoryEmail: z.string().trim().toLowerCase().optional(),
     backgroundOfRequest: z.string().trim().max(4000, 'Background of request exceeds maximum length').optional(),
@@ -78,6 +78,17 @@ const uploadContractFormSchema = z
           z.object({
             counterpartyName: z.string().trim().min(1).max(200),
             supportingFileIndices: z.array(z.number().int().nonnegative()).default([]),
+            backgroundOfRequest: z.string().trim().max(4000, 'Background of request exceeds maximum length').optional(),
+            budgetApproved: z.boolean().optional(),
+            signatories: z
+              .array(
+                z.object({
+                  name: z.string().trim().max(200),
+                  designation: z.string().trim().max(200),
+                  email: z.string().trim().toLowerCase(),
+                })
+              )
+              .default([]),
           })
         )
 
@@ -91,38 +102,113 @@ const uploadContractFormSchema = z
   })
   .superRefine((data, context) => {
     if (data.uploadMode === contractUploadModes.legalSendForSigning) {
+      if (!data.signatoryName?.trim()) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Counterparty name is required',
+          path: ['signatoryName'],
+        })
+      }
       return
     }
 
-    if (!data.signatoryDesignation?.trim()) {
+    if (!data.counterparties || data.counterparties.length === 0) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Signatory designation is required',
-        path: ['signatoryDesignation'],
+        message: 'At least one counterparty is required',
+        path: ['counterparties'],
       })
+      return
     }
 
-    if (!data.signatoryEmail?.trim()) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Valid signatory email is required',
-        path: ['signatoryEmail'],
-      })
-    } else if (!isValidSignatoryEmail(data.signatoryEmail)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Valid signatory email is required',
-        path: ['signatoryEmail'],
-      })
-    }
+    data.counterparties.forEach((counterparty, counterpartyIndex) => {
+      const normalizedCounterpartyName = counterparty.counterpartyName.trim()
+      const isNotApplicable = normalizedCounterpartyName.toUpperCase() === contractCounterpartyValues.notApplicable
 
-    if (!data.backgroundOfRequest?.trim()) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Background of request is required',
-        path: ['backgroundOfRequest'],
+      if (!isNotApplicable && !counterparty.backgroundOfRequest?.trim()) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Background of request is required',
+          path: ['counterparties', counterpartyIndex, 'backgroundOfRequest'],
+        })
+      }
+
+      if (isNotApplicable && counterparty.signatories.length > 0) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Signatories are not allowed when counterparty is NA',
+          path: ['counterparties', counterpartyIndex, 'signatories'],
+        })
+        return
+      }
+
+      if (!isNotApplicable && (!counterparty.signatories || counterparty.signatories.length === 0)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'At least one signatory is required',
+          path: ['counterparties', counterpartyIndex, 'signatories'],
+        })
+        return
+      }
+
+      const seenSignatoryEmails = new Set<string>()
+
+      counterparty.signatories.forEach((signatory, signatoryIndex) => {
+        if (!signatory.name.trim()) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Signatory name is required',
+            path: ['counterparties', counterpartyIndex, 'signatories', signatoryIndex, 'name'],
+          })
+        }
+
+        if (!signatory.designation.trim()) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Signatory designation is required',
+            path: ['counterparties', counterpartyIndex, 'signatories', signatoryIndex, 'designation'],
+          })
+        }
+
+        if (!signatory.email.trim()) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Valid signatory email is required',
+            path: ['counterparties', counterpartyIndex, 'signatories', signatoryIndex, 'email'],
+          })
+          return
+        }
+
+        if (!isValidSignatoryEmail(signatory.email)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Valid signatory email is required',
+            path: ['counterparties', counterpartyIndex, 'signatories', signatoryIndex, 'email'],
+          })
+          return
+        }
+
+        const normalizedEmail = signatory.email.trim().toLowerCase()
+        if (seenSignatoryEmails.has(normalizedEmail)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Duplicate signatory emails are not allowed within the same counterparty',
+            path: ['counterparties', counterpartyIndex, 'signatories', signatoryIndex, 'email'],
+          })
+          return
+        }
+
+        seenSignatoryEmails.add(normalizedEmail)
       })
-    }
+
+      if (!isNotApplicable && counterparty.supportingFileIndices.length === 0) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Supporting documents are required for counterparty ${counterparty.counterpartyName}`,
+          path: ['counterparties', counterpartyIndex, 'supportingFileIndices'],
+        })
+      }
+    })
   })
 
 const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
@@ -150,7 +236,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     const parsedForm = uploadContractFormSchema.safeParse({
       title: String(formData.get('title') ?? ''),
       contractTypeId: String(formData.get('contractTypeId') ?? ''),
-      signatoryName: String(formData.get('signatoryName') ?? ''),
+      signatoryName: formData.get('signatoryName') ? String(formData.get('signatoryName')) : undefined,
       signatoryDesignation: formData.get('signatoryDesignation')
         ? String(formData.get('signatoryDesignation'))
         : undefined,
@@ -237,7 +323,26 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
 
     const counterparties = parsedForm.data.counterparties?.map((counterparty) => ({
       counterpartyName: counterparty.counterpartyName,
-      supportingFiles: counterparty.supportingFileIndices.map((index) => supportingFiles[index]!),
+      supportingFiles:
+        counterparty.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
+          ? []
+          : counterparty.supportingFileIndices.map((index) => supportingFiles[index]!),
+      backgroundOfRequest:
+        counterparty.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
+          ? ''
+          : (counterparty.backgroundOfRequest?.trim() ?? ''),
+      budgetApproved:
+        counterparty.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
+          ? false
+          : Boolean(counterparty.budgetApproved),
+      signatories:
+        counterparty.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
+          ? []
+          : (counterparty.signatories ?? []).map((signatory) => ({
+              name: signatory.name.trim(),
+              designation: signatory.designation.trim(),
+              email: signatory.email.trim().toLowerCase(),
+            })),
     }))
 
     const isLegalSendForSigningMode = parsedForm.data.uploadMode === contractUploadModes.legalSendForSigning
@@ -265,6 +370,35 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     const fallbackSignatoryDesignation = 'Not provided'
     const fallbackSignatoryEmail = session.email
     const fallbackBackgroundOfRequest = 'Send for signing workflow'
+    const primaryCounterpartyForUpload = counterparties?.[0]
+    const primarySignatoryForUpload = primaryCounterpartyForUpload?.signatories?.[0]
+    const resolvedSignatoryName = isLegalSendForSigningMode
+      ? (parsedForm.data.signatoryName ?? '')
+      : (primarySignatoryForUpload?.name ??
+        (primaryCounterpartyForUpload?.counterpartyName?.toUpperCase() === contractCounterpartyValues.notApplicable
+          ? contractCounterpartyValues.notApplicable
+          : ''))
+    const resolvedSignatoryDesignation = isLegalSendForSigningMode
+      ? fallbackSignatoryDesignation
+      : (primarySignatoryForUpload?.designation ??
+        (primaryCounterpartyForUpload?.counterpartyName?.toUpperCase() === contractCounterpartyValues.notApplicable
+          ? contractCounterpartyValues.notApplicable
+          : ''))
+    const resolvedSignatoryEmail = isLegalSendForSigningMode
+      ? fallbackSignatoryEmail
+      : (primarySignatoryForUpload?.email ??
+        (primaryCounterpartyForUpload?.counterpartyName?.toUpperCase() === contractCounterpartyValues.notApplicable
+          ? contractCounterpartyValues.notApplicable
+          : ''))
+    const resolvedBackgroundOfRequest = isLegalSendForSigningMode
+      ? fallbackBackgroundOfRequest
+      : (primaryCounterpartyForUpload?.backgroundOfRequest ??
+        (primaryCounterpartyForUpload?.counterpartyName?.toUpperCase() === contractCounterpartyValues.notApplicable
+          ? contractCounterpartyValues.notApplicable
+          : ''))
+    const resolvedBudgetApproved = isLegalSendForSigningMode
+      ? (parsedForm.data.budgetApproved ?? false)
+      : (primaryCounterpartyForUpload?.budgetApproved ?? false)
 
     const contractUploadService = getContractUploadService()
     const contract = await contractUploadService.uploadContract({
@@ -274,16 +408,12 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       uploadedByRole: session.role,
       title: parsedForm.data.title,
       contractTypeId: parsedForm.data.contractTypeId,
-      signatoryName: parsedForm.data.signatoryName,
-      signatoryDesignation: isLegalSendForSigningMode
-        ? fallbackSignatoryDesignation
-        : (parsedForm.data.signatoryDesignation ?? ''),
-      signatoryEmail: isLegalSendForSigningMode ? fallbackSignatoryEmail : (parsedForm.data.signatoryEmail ?? ''),
-      backgroundOfRequest: isLegalSendForSigningMode
-        ? fallbackBackgroundOfRequest
-        : (parsedForm.data.backgroundOfRequest ?? ''),
+      signatoryName: resolvedSignatoryName,
+      signatoryDesignation: resolvedSignatoryDesignation,
+      signatoryEmail: resolvedSignatoryEmail,
+      backgroundOfRequest: resolvedBackgroundOfRequest,
       departmentId: resolvedDepartmentId,
-      budgetApproved: parsedForm.data.budgetApproved ?? false,
+      budgetApproved: resolvedBudgetApproved,
       uploadMode: parsedForm.data.uploadMode,
       bypassHodApproval: parsedForm.data.bypassHodApproval,
       bypassReason: parsedForm.data.bypassReason,

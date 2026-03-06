@@ -14,6 +14,7 @@ const allowedStatuses = new Set<string>([
   contractStatuses.offlineExecution,
   contractStatuses.onHold,
   contractStatuses.completed,
+  contractStatuses.signing,
   contractStatuses.executed,
   contractStatuses.void,
   contractStatuses.rejected,

@@ -14,6 +14,7 @@ import type {
   CreateContractDocumentInput,
   CreateContractUploadInput,
   ReplacePrimaryContractDocumentInput,
+  UpdateContractStatusInput,
 } from '@/core/domain/contracts/types'
 
 type ContractRow = {
@@ -402,6 +403,47 @@ class SupabaseContractRepository implements ContractRepository {
     }
   }
 
+  async seedSigningPreparationDraft(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    recipients: Array<{
+      name: string
+      email: string
+      recipientType: 'INTERNAL' | 'EXTERNAL'
+      routingOrder: number
+      designation?: string
+      counterpartyName?: string
+      backgroundOfRequest?: string
+      budgetApproved?: boolean
+    }>
+  }): Promise<void> {
+    if (params.recipients.length === 0) {
+      return
+    }
+
+    const supabase = createServiceSupabase()
+    const { error } = await supabase.from('contract_signing_preparation_drafts').upsert(
+      {
+        tenant_id: params.tenantId,
+        contract_id: params.contractId,
+        recipients: params.recipients,
+        fields: [],
+        created_by_employee_id: params.actorEmployeeId,
+        updated_by_employee_id: params.actorEmployeeId,
+      },
+      {
+        onConflict: 'tenant_id,contract_id',
+      }
+    )
+
+    if (error) {
+      throw new DatabaseError('Failed to seed signing preparation draft recipients', new Error(error.message), {
+        code: error.code,
+      })
+    }
+  }
+
   async createDocument(input: CreateContractDocumentInput): Promise<void> {
     const supabase = createServiceSupabase()
 
@@ -593,6 +635,41 @@ class SupabaseContractRepository implements ContractRepository {
       uploadedRole: input.uploadedByRole,
       replacedDocumentId: payload.replaced_document_id,
       createdAt: new Date().toISOString(),
+    }
+  }
+
+  async updateContractStatus(input: UpdateContractStatusInput): Promise<void> {
+    if (!this.validStatuses.has(input.status)) {
+      throw new DatabaseError('Contract status is invalid in persistence layer', undefined, {
+        status: input.status,
+      })
+    }
+
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contracts')
+      .update({
+        status: input.status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('tenant_id', input.tenantId)
+      .eq('id', input.contractId)
+      .is('deleted_at', null)
+      .select('id')
+      .limit(1)
+
+    if (error) {
+      throw new DatabaseError('Failed to update contract status', new Error(error.message), {
+        code: error.code,
+        details: error.details,
+      })
+    }
+
+    if (!data || data.length === 0) {
+      throw new DatabaseError('Contract not found for tenant during status update', undefined, {
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+      })
     }
   }
 

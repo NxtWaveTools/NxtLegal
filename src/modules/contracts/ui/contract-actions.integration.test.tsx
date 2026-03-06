@@ -189,4 +189,119 @@ describe('Contract action dialogs', () => {
       expect(screen.queryByText('Processing…')).toBeNull()
     })
   })
+
+  it('retains intake details after moving to signing when draft reload fails', async () => {
+    let shouldReturnSigningDetail = false
+
+    jest.spyOn(contractsClient, 'list').mockResolvedValue({
+      ok: true,
+      data: {
+        contracts: [baseContract],
+        pagination: { cursor: null, limit: 15, total: 1 },
+      },
+    } as never)
+
+    const detailUnderReview = {
+      ...buildDetail('UNDER_REVIEW', 'Under Review'),
+      counterparties: [
+        {
+          id: 'cp-1',
+          counterpartyName: 'fdgrf',
+          sequenceOrder: 1,
+        },
+      ],
+    }
+
+    const detailSigning = {
+      ...buildDetail('SIGNING', 'Signing'),
+      counterparties: [
+        {
+          id: 'cp-1',
+          counterpartyName: 'fdgrf',
+          sequenceOrder: 1,
+        },
+      ],
+    }
+
+    jest.spyOn(contractsClient, 'detail').mockImplementation(async () => {
+      return {
+        ok: true,
+        data: shouldReturnSigningDetail ? detailSigning : detailUnderReview,
+      } as never
+    })
+
+    jest.spyOn(contractsClient, 'timeline').mockResolvedValue({ ok: true, data: { events: [] } } as never)
+
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockImplementation(async () => {
+      if (shouldReturnSigningDetail) {
+        return {
+          ok: false,
+          error: { message: 'Draft unavailable in signing' },
+        } as never
+      }
+
+      return {
+        ok: true,
+        data: {
+          contractId: 'contract-1',
+          recipients: [
+            {
+              name: 'John Doe',
+              email: 'john@example.com',
+              recipientType: 'EXTERNAL',
+              routingOrder: 1,
+              designation: 'Manager',
+              counterpartyName: 'fdgrf',
+              backgroundOfRequest: 'Background details',
+              budgetApproved: true,
+            },
+          ],
+          fields: [],
+          createdByEmployeeId: 'employee-legal',
+          updatedByEmployeeId: 'employee-legal',
+          createdAt: '2026-02-27T03:30:00.000Z',
+          updatedAt: '2026-02-27T03:30:00.000Z',
+        },
+      } as never
+    })
+
+    jest.spyOn(contractsClient, 'action').mockImplementation(async () => {
+      shouldReturnSigningDetail = true
+
+      return {
+        ok: true,
+        data: detailSigning,
+      } as never
+    })
+
+    render(
+      <ContractsWorkspace
+        session={{
+          employeeId: 'employee-legal',
+          role: 'LEGAL_TEAM',
+        }}
+      />
+    )
+
+    await waitFor(() => expect(screen.getByText('Board Meeting Documents - NA')).toBeTruthy())
+    await waitFor(() => expect(screen.getByLabelText('Legal status actions')).toBeTruthy())
+
+    await userEvent.click(screen.getByRole('button', { name: /Intake Details/i }))
+    await waitFor(() => expect(screen.getByText('john@example.com')).toBeTruthy())
+    expect(screen.getByText('Background details')).toBeTruthy()
+    expect(screen.getByText('Counterparty 1 Budget Approved')).toBeTruthy()
+    expect(screen.getAllByText('Yes').length).toBeGreaterThan(0)
+
+    const statusActionsSelect = screen.getByLabelText('Legal status actions')
+    await userEvent.selectOptions(statusActionsSelect, 'legal.set.pending_external')
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm' })).toBeTruthy())
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(screen.queryByText('Processing…')).toBeNull())
+    expect(screen.getByText('john@example.com')).toBeTruthy()
+    expect(screen.getByText('Background details')).toBeTruthy()
+    expect(screen.getByText('Counterparty 1 Budget Approved')).toBeTruthy()
+    expect(screen.getAllByText('Yes').length).toBeGreaterThan(0)
+  })
 })

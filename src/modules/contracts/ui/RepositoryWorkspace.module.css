@@ -3,6 +3,8 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  flex: 1;
+  min-height: 0;
   animation: fadeInUp 0.4s ease both;
 }
 
@@ -61,6 +63,8 @@
   overflow: auto;
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
+  flex: 1;
+  min-height: 560px;
   animation: fadeIn 0.3s ease 0.1s both;
 }
 

@@ -55,7 +55,7 @@ describe('Contract signatory assignment route', () => {
     jest.clearAllMocks()
     mockSession.tenantId = '00000000-0000-0000-0000-000000000000'
     mockContractQueryService.getContractDetail.mockResolvedValue({
-      contract: { status: 'COMPLETED' },
+      contract: { status: 'UNDER_REVIEW' },
     })
   })
 

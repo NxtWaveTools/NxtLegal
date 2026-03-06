@@ -38,6 +38,10 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
 
     const formData = await request.formData()
     const uploadedFile = formData.get('file')
+    const isFinalExecutedValue = formData.get('isFinalExecuted')
+    const isFinalExecuted =
+      typeof isFinalExecutedValue === 'string' &&
+      ['true', '1', 'yes', 'on'].includes(isFinalExecutedValue.trim().toLowerCase())
 
     if (!(uploadedFile instanceof File)) {
       return NextResponse.json(errorResponse('CONTRACT_FILE_REQUIRED', 'A file is required for replacement'), {
@@ -71,6 +75,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       fileSizeBytes: uploadedFile.size,
       fileMimeType: uploadedFile.type || 'application/octet-stream',
       fileBody: uploadedFile as Blob,
+      isFinalExecuted,
     })
 
     logger.info('Main contract document replaced successfully', {

@@ -125,6 +125,12 @@ export type ReplacePrimaryContractDocumentInput = {
   uploadedByRole: string
 }
 
+export type UpdateContractStatusInput = {
+  tenantId: string
+  contractId: string
+  status: ContractStatus
+}
+
 export type CreateContractCounterpartyInput = {
   tenantId: string
   contractId: string

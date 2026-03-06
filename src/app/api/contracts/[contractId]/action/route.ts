@@ -7,6 +7,7 @@ import {
   getContractApprovalNotificationService,
   getContractQueryService,
   getIdempotencyService,
+  getContractSignatoryService,
 } from '@/core/registry/service-registry'
 import { contractActionCommandSchema, bypassApprovalActionName } from '@/core/domain/contracts/schemas'
 import { contractWorkflowRoles } from '@/core/constants/contracts'
@@ -66,7 +67,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
         ? await (() => {
             if (session.role !== contractWorkflowRoles.legalTeam && session.role !== contractWorkflowRoles.admin) {
               return NextResponse.json(
-                errorResponse('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can bypass approvals'),
+                errorResponse('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can skip approvals'),
                 { status: 403 }
               )
             }
@@ -160,6 +161,29 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
         payload.action === 'legal.reject' ? 'LEGAL_REJECTION' : 'HOD_REJECTED',
         contractId
       )
+    }
+
+    if (payload.action !== bypassApprovalActionName && payload.action === 'legal.void') {
+      const envelopeIds = Array.from(
+        new Set(contractView.signatories.map((item) => item.zohoSignEnvelopeId?.trim()).filter(Boolean) as string[])
+      )
+
+      if (envelopeIds.length > 0) {
+        const contractSignatoryService = getContractSignatoryService()
+        dispatchNotificationInBackground(
+          contractSignatoryService.recallSigningEnvelopes({
+            tenantId,
+            contractId,
+            envelopeIds,
+            actorEmployeeId: session.employeeId,
+            actorRole: session.role,
+            actorEmail: session.email ?? '',
+            reason: payload.noteText,
+          }),
+          'LEGAL_VOID_ZOHO_RECALL',
+          contractId
+        )
+      }
     }
 
     const responseData = okResponse(contractView)

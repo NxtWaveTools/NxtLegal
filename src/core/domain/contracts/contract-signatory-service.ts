@@ -1,7 +1,9 @@
 import { AuthorizationError, BusinessRuleError, ExternalServiceError } from '@/core/http/errors'
 import { createSignatoryLinkToken } from '@/core/infra/security/signatory-link-token'
+import { PDFDocument } from 'pdf-lib'
 import {
   contractDocumentKinds,
+  contractStorage,
   contractNotificationChannels,
   contractNotificationPolicy,
   contractNotificationStatuses,
@@ -67,6 +69,7 @@ type SignatureProvider = {
     executedPdf: Uint8Array
     certificatePdf: Uint8Array
   }>
+  recallSigningEnvelope?: (params: { envelopeId: string }) => Promise<void>
 }
 
 type SignatoryMailer = {
@@ -159,8 +162,12 @@ export class ContractSignatoryService {
     })
     const contractDetailMs = Date.now() - contractDetailStartedAt
 
-    if (contractView.contract.status !== contractStatuses.completed) {
-      throw new BusinessRuleError('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in COMPLETED')
+    const assignAllowedStatuses: string[] = [contractStatuses.underReview, contractStatuses.completed]
+    if (!assignAllowedStatuses.includes(contractView.contract.status)) {
+      throw new BusinessRuleError(
+        'SIGNATORY_ASSIGN_INVALID_STATUS',
+        'Signatories can only be assigned in UNDER_REVIEW or COMPLETED'
+      )
     }
 
     const normalizedRecipients = params.recipients.map((recipient) => ({
@@ -542,13 +549,6 @@ export class ContractSignatoryService {
       })
       const moveToInSignatureMs = Date.now() - moveToSignatureStartedAt
 
-      const deleteDraftStartedAt = Date.now()
-      await this.contractQueryService.deleteSigningPreparationDraft({
-        tenantId: params.tenantId,
-        contractId: params.contractId,
-      })
-      const deleteDraftMs = Date.now() - deleteDraftStartedAt
-
       const finalContractDetailStartedAt = Date.now()
       const contractView = await this.contractQueryService.getContractDetail({
         tenantId: params.tenantId,
@@ -567,7 +567,6 @@ export class ContractSignatoryService {
         draftLoadMs,
         assignSignatoryMs,
         moveToInSignatureMs,
-        deleteDraftMs,
         finalContractDetailMs,
         elapsedMs: elapsedMs(),
       })
@@ -595,7 +594,7 @@ export class ContractSignatoryService {
     contractId: string
     actorEmployeeId: string
     actorRole?: string
-    artifact: 'signed_document' | 'completion_certificate'
+    artifact: 'signed_document' | 'completion_certificate' | 'merged_pdf'
   }): Promise<
     | { fileName: string; contentType: string; signedUrl: string }
     | { fileName: string; contentType: string; fileBytes: Uint8Array }
@@ -633,6 +632,18 @@ export class ContractSignatoryService {
     const envelopeId = contractView.signatories[0]?.zohoSignEnvelopeId
     if (!envelopeId?.trim()) {
       throw new BusinessRuleError('SIGNATORY_DOCUMENT_NOT_AVAILABLE', 'Envelope is not available for this contract')
+    }
+
+    if (params.artifact === 'merged_pdf') {
+      return this.downloadMergedSigningArtifact({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        actorEmployeeId: params.actorEmployeeId,
+        actorRole: params.actorRole,
+        envelopeId,
+        contractView,
+        elapsedMs,
+      })
     }
 
     const isCompletionCertificate = params.artifact === 'completion_certificate'
@@ -816,6 +827,204 @@ export class ContractSignatoryService {
     }
   }
 
+  private async downloadMergedSigningArtifact(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    envelopeId: string
+    contractView: ContractDetailView
+    elapsedMs: () => number
+  }): Promise<
+    | { fileName: string; contentType: string; signedUrl: string }
+    | { fileName: string; contentType: string; fileBytes: Uint8Array }
+  > {
+    const mergedFileName = `completion-certificate-and-signed-${params.envelopeId}.pdf`
+    const mergedFilePath = this.resolveMergedArtifactPath({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      envelopeId: params.envelopeId,
+    })
+    const localExecutedDocument = this.findLatestDocumentByKind(
+      params.contractView,
+      contractDocumentKinds.executedContract
+    )
+    const localCertificateDocument = this.findLatestDocumentByKind(
+      params.contractView,
+      contractDocumentKinds.auditCertificate
+    )
+
+    try {
+      const mergedSignedUrl = await this.contractStorageRepository.createSignedDownloadUrl(
+        mergedFilePath,
+        contractStorage.signedUrlExpirySeconds
+      )
+      this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+        phase: 'served_merged_from_storage_signed_url',
+        source: 'storage',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        artifact: 'merged_pdf',
+        envelopeId: params.envelopeId,
+        elapsedMs: params.elapsedMs(),
+      })
+
+      return {
+        fileName: mergedFileName,
+        contentType: 'application/pdf',
+        signedUrl: mergedSignedUrl,
+      }
+    } catch {
+      // noop - merged artifact may not exist yet; continue with generation fallback.
+    }
+
+    this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+      phase: 'merged_contract_detail_loaded',
+      source: 'storage',
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      artifact: 'merged_pdf',
+      envelopeId: params.envelopeId,
+      hasLocalExecutedDocument: Boolean(localExecutedDocument),
+      hasLocalCertificateDocument: Boolean(localCertificateDocument),
+      elapsedMs: params.elapsedMs(),
+    })
+
+    if (localExecutedDocument && localCertificateDocument) {
+      try {
+        const [executedSignedUrl, certificateSignedUrl] = await Promise.all([
+          this.contractDocumentDownloadService.createSignedDownloadUrl({
+            contractId: params.contractId,
+            tenantId: params.tenantId,
+            requestorEmployeeId: params.actorEmployeeId,
+            requestorRole: params.actorRole,
+            documentId: localExecutedDocument.id,
+          }),
+          this.contractDocumentDownloadService.createSignedDownloadUrl({
+            contractId: params.contractId,
+            tenantId: params.tenantId,
+            requestorEmployeeId: params.actorEmployeeId,
+            requestorRole: params.actorRole,
+            documentId: localCertificateDocument.id,
+          }),
+        ])
+
+        const [certificatePdfBytes, executedPdfBytes] = await Promise.all([
+          this.downloadPdfFromSignedUrl(certificateSignedUrl.signedUrl),
+          this.downloadPdfFromSignedUrl(executedSignedUrl.signedUrl),
+        ])
+
+        const mergedPdfBytes = await this.mergePdfDocuments({
+          leadingPdf: certificatePdfBytes,
+          trailingPdf: executedPdfBytes,
+        })
+        await this.uploadCompletionArtifactSafely({
+          path: mergedFilePath,
+          fileBody: mergedPdfBytes,
+          contentType: 'application/pdf',
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          envelopeId: params.envelopeId,
+          artifactKind: 'MERGED_FINAL_ARTIFACT',
+        })
+
+        this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+          phase: 'served_merged_from_storage',
+          source: 'storage',
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          artifact: 'merged_pdf',
+          envelopeId: params.envelopeId,
+          executedDocumentId: localExecutedDocument.id,
+          certificateDocumentId: localCertificateDocument.id,
+          fileSizeBytes: mergedPdfBytes.byteLength,
+          elapsedMs: params.elapsedMs(),
+        })
+
+        return {
+          fileName: mergedFileName,
+          contentType: 'application/pdf',
+          ...(await this.resolveMergedDownloadResult({
+            mergedFilePath,
+            mergedFileName,
+            mergedPdfBytes,
+          })),
+        }
+      } catch (error) {
+        this.logger.warn('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+          phase: 'merged_storage_failed_fallback',
+          source: 'storage',
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          artifact: 'merged_pdf',
+          envelopeId: params.envelopeId,
+          executedDocumentId: localExecutedDocument.id,
+          certificateDocumentId: localCertificateDocument.id,
+          error: error instanceof Error ? error.message : String(error),
+          elapsedMs: params.elapsedMs(),
+        })
+      }
+    }
+
+    try {
+      const { executedPdfBytes, certificatePdfBytes, strategy } = await this.downloadCompletionArtifactsFromProvider({
+        envelopeId: params.envelopeId,
+      })
+
+      const mergedPdfBytes = await this.mergePdfDocuments({
+        leadingPdf: certificatePdfBytes,
+        trailingPdf: executedPdfBytes,
+      })
+      await this.uploadCompletionArtifactSafely({
+        path: mergedFilePath,
+        fileBody: mergedPdfBytes,
+        contentType: 'application/pdf',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        envelopeId: params.envelopeId,
+        artifactKind: 'MERGED_FINAL_ARTIFACT',
+      })
+
+      this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+        phase: 'served_merged_from_zoho',
+        source: 'zoho',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        artifact: 'merged_pdf',
+        envelopeId: params.envelopeId,
+        zohoStrategy: strategy,
+        fileSizeBytes: mergedPdfBytes.byteLength,
+        elapsedMs: params.elapsedMs(),
+      })
+
+      return {
+        fileName: mergedFileName,
+        contentType: 'application/pdf',
+        ...(await this.resolveMergedDownloadResult({
+          mergedFilePath,
+          mergedFileName,
+          mergedPdfBytes,
+        })),
+      }
+    } catch (error) {
+      this.logger.error('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
+        phase: 'merged_zoho_failed',
+        source: 'zoho',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        artifact: 'merged_pdf',
+        envelopeId: params.envelopeId,
+        error: error instanceof Error ? error.message : String(error),
+        elapsedMs: params.elapsedMs(),
+      })
+      throw new ExternalServiceError(
+        'ZOHO_SIGN',
+        'Final signing artifact is still being prepared. Please try again shortly.',
+        error as Error
+      )
+    }
+  }
+
   async handleZohoSignWebhook(params: {
     envelopeId: string
     recipientEmail?: string
@@ -888,6 +1097,20 @@ export class ContractSignatoryService {
       signedAt: params.signedAt,
     })
 
+    if (
+      webhookInsert.inserted &&
+      normalizedStatus === 'SIGNED' &&
+      params.recipientEmail &&
+      envelopeContext.recipientType === contractSignatoryRecipientTypes.internal
+    ) {
+      await this.sendInternalSignerSignedConfirmation({
+        tenantId: envelopeContext.tenantId,
+        contractId: envelopeContext.contractId,
+        envelopeId: params.envelopeId,
+        recipientEmail: params.recipientEmail,
+      })
+    }
+
     if (normalizedStatus === 'COMPLETED') {
       this.logger.info('ZOHO_SIGN_COMPLETION_EVALUATION', {
         tenantId: envelopeContext.tenantId,
@@ -925,6 +1148,58 @@ export class ContractSignatoryService {
     await this.handleZohoSignWebhook(params)
   }
 
+  async recallSigningEnvelopes(params: {
+    tenantId: string
+    contractId: string
+    envelopeIds: string[]
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    reason?: string
+  }): Promise<void> {
+    const uniqueEnvelopeIds = Array.from(new Set(params.envelopeIds.map((item) => item.trim()).filter(Boolean)))
+    if (uniqueEnvelopeIds.length === 0) {
+      return
+    }
+
+    if (!this.signatureProvider.recallSigningEnvelope) {
+      this.logger.warn('Zoho recall is not supported by configured signature provider', {
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        actorEmployeeId: params.actorEmployeeId,
+        actorRole: params.actorRole,
+        envelopeCount: uniqueEnvelopeIds.length,
+      })
+      return
+    }
+
+    for (const envelopeId of uniqueEnvelopeIds) {
+      try {
+        await this.signatureProvider.recallSigningEnvelope({ envelopeId })
+        this.logger.info('Zoho signing envelope recalled after contract void', {
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          envelopeId,
+          actorEmployeeId: params.actorEmployeeId,
+          actorRole: params.actorRole,
+          actorEmail: params.actorEmail,
+          reason: params.reason?.trim() || null,
+        })
+      } catch (error) {
+        this.logger.warn('Failed to recall Zoho signing envelope after contract void', {
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          envelopeId,
+          actorEmployeeId: params.actorEmployeeId,
+          actorRole: params.actorRole,
+          actorEmail: params.actorEmail,
+          reason: params.reason?.trim() || null,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+  }
+
   private async syncCompletionArtifactsForCompletedEnvelope(params: {
     tenantId: string
     contractId: string
@@ -945,16 +1220,35 @@ export class ContractSignatoryService {
       const hasAuditCertificate = existingDocuments.some(
         (document) => document.documentKind === contractDocumentKinds.auditCertificate
       )
+      const mergedPath = this.resolveMergedArtifactPath({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        envelopeId: params.envelopeId,
+      })
+      const executedPath = `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/executed-contract.pdf`
+      const certificatePath = `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/audit-certificate.pdf`
 
       if (hasExecutedContract && hasAuditCertificate) {
-        this.logger.info('ZOHO_SIGN_COMPLETION_ARTIFACT_SYNC_TRACE', {
-          phase: 'already_present',
-          tenantId: params.tenantId,
-          contractId: params.contractId,
-          envelopeId: params.envelopeId,
-          elapsedMs: elapsedMs(),
-        })
-        return
+        try {
+          await this.contractStorageRepository.createSignedDownloadUrl(mergedPath, 60)
+          this.logger.info('ZOHO_SIGN_COMPLETION_ARTIFACT_SYNC_TRACE', {
+            phase: 'already_present',
+            tenantId: params.tenantId,
+            contractId: params.contractId,
+            envelopeId: params.envelopeId,
+            mergedArtifactPresent: true,
+            elapsedMs: elapsedMs(),
+          })
+          return
+        } catch {
+          this.logger.info('ZOHO_SIGN_COMPLETION_ARTIFACT_SYNC_TRACE', {
+            phase: 'merged_missing_backfill',
+            tenantId: params.tenantId,
+            contractId: params.contractId,
+            envelopeId: params.envelopeId,
+            elapsedMs: elapsedMs(),
+          })
+        }
       }
 
       let executedPdfBytes: Uint8Array | undefined
@@ -999,7 +1293,6 @@ export class ContractSignatoryService {
 
       if (executedPdfBytes && !hasExecutedContract) {
         const executedFileName = `executed-${params.envelopeId}.pdf`
-        const executedPath = `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/executed-contract.pdf`
 
         await this.uploadCompletionArtifactSafely({
           path: executedPath,
@@ -1026,7 +1319,6 @@ export class ContractSignatoryService {
 
       if (certificatePdfBytes && !hasAuditCertificate) {
         const certificateFileName = `audit-certificate-${params.envelopeId}.pdf`
-        const certificatePath = `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/audit-certificate.pdf`
 
         await this.uploadCompletionArtifactSafely({
           path: certificatePath,
@@ -1048,6 +1340,24 @@ export class ContractSignatoryService {
           fileSizeBytes: certificatePdfBytes.byteLength,
           fileMimeType: 'application/pdf',
           envelopeId: params.envelopeId,
+        })
+      }
+
+      const executedBytesForMerge = executedPdfBytes ?? (await this.downloadPdfFromStoragePath(executedPath))
+      const certificateBytesForMerge = certificatePdfBytes ?? (await this.downloadPdfFromStoragePath(certificatePath))
+      if (executedBytesForMerge && certificateBytesForMerge) {
+        const mergedPdfBytes = await this.mergePdfDocuments({
+          leadingPdf: certificateBytesForMerge,
+          trailingPdf: executedBytesForMerge,
+        })
+        await this.uploadCompletionArtifactSafely({
+          path: mergedPath,
+          fileBody: mergedPdfBytes,
+          contentType: 'application/pdf',
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          envelopeId: params.envelopeId,
+          artifactKind: 'MERGED_FINAL_ARTIFACT',
         })
       }
 
@@ -1116,6 +1426,70 @@ export class ContractSignatoryService {
         strictFailure: false,
       })
     }
+  }
+
+  private async sendInternalSignerSignedConfirmation(params: {
+    tenantId: string
+    contractId: string
+    envelopeId: string
+    recipientEmail: string
+  }): Promise<void> {
+    const recipientEmail = params.recipientEmail.trim().toLowerCase()
+    const existingDelivery = await this.contractQueryService.getLatestNotificationDelivery({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      envelopeId: params.envelopeId,
+      recipientEmail,
+      notificationType: contractNotificationTypes.signingCompleted,
+    })
+
+    if (existingDelivery?.status === contractNotificationStatuses.sent) {
+      this.logger.info('Internal signer confirmation notification deduped', {
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        envelopeId: params.envelopeId,
+        recipientEmail,
+        latestDeliveryId: existingDelivery.id,
+      })
+      return
+    }
+
+    const profile = await this.contractQueryService.getEnvelopeNotificationProfile({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      envelopeId: params.envelopeId,
+    })
+
+    const contractTitle = profile?.contractTitle ?? 'Contract'
+    const contractLink = `${this.appSiteUrl}/contracts/${params.contractId}`
+    const downloadLink = await this.resolveExecutedDownloadLink({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      envelopeId: params.envelopeId,
+      fallbackUrl: contractLink,
+    })
+
+    const subject = `You Signed: ${contractTitle}`
+    const htmlContent = buildMasterTemplate({
+      title: 'Signature Recorded',
+      greeting: 'Hello,',
+      messageText: `Your signature has been recorded for ${contractTitle}.`,
+      buttonText: 'Download Signed Document',
+      buttonLink: downloadLink,
+      footerText:
+        'If the signed PDF is still processing, please open the contract page and retry download in a few moments.',
+    })
+
+    await this.dispatchTemplateNotificationWithRetry({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      envelopeId: params.envelopeId,
+      recipientEmail,
+      subject,
+      htmlContent,
+      notificationType: contractNotificationTypes.signingCompleted,
+      strictFailure: false,
+    })
   }
 
   private async dispatchTemplateNotificationWithRetry(params: {
@@ -1338,7 +1712,7 @@ export class ContractSignatoryService {
     tenantId: string
     contractId: string
     envelopeId: string
-    artifactKind: 'EXECUTED_CONTRACT' | 'AUDIT_CERTIFICATE'
+    artifactKind: 'EXECUTED_CONTRACT' | 'AUDIT_CERTIFICATE' | 'MERGED_FINAL_ARTIFACT'
   }): Promise<void> {
     try {
       await this.contractStorageRepository.upload({
@@ -1431,5 +1805,114 @@ export class ContractSignatoryService {
     })
 
     return `${this.appSiteUrl}/api/contracts/signatories/zoho-sign/redirect?token=${encodeURIComponent(token)}`
+  }
+
+  private findLatestDocumentByKind(
+    contractView: ContractDetailView,
+    documentKind: 'EXECUTED_CONTRACT' | 'AUDIT_CERTIFICATE'
+  ) {
+    return contractView.documents
+      .filter((document) => document.documentKind === documentKind)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0]
+  }
+
+  private async downloadPdfFromSignedUrl(signedUrl: string): Promise<Uint8Array> {
+    const response = await fetch(signedUrl)
+    if (!response.ok) {
+      throw new Error(`Failed to download signed PDF from storage: ${response.status}`)
+    }
+
+    return new Uint8Array(await response.arrayBuffer())
+  }
+
+  private async downloadPdfFromStoragePath(path: string): Promise<Uint8Array | undefined> {
+    try {
+      const signedUrl = await this.contractStorageRepository.createSignedDownloadUrl(path, 60)
+      return await this.downloadPdfFromSignedUrl(signedUrl)
+    } catch {
+      return undefined
+    }
+  }
+
+  private async resolveExecutedDownloadLink(params: {
+    tenantId: string
+    contractId: string
+    envelopeId: string
+    fallbackUrl: string
+  }): Promise<string> {
+    const path = `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/executed-contract.pdf`
+    try {
+      return await this.contractStorageRepository.createSignedDownloadUrl(path, contractStorage.signedUrlExpirySeconds)
+    } catch {
+      return params.fallbackUrl
+    }
+  }
+
+  private resolveMergedArtifactPath(params: { tenantId: string; contractId: string; envelopeId: string }): string {
+    return `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/completion-certificate-and-executed-merged.pdf`
+  }
+
+  private async resolveMergedDownloadResult(params: {
+    mergedFilePath: string
+    mergedFileName: string
+    mergedPdfBytes: Uint8Array
+  }): Promise<{ signedUrl: string } | { fileBytes: Uint8Array }> {
+    try {
+      const mergedSignedUrl = await this.contractStorageRepository.createSignedDownloadUrl(
+        params.mergedFilePath,
+        contractStorage.signedUrlExpirySeconds
+      )
+      return { signedUrl: mergedSignedUrl }
+    } catch {
+      return { fileBytes: params.mergedPdfBytes }
+    }
+  }
+
+  private async downloadCompletionArtifactsFromProvider(params: {
+    envelopeId: string
+  }): Promise<{ executedPdfBytes: Uint8Array; certificatePdfBytes: Uint8Array; strategy: string }> {
+    if (this.signatureProvider.downloadCompletedEnvelopeDocuments) {
+      const artifacts = await this.signatureProvider.downloadCompletedEnvelopeDocuments({
+        envelopeId: params.envelopeId,
+      })
+      return {
+        executedPdfBytes: artifacts.executedPdf,
+        certificatePdfBytes: artifacts.certificatePdf,
+        strategy: 'downloadCompletedEnvelopeDocuments',
+      }
+    }
+
+    if (!this.signatureProvider.downloadEnvelopePdf || !this.signatureProvider.downloadCompletionCertificate) {
+      throw new Error('Merged final artifact download is not supported by configured signature provider')
+    }
+
+    const [executedPdfBytes, certificatePdfBytes] = await Promise.all([
+      this.signatureProvider.downloadEnvelopePdf({ envelopeId: params.envelopeId }),
+      this.signatureProvider.downloadCompletionCertificate({ envelopeId: params.envelopeId }),
+    ])
+
+    return {
+      executedPdfBytes,
+      certificatePdfBytes,
+      strategy: 'downloadEnvelopePdf+downloadCompletionCertificate',
+    }
+  }
+
+  private async mergePdfDocuments(params: { leadingPdf: Uint8Array; trailingPdf: Uint8Array }): Promise<Uint8Array> {
+    const mergedPdf = await PDFDocument.create()
+    const leadingDoc = await PDFDocument.load(params.leadingPdf)
+    const trailingDoc = await PDFDocument.load(params.trailingPdf)
+
+    const leadingPages = await mergedPdf.copyPages(leadingDoc, leadingDoc.getPageIndices())
+    for (const page of leadingPages) {
+      mergedPdf.addPage(page)
+    }
+
+    const trailingPages = await mergedPdf.copyPages(trailingDoc, trailingDoc.getPageIndices())
+    for (const page of trailingPages) {
+      mergedPdf.addPage(page)
+    }
+
+    return await mergedPdf.save()
   }
 }

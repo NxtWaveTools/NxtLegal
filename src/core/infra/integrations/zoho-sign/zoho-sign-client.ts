@@ -147,6 +147,21 @@ export class ZohoSignClient {
     return this.downloadPdf(`/requests/${params.envelopeId}/completioncertificate`)
   }
 
+  async recallSigningEnvelope(params: { envelopeId: string }): Promise<void> {
+    const response = await fetch(`${this.config.apiBaseUrl}/requests/${params.envelopeId}/recall`, {
+      method: 'POST',
+      headers: {
+        ...(await this.createAuthHeaders()),
+        Accept: 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      const errorBody = await response.text()
+      throw new Error(`Zoho Sign request recall failed for ${params.envelopeId}: ${errorBody}`)
+    }
+  }
+
   private async createRequest(input: CreateSigningEnvelopeInput): Promise<ZohoCreateRequestResponse> {
     if (input.documentBytes.byteLength === 0) {
       throw new Error('Zoho Sign request creation failed: source document is empty')

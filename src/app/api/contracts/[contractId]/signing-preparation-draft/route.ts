@@ -34,6 +34,10 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
         email: recipient.email,
         recipientType: recipient.recipient_type,
         routingOrder: recipient.routing_order,
+        designation: recipient.designation,
+        counterpartyName: recipient.counterparty_name,
+        backgroundOfRequest: recipient.background_of_request,
+        budgetApproved: recipient.budget_approved,
       })),
       fields: payload.fields.map((field) => ({
         fieldType: field.field_type,

@@ -61,7 +61,7 @@ const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000000'
 const actionLabelMap: Record<ContractActionName, string> = {
   'hod.approve': 'Approve (HOD)',
   'hod.reject': 'Reject (HOD)',
-  'hod.bypass': 'Bypass to Legal',
+  'hod.bypass': 'Skip Approval',
   'legal.set.under_review': 'Set Under Review',
   'legal.set.pending_internal': 'Set Pending Internal',
   'legal.set.pending_external': 'Set Pending External',
@@ -87,6 +87,17 @@ const remarkRequiredActions = new Set<ContractActionName>([
 ])
 const bypassAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN'])
 const activityMessageAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN', 'HOD'])
+const signingStatusTransitionFallbackRoles = new Set(['LEGAL_TEAM', 'ADMIN'])
+const signingStatusTransitionFallbackActions = new Set<ContractActionName>([
+  'legal.set.under_review',
+  'legal.set.pending_internal',
+  'legal.set.pending_external',
+  'legal.set.offline_execution',
+  'legal.set.on_hold',
+  'legal.set.completed',
+  'legal.reject',
+  'legal.void',
+])
 
 const contractsListSelectWithSlaMetrics =
   'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, request_created_at, department_id, legal_effective_date, legal_termination_date, legal_notice_period, legal_auto_renewal, aging_business_days, near_breach, is_tat_breached, void_reason, created_at, updated_at'
@@ -163,7 +174,7 @@ type AdditionalApproverEntity = {
   approver_employee_id: string
   approver_email: string
   sequence_order: number
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
   approved_at: string | null
 }
 
@@ -205,6 +216,10 @@ type SigningPreparationDraftEntity = {
     email: string
     recipientType: 'INTERNAL' | 'EXTERNAL'
     routingOrder: number
+    designation?: string
+    counterpartyName?: string
+    backgroundOfRequest?: string
+    budgetApproved?: boolean
   }>
   fields: Array<{
     fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -259,7 +274,7 @@ type RepositoryJoinedContractRow = {
   legal_collaborators?: Array<{ collaborator_email: string; deleted_at: string | null }>
   additional_approvers?: Array<{
     approver_employee_id: string
-    status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
+    status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
     sequence_order: number
     approved_at: string | null
     deleted_at: string | null
@@ -1362,6 +1377,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       contractStatuses.underReview,
       contractStatuses.pendingInternal,
       contractStatuses.pendingExternal,
+      contractStatuses.signing,
       contractStatuses.offlineExecution,
       contractStatuses.onHold,
     ])
@@ -1420,6 +1436,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         key: contractRepositoryStatusMetricKeys.completed,
         label: contractRepositoryStatusMetricLabels[contractRepositoryStatusMetricKeys.completed],
         count: statusValues.filter((status) => status === 'COMPLETED').length,
+      },
+      {
+        key: contractRepositoryStatusMetricKeys.signing,
+        label: contractRepositoryStatusMetricLabels[contractRepositoryStatusMetricKeys.signing],
+        count: statusValues.filter((status) => status === 'SIGNING').length,
       },
       {
         key: contractRepositoryStatusMetricKeys.underReview,
@@ -2305,6 +2326,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       email: string
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
+      designation?: string
+      counterpartyName?: string
+      backgroundOfRequest?: string
+      budgetApproved?: boolean
     }>
     fields: Array<{
       fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -2323,6 +2348,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       email: string
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
+      designation?: string
+      counterpartyName?: string
+      backgroundOfRequest?: string
+      budgetApproved?: boolean
     }>
     fields: Array<{
       fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -2344,10 +2373,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    if (contract.status !== contractStatuses.completed) {
+    const draftAllowedStatuses: ContractStatus[] = [contractStatuses.underReview, contractStatuses.completed]
+    if (!draftAllowedStatuses.includes(contract.status)) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation drafts can only be saved in COMPLETED'
+        'Signing preparation drafts can only be saved in UNDER_REVIEW or COMPLETED'
       )
     }
 
@@ -2419,6 +2449,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       email: string
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
+      designation?: string
+      counterpartyName?: string
+      backgroundOfRequest?: string
+      budgetApproved?: boolean
     }>
     fields: Array<{
       fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -2537,11 +2571,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const { data: contractUpdate, error: contractUpdateError } = await supabase
       .from('contracts')
       .update({
-        status: contractStatuses.pendingExternal,
+        status: contractStatuses.signing,
       })
       .eq('tenant_id', params.tenantId)
       .eq('id', params.contractId)
-      .eq('status', contractStatuses.completed)
+      .in('status', [contractStatuses.underReview, contractStatuses.completed])
       .is('deleted_at', null)
       .select('id')
       .maybeSingle<{ id: string }>()
@@ -2550,8 +2584,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     logger.warn('TEMP_DIAG moveContractToInSignature update result', {
       contractId: params.contractId,
       requestedTenantId: params.tenantId,
-      requiredFromStatus: contractStatuses.completed,
-      targetStatus: contractStatuses.pendingExternal,
+      requiredFromStatuses: [contractStatuses.underReview, contractStatuses.completed],
+      targetStatus: contractStatuses.signing,
       rowsAffected,
       contractUpdateErrorCode: contractUpdateError?.code ?? null,
       contractUpdateErrorMessage: contractUpdateError?.message ?? null,
@@ -2566,7 +2600,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     if (!contractUpdate?.id) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation send is only allowed in COMPLETED'
+        'Signing preparation send is only allowed in UNDER_REVIEW'
       )
     }
 
@@ -2799,10 +2833,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     if (effectiveAction === 'hod.bypass' && !bypassAllowedRoles.has(params.actorRole)) {
-      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only legal team or admin can bypass HOD approval')
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only legal team or admin can skip HOD approval')
     }
 
     const transition = await this.resolveTransition(params.tenantId, contract.status, effectiveAction)
+    logger.debug('TEMP_DIAG hod.skip transition resolved', {
+      contractId: params.contractId,
+      tenantId: params.tenantId,
+      actorRole: params.actorRole,
+      action: effectiveAction,
+      fromStatus: contract.status,
+      toStatus: transition.to_status,
+      allowedRoles: transition.allowed_roles,
+    })
 
     // TODO(notification-workflow): add explicit notifications for currently silent transitions such as
     // legal.void and legal.set.offline_execution once Brevo templates and delivery rules are finalized.
@@ -2829,12 +2872,28 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       assigneeEmployeeId = legalAssignee.id
       assigneeEmail = legalAssignee.email
       nextStatus = contractStatuses.underReview
+      logger.debug('TEMP_DIAG hod.skip legal assignee resolved', {
+        contractId: params.contractId,
+        tenantId: params.tenantId,
+        assigneeEmployeeId,
+        assigneeEmail,
+      })
 
       const nowIso = new Date().toISOString()
       const todayUtc = nowIso.slice(0, 10)
       const { data: deadlineDate, error: deadlineError } = await supabase.rpc('business_day_add', {
         start_date: todayUtc,
         days: contractRepositoryTatPolicy.businessDays,
+      })
+
+      logger.debug('TEMP_DIAG hod.skip deadline rpc result', {
+        contractId: params.contractId,
+        tenantId: params.tenantId,
+        startDate: todayUtc,
+        businessDays: contractRepositoryTatPolicy.businessDays,
+        deadlineDate: deadlineDate ?? null,
+        deadlineErrorCode: deadlineError?.code ?? null,
+        deadlineErrorMessage: deadlineError?.message ?? null,
       })
 
       if (deadlineError || !deadlineDate) {
@@ -2847,7 +2906,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         )
       }
 
-      hodApprovedAt = nowIso
+      if (effectiveAction === 'hod.approve') {
+        hodApprovedAt = nowIso
+      } else {
+        hodApprovedAt = null
+      }
       tatDeadlineAt = `${deadlineDate}T23:59:59.000Z`
     } else if (effectiveAction === 'legal.query.reroute') {
       const hodAssignee = await this.getTeamHodAssignee(params.tenantId, contract.departmentId)
@@ -2889,6 +2952,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .select('id')
       .maybeSingle<{ id: string }>()
 
+    logger.debug('TEMP_DIAG hod.skip contract update result', {
+      contractId: params.contractId,
+      tenantId: params.tenantId,
+      action: effectiveAction,
+      updateStatus: updatePayload.status,
+      updateAssigneeEmail: updatePayload.current_assignee_email,
+      updateHodApprovedAt: updatePayload.hod_approved_at ?? null,
+      updateTatDeadlineAt: updatePayload.tat_deadline_at ?? null,
+      updateErrorCode: updateError?.code ?? null,
+      updateErrorMessage: updateError?.message ?? null,
+      rowUpdated: Boolean(updatedRow?.id),
+    })
+
     if (updateError) {
       throw new DatabaseError('Failed to apply contract action', new Error(updateError.message), {
         code: updateError.code,
@@ -2924,8 +3000,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     ])
 
     if (auditError) {
-      throw new DatabaseError('Failed to write contract audit event', new Error(auditError.message), {
-        code: auditError.code,
+      logger.warn('TEMP_DIAG contract action audit insert failed; continuing without blocking transition', {
+        contractId: params.contractId,
+        tenantId: params.tenantId,
+        action: effectiveAction,
+        eventType: this.toAuditEventType(effectiveAction),
+        auditErrorCode: auditError.code,
+        auditErrorMessage: auditError.message,
       })
     }
 
@@ -3049,7 +3130,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     })
 
     if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
-      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can bypass approvals')
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can skip approvals')
     }
 
     if (!params.reason?.trim()) {
@@ -3089,11 +3170,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         id: string
         approver_email: string
         sequence_order: number
-        status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
+        status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
       }>()
 
     if (approverError) {
-      throw new DatabaseError('Failed to fetch additional approver for bypass', new Error(approverError.message), {
+      throw new DatabaseError('Failed to fetch additional approver for skip', new Error(approverError.message), {
         code: approverError.code,
       })
     }
@@ -3103,31 +3184,40 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     if (approver.status !== 'PENDING') {
-      throw new BusinessRuleError('APPROVER_ACTION_INVALID_STATUS', 'Only pending approvals can be bypassed')
+      throw new BusinessRuleError('APPROVER_ACTION_INVALID_STATUS', 'Only pending approvals can be skipped')
     }
 
-    const { data: bypassedApprover, error: bypassError } = await supabase
-      .from('contract_additional_approvers')
-      .update({
-        status: 'BYPASSED',
-        approved_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('tenant_id', params.tenantId)
-      .eq('contract_id', params.contractId)
-      .eq('id', params.approverId)
-      .eq('status', 'PENDING')
-      .is('deleted_at', null)
-      .select('id')
-      .maybeSingle<{ id: string }>()
+    const performSkipUpdate = async (statusValue: 'SKIPPED' | 'BYPASSED') => {
+      return supabase
+        .from('contract_additional_approvers')
+        .update({
+          status: statusValue,
+          approved_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('tenant_id', params.tenantId)
+        .eq('contract_id', params.contractId)
+        .eq('id', params.approverId)
+        .eq('status', 'PENDING')
+        .is('deleted_at', null)
+        .select('id')
+        .maybeSingle<{ id: string }>()
+    }
 
-    if (bypassError) {
-      throw new DatabaseError('Failed to bypass additional approver', new Error(bypassError.message), {
-        code: bypassError.code,
+    let skipResult = await performSkipUpdate('SKIPPED')
+
+    // Backward compatibility for tenants where the SKIPPED status migration is not yet applied.
+    if (skipResult.error?.code === '23514') {
+      skipResult = await performSkipUpdate('BYPASSED')
+    }
+
+    if (skipResult.error) {
+      throw new DatabaseError('Failed to skip additional approver', new Error(skipResult.error.message), {
+        code: skipResult.error.code,
       })
     }
 
-    if (!bypassedApprover) {
+    if (!skipResult.data) {
       throw new ConflictError('Additional approver action was already processed. Please refresh and retry.', {
         contractId: params.contractId,
         tenantId: params.tenantId,
@@ -3153,13 +3243,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .maybeSingle<{ id: string }>()
 
     if (contractUpdateError) {
-      throw new DatabaseError(
-        'Failed to update contract after approval bypass',
-        new Error(contractUpdateError.message),
-        {
-          code: contractUpdateError.code,
-        }
-      )
+      throw new DatabaseError('Failed to update contract after approval skip', new Error(contractUpdateError.message), {
+        code: contractUpdateError.code,
+      })
     }
 
     if (!updatedContract) {
@@ -3193,7 +3279,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     ])
 
     if (auditError) {
-      throw new DatabaseError('Failed to write approval bypass audit event', new Error(auditError.message), {
+      throw new DatabaseError('Failed to write approval skip audit event', new Error(auditError.message), {
         code: auditError.code,
       })
     }
@@ -3565,8 +3651,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    if (contract.status !== contractStatuses.completed) {
-      throw new BusinessRuleError('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in COMPLETED')
+    const assignAllowedStatuses: ContractStatus[] = [contractStatuses.underReview, contractStatuses.completed]
+    if (!assignAllowedStatuses.includes(contract.status)) {
+      throw new BusinessRuleError(
+        'SIGNATORY_ASSIGN_INVALID_STATUS',
+        'Signatories can only be assigned in UNDER_REVIEW or COMPLETED'
+      )
     }
 
     const existingSignatories = await this.getSignatories(params.tenantId, params.contractId)
@@ -3822,7 +3912,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         })
         .eq('tenant_id', params.tenantId)
         .eq('id', updated.contract_id)
-        .eq('status', contractStatuses.pendingExternal)
+        .in('status', [contractStatuses.signing, contractStatuses.pendingExternal])
         .is('deleted_at', null)
         .select('id')
         .maybeSingle<{ id: string }>()
@@ -3845,7 +3935,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
             resource_type: 'contract',
             resource_id: updated.contract_id,
             metadata: {
-              from_status: contractStatuses.pendingExternal,
+              from_status: contractStatuses.signing,
+              from_status_fallback: contractStatuses.pendingExternal,
               to_status: contractStatuses.executed,
               zoho_sign_envelope_id: params.envelopeId,
             },
@@ -4039,6 +4130,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   async getLatestNotificationDelivery(params: {
     tenantId: string
     contractId: string
+    envelopeId?: string
     recipientEmail: string
     notificationType:
       | 'SIGNATORY_LINK'
@@ -4049,13 +4141,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   }): Promise<ContractNotificationDeliverySummary | null> {
     const supabase = createServiceSupabase()
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('contract_notification_deliveries')
       .select('id, created_at, status')
       .eq('tenant_id', params.tenantId)
       .eq('contract_id', params.contractId)
       .eq('recipient_email', params.recipientEmail.trim().toLowerCase())
       .eq('notification_type', params.notificationType)
+
+    if (params.envelopeId?.trim()) {
+      query = query.eq('envelope_id', params.envelopeId.trim())
+    }
+
+    const { data, error } = await query
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle<{ id: string; created_at: string; status: 'SENT' | 'FAILED' }>()
@@ -4563,6 +4661,44 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
     }
 
+    if (
+      fromStatus === contractStatuses.signing &&
+      signingStatusTransitionFallbackRoles.has(role) &&
+      (!defaultRows || defaultRows.length === 0)
+    ) {
+      const resolveSigningTransitionFallbackRows = async (scopeTenantId: string): Promise<TransitionGraphEntity[]> => {
+        const { data: signingFallbackRows, error: signingFallbackError } = await supabase
+          .from('contract_transition_graph')
+          .select('trigger_action, to_status, allowed_roles')
+          .eq('tenant_id', scopeTenantId)
+          .eq('from_status', contractStatuses.pendingExternal)
+          .eq('is_active', true)
+          .contains('allowed_roles', [role])
+
+        if (signingFallbackError) {
+          throw new DatabaseError(
+            'Failed to resolve signing fallback transitions',
+            new Error(signingFallbackError.message),
+            {
+              code: signingFallbackError.code,
+            }
+          )
+        }
+
+        return (signingFallbackRows ?? []) as TransitionGraphEntity[]
+      }
+
+      const tenantFallbackRows = await resolveSigningTransitionFallbackRows(tenantId)
+      if (tenantFallbackRows.length > 0) {
+        return tenantFallbackRows
+      }
+
+      const defaultFallbackRows = await resolveSigningTransitionFallbackRows(DEFAULT_TENANT_ID)
+      if (defaultFallbackRows.length > 0) {
+        return defaultFallbackRows
+      }
+    }
+
     return (defaultRows ?? []) as TransitionGraphEntity[]
   }
 
@@ -4624,6 +4760,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     if (!fallbackTransitions || fallbackTransitions.length === 0) {
+      if (fromStatus === contractStatuses.signing && signingStatusTransitionFallbackActions.has(action)) {
+        const signingFallbackTransition = await this.resolveSigningFallbackTransition(tenantId, action)
+        if (signingFallbackTransition) {
+          return signingFallbackTransition
+        }
+      }
+
       throw new BusinessRuleError(
         'CONTRACT_TRANSITION_INVALID',
         'No active workflow transition configured for this action'
@@ -4631,6 +4774,42 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     return fallbackTransitions[0] as { to_status: string; allowed_roles: string[] }
+  }
+
+  private async resolveSigningFallbackTransition(
+    tenantId: string,
+    action: ContractActionName
+  ): Promise<{ to_status: string; allowed_roles: string[] } | null> {
+    const supabase = createServiceSupabase()
+    const tryResolve = async (
+      scopeTenantId: string
+    ): Promise<{ to_status: string; allowed_roles: string[] } | null> => {
+      const { data, error } = await supabase
+        .from('contract_transition_graph')
+        .select('to_status, allowed_roles')
+        .eq('tenant_id', scopeTenantId)
+        .eq('from_status', contractStatuses.pendingExternal)
+        .eq('trigger_action', action)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (error) {
+        throw new DatabaseError('Failed to resolve signing fallback transition', new Error(error.message), {
+          code: error.code,
+        })
+      }
+
+      const match = data?.[0]
+      return match ? (match as { to_status: string; allowed_roles: string[] }) : null
+    }
+
+    const tenantMatch = await tryResolve(tenantId)
+    if (tenantMatch) {
+      return tenantMatch
+    }
+
+    return tryResolve(DEFAULT_TENANT_ID)
   }
 
   private async resolveRerouteTransition(tenantId: string, fromStatus: ContractStatus) {
@@ -5567,7 +5746,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     if (action === 'hod.bypass') {
-      return 'CONTRACT_BYPASSED'
+      return 'CONTRACT_TRANSITIONED'
     }
 
     return 'CONTRACT_APPROVED'
