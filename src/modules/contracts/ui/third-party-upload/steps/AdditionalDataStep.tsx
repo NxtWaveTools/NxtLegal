@@ -176,12 +176,21 @@ export default function AdditionalDataStep({
   }
 
   const maybeAutofillCounterparty = (counterpartyIndex: number, rawValue: string) => {
-    const normalizedValue = rawValue.trim().toLowerCase()
+    const trimmedValue = rawValue.trim()
+    const normalizedValue = trimmedValue.toLowerCase()
     if (!normalizedValue) {
       return
     }
 
     if (normalizedValue === contractCounterpartyValues.notApplicable.toLowerCase()) {
+      return
+    }
+
+    // Autofill only when an exact configured option is selected/committed.
+    const hasExactOptionMatch = loadedCounterpartyOptions.some(
+      (option) => option.trim().toLowerCase() === normalizedValue
+    )
+    if (!hasExactOptionMatch) {
       return
     }
 
@@ -338,11 +347,7 @@ export default function AdditionalDataStep({
                   list="counterparty-options"
                   placeholder="Select or type counterparty"
                   value={counterparty.counterpartyName}
-                  onChange={(event) => {
-                    const value = event.target.value
-                    onCounterpartyNameChange(counterpartyIndex, value)
-                    maybeAutofillCounterparty(counterpartyIndex, value)
-                  }}
+                  onChange={(event) => onCounterpartyNameChange(counterpartyIndex, event.target.value)}
                   onBlur={(event) => maybeAutofillCounterparty(counterpartyIndex, event.target.value)}
                   onKeyDown={(event) => handleCounterpartyNameKeyDown(event, counterpartyIndex)}
                 />

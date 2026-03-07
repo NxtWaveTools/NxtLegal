@@ -767,7 +767,9 @@ export class ContractUploadService {
 
           return {
             counterpartyName: normalizedCounterpartyName,
-            backgroundOfRequest: isNotApplicableCounterparty ? '' : (entry.backgroundOfRequest?.trim() ?? ''),
+            backgroundOfRequest: isNotApplicableCounterparty
+              ? contractCounterpartyValues.notApplicable
+              : (entry.backgroundOfRequest?.trim() ?? ''),
             budgetApproved: isNotApplicableCounterparty ? false : Boolean(entry.budgetApproved),
             signatories: isNotApplicableCounterparty
               ? []
@@ -791,7 +793,9 @@ export class ContractUploadService {
     return [
       {
         counterpartyName,
-        backgroundOfRequest: isNotApplicableCounterparty ? '' : input.backgroundOfRequest.trim(),
+        backgroundOfRequest: isNotApplicableCounterparty
+          ? contractCounterpartyValues.notApplicable
+          : input.backgroundOfRequest.trim(),
         budgetApproved: isNotApplicableCounterparty ? false : input.budgetApproved,
         signatories: isNotApplicableCounterparty
           ? []

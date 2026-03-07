@@ -329,7 +329,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
           : counterparty.supportingFileIndices.map((index) => supportingFiles[index]!),
       backgroundOfRequest:
         counterparty.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
-          ? ''
+          ? contractCounterpartyValues.notApplicable
           : (counterparty.backgroundOfRequest?.trim() ?? ''),
       budgetApproved:
         counterparty.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable

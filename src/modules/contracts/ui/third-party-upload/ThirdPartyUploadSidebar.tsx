@@ -188,7 +188,7 @@ export default function ThirdPartyUploadSidebar({
           supportingFiles: entry.supportingFiles,
           backgroundOfRequest:
             entry.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
-              ? ''
+              ? contractCounterpartyValues.notApplicable
               : entry.backgroundOfRequest.trim(),
           budgetApproved:
             entry.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
@@ -299,7 +299,7 @@ export default function ThirdPartyUploadSidebar({
             : entry.supportingFiles,
         backgroundOfRequest:
           entry.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
-            ? ''
+            ? contractCounterpartyValues.notApplicable
             : entry.backgroundOfRequest.trim(),
         budgetApproved:
           entry.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
@@ -455,7 +455,7 @@ export default function ThirdPartyUploadSidebar({
                       counterpartyName: value,
                       ...(value.trim().toUpperCase() === contractCounterpartyValues.notApplicable
                         ? {
-                            backgroundOfRequest: '',
+                            backgroundOfRequest: contractCounterpartyValues.notApplicable,
                             budgetApproved: false,
                             signatories: [],
                             supportingFiles: [],
