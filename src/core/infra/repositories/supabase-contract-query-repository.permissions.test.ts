@@ -647,6 +647,23 @@ describe('supabaseContractQueryRepository action permissions', () => {
     )
     additionalContextSpy.mockResolvedValue(new Map())
 
+    const enrichmentSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        resolveListContractEnrichment: (
+          tenantId: string,
+          rows: Array<{ id: string; uploaded_by_employee_id: string; uploaded_by_email: string }>
+        ) => Promise<{
+          creatorNameByContractId: Map<string, string | null>
+          executedAtByContractId: Map<string, string | null>
+        }>
+      },
+      'resolveListContractEnrichment'
+    )
+    enrichmentSpy.mockResolvedValue({
+      creatorNameByContractId: new Map(),
+      executedAtByContractId: new Map(),
+    })
+
     const attachSignalsSpy = jest.spyOn(
       supabaseContractQueryRepository as unknown as {
         attachActorContractSignals: (

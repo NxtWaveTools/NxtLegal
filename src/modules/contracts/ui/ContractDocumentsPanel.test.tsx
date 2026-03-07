@@ -211,8 +211,8 @@ describe('ContractDocumentsPanel', () => {
   })
 
   it('closes modal immediately after submit while upload continues in background', async () => {
-    let resolveUpload: ((value: unknown) => void) | null = null
-    const pendingUpload = new Promise((resolve) => {
+    let resolveUpload!: (value: Awaited<ReturnType<typeof contractsClient.replaceMainDocument>>) => void
+    const pendingUpload: ReturnType<typeof contractsClient.replaceMainDocument> = new Promise((resolve) => {
       resolveUpload = resolve
     })
 
@@ -240,7 +240,7 @@ describe('ContractDocumentsPanel', () => {
 
     expect(screen.queryByRole('dialog', { name: 'Replace document' })).toBeNull()
 
-    resolveUpload?.({
+    resolveUpload({
       ok: true,
       data: { document: makeDoc({ id: 'doc-2', versionNumber: 2 }) },
     })

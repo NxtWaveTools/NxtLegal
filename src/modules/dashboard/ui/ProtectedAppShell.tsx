@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import LogoutButton from '@/components/auth/LogoutButton'
 import ThemeToggle from '@/components/theme/ThemeToggle'
 import { routeRegistry } from '@/core/config/route-registry'
@@ -32,7 +32,6 @@ export default function ProtectedAppShell({
   quickAction,
   children,
 }: ProtectedAppShellProps) {
-  const router = useRouter()
   const canAccessAdminConsole = ['ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'].includes((session.role ?? '').toUpperCase())
 
   const displayName = useMemo(() => {
@@ -87,23 +86,23 @@ export default function ProtectedAppShell({
               </span>
             </button>
           ) : null}
-          <button
-            type="button"
+          <Link
             className={`${styles.navItem} ${activeNav === 'home' ? styles.navItemActive : ''}`}
             aria-label="Home"
-            onClick={() => router.push(routeRegistry.protected.dashboard)}
+            href={routeRegistry.protected.dashboard}
+            prefetch
           >
             <span className={styles.navIcon}>
               <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
                 <path d="M3 9.5 10 4l7 5.5V17a1 1 0 0 1-1 1h-4v-5H8v5H4a1 1 0 0 1-1-1V9.5Z" fill="currentColor" />
               </svg>
             </span>
-          </button>
-          <button
-            type="button"
+          </Link>
+          <Link
             className={`${styles.navItem} ${activeNav === 'repository' ? styles.navItemActive : ''}`}
             aria-label="Repository"
-            onClick={() => router.push(routeRegistry.protected.repository)}
+            href={routeRegistry.protected.repository}
+            prefetch
           >
             <span className={styles.navIcon}>
               <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
@@ -111,13 +110,13 @@ export default function ProtectedAppShell({
                 <path d="M6 7.5h8M6 10h8M6 12.5h5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
               </svg>
             </span>
-          </button>
+          </Link>
           {canAccessApproverHistory ? (
-            <button
-              type="button"
+            <Link
               className={`${styles.navItem} ${activeNav === 'approver-history' ? styles.navItemActive : ''}`}
               aria-label="Additional Approver History"
-              onClick={() => router.push(routeRegistry.protected.additionalApproverHistory)}
+              href={routeRegistry.protected.additionalApproverHistory}
+              prefetch
             >
               <span className={styles.navIcon}>
                 <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
@@ -138,14 +137,14 @@ export default function ProtectedAppShell({
                   />
                 </svg>
               </span>
-            </button>
+            </Link>
           ) : null}
           {canAccessAdminConsole ? (
-            <button
-              type="button"
+            <Link
               className={`${styles.navItem} ${activeNav === 'admin' ? styles.navItemActive : ''}`}
               aria-label="Admin Console"
-              onClick={() => router.push(routeRegistry.protected.adminConsole)}
+              href={routeRegistry.protected.adminConsole}
+              prefetch
             >
               <span className={styles.navIcon}>
                 <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
@@ -155,7 +154,7 @@ export default function ProtectedAppShell({
                   <rect x="11" y="11" width="5" height="5" rx="1.2" fill="currentColor" />
                 </svg>
               </span>
-            </button>
+            </Link>
           ) : null}
           <button type="button" className={styles.navItem} aria-label="Analytics">
             <span className={styles.navIcon}>

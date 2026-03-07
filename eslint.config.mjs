@@ -19,6 +19,8 @@ const eslintConfig = defineConfig([
     'jest.setup.js',
     // Playwright E2E tests (have their own tsconfig)
     'tests/e2e/**',
+    // Vendored/minified worker assets
+    'public/**/*.mjs',
   ]),
 ])
 

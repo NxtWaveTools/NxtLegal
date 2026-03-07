@@ -1,7 +1,8 @@
 'use client'
 
 import type { FormEvent, ReactNode } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import Spinner from '@/components/ui/Spinner'
@@ -295,6 +296,11 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [filterCounts, setFilterCounts] = useState<Partial<Record<DashboardContractsFilter, number>>>({})
   const [activeFilterTotal, setActiveFilterTotal] = useState(0)
   const [actionableAdditionalApprovals, setActionableAdditionalApprovals] = useState<ContractRecord[]>([])
+  const [optimisticContracts, setOptimisticContracts] = useOptimistic<ContractRecord[]>(contracts)
+  const [optimisticPendingApprovalsCount, setOptimisticPendingApprovalsCount] = useOptimistic(pendingApprovalsCount)
+  const [optimisticActiveFilterTotal, setOptimisticActiveFilterTotal] = useOptimistic(activeFilterTotal)
+  const [optimisticActionableAdditionalApprovals, setOptimisticActionableAdditionalApprovals] =
+    useOptimistic<ContractRecord[]>(actionableAdditionalApprovals)
 
   const requestedFilterFromUrl = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey)
@@ -507,6 +513,19 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         return false
       }
 
+      const previousContracts = contracts
+      const previousAdditionalApprovals = actionableAdditionalApprovals
+      const previousPendingCount = pendingApprovalsCount
+      const previousFilterTotal = activeFilterTotal
+
+      const nextContracts = contracts.filter((contract) => contract.id !== contractId)
+      const nextAdditionalApprovals = actionableAdditionalApprovals.filter((contract) => contract.id !== contractId)
+
+      setOptimisticContracts(nextContracts)
+      setOptimisticActionableAdditionalApprovals(nextAdditionalApprovals)
+      setOptimisticPendingApprovalsCount((current) => Math.max(current - 1, 0))
+      setOptimisticActiveFilterTotal((current) => Math.max(current - 1, 0))
+
       setMutatingContractId(contractId)
 
       try {
@@ -516,6 +535,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         })
 
         if (!response.ok) {
+          setOptimisticContracts(previousContracts)
+          setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
+          setOptimisticPendingApprovalsCount(previousPendingCount)
+          setOptimisticActiveFilterTotal(previousFilterTotal)
           toast.error(response.error?.message ?? 'Failed to complete contract action')
           return false
         }
@@ -527,6 +550,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         toast.success(action === 'hod.approve' ? 'Contract approved successfully' : 'Contract rejected successfully')
         return true
       } catch (error) {
+        setOptimisticContracts(previousContracts)
+        setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
+        setOptimisticPendingApprovalsCount(previousPendingCount)
+        setOptimisticActiveFilterTotal(previousFilterTotal)
         const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
         toast.error(errorMessage)
         return false
@@ -534,7 +561,18 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         setMutatingContractId(null)
       }
     },
-    [activeFilter, loadContractsForFilter, loadDashboardCounts, mutatingContractId, pageCursors, pageIndex]
+    [
+      activeFilter,
+      actionableAdditionalApprovals,
+      activeFilterTotal,
+      contracts,
+      loadContractsForFilter,
+      loadDashboardCounts,
+      mutatingContractId,
+      pageCursors,
+      pageIndex,
+      pendingApprovalsCount,
+    ]
   )
 
   const openRejectDialog = useCallback((contractId: string) => {
@@ -602,16 +640,16 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       return null
     }
 
-    return contracts.find((contract) => contract.id === rejectingContractId)?.title ?? null
-  }, [contracts, rejectingContractId])
+    return optimisticContracts.find((contract) => contract.id === rejectingContractId)?.title ?? null
+  }, [optimisticContracts, rejectingContractId])
 
   const approvingContractTitle = useMemo(() => {
     if (!approvingContractId) {
       return null
     }
 
-    return contracts.find((contract) => contract.id === approvingContractId)?.title ?? null
-  }, [approvingContractId, contracts])
+    return optimisticContracts.find((contract) => contract.id === approvingContractId)?.title ?? null
+  }, [approvingContractId, optimisticContracts])
 
   return (
     <ProtectedAppShell
@@ -648,7 +686,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
               {session.role !== contractWorkflowRoles.hod ? (
                 <DashboardActionCard
                   title="Upload Third-Party Contract"
-                  count={activeFilterTotal}
+                  count={optimisticActiveFilterTotal}
                   description="Upload third-party contracts for review"
                   icon={uploadIcon}
                   onClick={() => {
@@ -660,7 +698,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
               {session.role === contractWorkflowRoles.legalTeam ? (
                 <DashboardActionCard
                   title="Send for Signing"
-                  count={activeFilterTotal}
+                  count={optimisticActiveFilterTotal}
                   description="Initiate legal signing workflow"
                   onClick={() => {
                     setUploadMode(contractUploadModes.legalSendForSigning)
@@ -671,7 +709,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
               {roleConfig.showApproveCard ? (
                 <DashboardActionCard
                   title="Approve"
-                  count={pendingApprovalsCount}
+                  count={optimisticPendingApprovalsCount}
                   description="Contracts waiting for approval"
                   onClick={() => {
                     applyFilter(roleConfig.approveFilter)
@@ -694,16 +732,16 @@ export default function DashboardClient({ session }: DashboardClientProps) {
           </div>
         </section>
 
-        {actionableAdditionalApprovals.length > 0 && (
+        {optimisticActionableAdditionalApprovals.length > 0 && (
           <section className={styles.approverInsightSection}>
-            {actionableAdditionalApprovals.length > 0 ? (
+            {optimisticActionableAdditionalApprovals.length > 0 ? (
               <div className={styles.approverInsightCard}>
                 <div className={styles.approverInsightHeader}>
                   <span className={styles.approverInsightTitle}>Your Approval Needed</span>
-                  <span className={styles.approverInsightCount}>{actionableAdditionalApprovals.length}</span>
+                  <span className={styles.approverInsightCount}>{optimisticActionableAdditionalApprovals.length}</span>
                 </div>
                 <div className={styles.approverInsightList}>
-                  {actionableAdditionalApprovals.map((contract) => (
+                  {optimisticActionableAdditionalApprovals.map((contract) => (
                     <div key={contract.id} className={styles.approverInsightItem}>
                       <div className={styles.approverInsightContent}>
                         <div className={styles.contractTitleRow}>
@@ -752,9 +790,9 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         <section className={styles.contractsSection} ref={contractsSectionRef}>
           <div className={styles.contractsHeader}>
             <span className={styles.contractsHeaderTitle}>My Contracts</span>
-            <button type="button" className={styles.repositoryLink} onClick={() => router.push('/repository')}>
+            <Link href="/repository" prefetch className={styles.repositoryLink}>
               Looking for a specific contract? Open Repository →
-            </button>
+            </Link>
           </div>
           <div className={styles.contractsTabs}>
             {roleConfig.filters.map((filterOption) => (
@@ -782,7 +820,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   </div>
                 ))}
               </div>
-            ) : contracts.length === 0 ? (
+            ) : optimisticContracts.length === 0 ? (
               <div className={styles.emptyBody}>
                 <div className={styles.emptyTitle}>No contracts found</div>
                 <div className={styles.emptySubtitle}>No contracts match the selected filter.</div>
@@ -831,7 +869,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   </button>
                 </div>
 
-                {contracts.map((contract) => {
+                {optimisticContracts.map((contract) => {
                   const showAging =
                     session.role !== contractWorkflowRoles.hod && shouldShowDashboardAging(contract.status)
                   const showApprovalRequestedTimeline =
