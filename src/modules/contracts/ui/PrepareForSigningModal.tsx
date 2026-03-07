@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { toast } from 'sonner'
-import { contractsClient, type ContractDetailResponse } from '@/core/client/contracts-client'
+import { contractsClient } from '@/core/client/contracts-client'
 import { contractStatuses, getContractSignatoryRecipientTypeLabel } from '@/core/constants/contracts'
 import styles from './prepare-for-signing-modal.module.css'
 
@@ -62,7 +62,28 @@ type PrepareForSigningModalProps = {
     routingOrder?: number
   }>
   onClose: () => void
-  onSent: (contractView: ContractDetailResponse) => void
+  onReviewSendRequested: (payload: {
+    recipients: Array<{
+      name: string
+      email: string
+      recipient_type: 'INTERNAL' | 'EXTERNAL'
+      routing_order: number
+      designation?: string
+      counterparty_name?: string
+      background_of_request?: string
+      budget_approved?: boolean
+    }>
+    fields: Array<{
+      field_type: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
+      page_number?: number
+      x_position?: number
+      y_position?: number
+      width?: number
+      height?: number
+      anchor_string?: string
+      assigned_signer_email: string
+    }>
+  }) => void
 }
 
 type PreflightCheck = {
@@ -142,7 +163,7 @@ export default function PrepareForSigningModal({
   pdfUrl,
   initialRecipients = [],
   onClose,
-  onSent,
+  onReviewSendRequested,
 }: PrepareForSigningModalProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [isLoadingDraft, setIsLoadingDraft] = useState(false)
@@ -210,8 +231,11 @@ export default function PrepareForSigningModal({
 
   useEffect(() => {
     if (!isOpen) {
+      setIsSending(false)
+      setSendingStatusIndex(0)
       return
     }
+
     setPageMetricsByNumber({})
     setPageRenderBoxByNumber({})
   }, [isOpen, pdfUrl])
@@ -890,20 +914,7 @@ export default function PrepareForSigningModal({
     }
 
     try {
-      const draftSaveResponse = await contractsClient.saveSigningPreparationDraft(contractId, draftPayload)
-      if (!draftSaveResponse.ok) {
-        toast.error(draftSaveResponse.error?.message ?? 'Failed to save draft before sending')
-        return
-      }
-
-      const response = await contractsClient.sendSigningPreparationDraft(contractId)
-
-      if (!response.ok || !response.data) {
-        toast.error(response.error?.message ?? 'Failed to send for signing')
-        return
-      }
-
-      onSent(response.data.contractView)
+      onReviewSendRequested(draftPayload)
       onClose()
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'

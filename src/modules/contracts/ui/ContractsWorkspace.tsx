@@ -200,10 +200,17 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [hasMore, setHasMore] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [totalContracts, setTotalContracts] = useState(0)
+  const [isSigningSendProcessingByContractId, setIsSigningSendProcessingByContractId] = useState<
+    Record<string, boolean>
+  >({})
   const knownContractStatusesRef = useRef<Map<string, ContractRecord['status']>>(new Map())
   const executedCelebratedContractIdsRef = useRef<Set<string>>(new Set())
   const pendingCompletedCelebrationContractIdRef = useRef<string | null>(null)
   const copiedSigningLinkResetTimerRef = useRef<number | null>(null)
+  const selectedContractIdRef = useRef<string | null>(selectedContractId)
+  const signingSendPollingIntervalByContractIdRef = useRef<Record<string, number>>({})
+  const signingSendPollingInFlightByContractIdRef = useRef<Record<string, boolean>>({})
+  const signingSendPollingDeadlineByContractIdRef = useRef<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
   const canViewSignedDocsTab = session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'
   const tabs = useMemo(
@@ -414,6 +421,21 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       setActiveTab('overview')
     }
   }, [activeTab, canViewSignedDocsTab])
+
+  useEffect(() => {
+    selectedContractIdRef.current = selectedContractId
+  }, [selectedContractId])
+
+  useEffect(() => {
+    return () => {
+      for (const intervalId of Object.values(signingSendPollingIntervalByContractIdRef.current)) {
+        window.clearInterval(intervalId)
+      }
+      signingSendPollingIntervalByContractIdRef.current = {}
+      signingSendPollingInFlightByContractIdRef.current = {}
+      signingSendPollingDeadlineByContractIdRef.current = {}
+    }
+  }, [])
 
   useEffect(() => {
     setGeneratedSigningLinksByEmail({})
@@ -732,7 +754,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }
 
   const openDownloadTab = () => {
-    const downloadTab = window.open('', '_blank', 'noopener,noreferrer')
+    const downloadTab = window.open('', '_blank')
     if (downloadTab) {
       downloadTab.opener = null
     }
@@ -1566,15 +1588,152 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     router.push('/repository')
   }
 
-  const handleSigningPrepared = async (contractView: ContractDetailResponse) => {
-    applyContractView(contractView)
-    setIsPrepareForSigningOpen(false)
-    if (contractView.contract.id === selectedContractId) {
-      await loadContractContext(selectedContractId)
+  const clearSigningSendPolling = useCallback((contractId: string) => {
+    const intervalId = signingSendPollingIntervalByContractIdRef.current[contractId]
+    if (typeof intervalId === 'number') {
+      window.clearInterval(intervalId)
     }
-    await loadContracts()
-    router.refresh()
-  }
+    delete signingSendPollingIntervalByContractIdRef.current[contractId]
+    delete signingSendPollingInFlightByContractIdRef.current[contractId]
+    delete signingSendPollingDeadlineByContractIdRef.current[contractId]
+  }, [])
+
+  const updateSigningSendProcessing = useCallback((contractId: string, isProcessing: boolean) => {
+    setIsSigningSendProcessingByContractId((current) => {
+      if (!isProcessing && !current[contractId]) {
+        return current
+      }
+
+      const next = { ...current }
+      if (isProcessing) {
+        next[contractId] = true
+      } else {
+        delete next[contractId]
+      }
+      return next
+    })
+  }, [])
+
+  const startSigningSendPolling = useCallback(
+    (contractId: string) => {
+      clearSigningSendPolling(contractId)
+      signingSendPollingDeadlineByContractIdRef.current[contractId] = Date.now() + 2 * 60 * 1000
+
+      const poll = async () => {
+        if (signingSendPollingInFlightByContractIdRef.current[contractId]) {
+          return
+        }
+
+        signingSendPollingInFlightByContractIdRef.current[contractId] = true
+        try {
+          const detailResponse = await contractsClient.detail(contractId)
+          if (!detailResponse.ok || !detailResponse.data?.contract) {
+            return
+          }
+
+          const contractView = detailResponse.data
+          upsertContractInSidebarList(contractView.contract)
+
+          if (selectedContractIdRef.current === contractId) {
+            applyContractView(contractView)
+          }
+
+          const normalizedStatus = (contractView.contract.status ?? '').toUpperCase()
+          const hasExitedPrepareForSigningStatus =
+            normalizedStatus !== contractStatuses.underReview && normalizedStatus !== contractStatuses.completed
+
+          if (hasExitedPrepareForSigningStatus) {
+            clearSigningSendPolling(contractId)
+            updateSigningSendProcessing(contractId, false)
+
+            if (selectedContractIdRef.current === contractId) {
+              await loadContractContext(contractId)
+            }
+            await loadContracts()
+            router.refresh()
+          }
+        } finally {
+          signingSendPollingInFlightByContractIdRef.current[contractId] = false
+        }
+
+        const deadline = signingSendPollingDeadlineByContractIdRef.current[contractId]
+        if (typeof deadline === 'number' && Date.now() > deadline) {
+          clearSigningSendPolling(contractId)
+          updateSigningSendProcessing(contractId, false)
+          toast.error('Failed to confirm signing request. Please try Prepare for Signing again.')
+        }
+      }
+
+      void poll()
+      signingSendPollingIntervalByContractIdRef.current[contractId] = window.setInterval(() => {
+        void poll()
+      }, 2000)
+    },
+    [
+      applyContractView,
+      clearSigningSendPolling,
+      loadContractContext,
+      loadContracts,
+      router,
+      updateSigningSendProcessing,
+      upsertContractInSidebarList,
+    ]
+  )
+
+  const handleSigningReviewSendRequested = useCallback(
+    (contractId: string, draftPayload: Parameters<typeof contractsClient.saveSigningPreparationDraft>[1]) => {
+      if (isSigningSendProcessingByContractId[contractId]) {
+        return
+      }
+
+      setIsPrepareForSigningOpen(false)
+      setActiveTab('overview')
+      updateSigningSendProcessing(contractId, true)
+      startSigningSendPolling(contractId)
+
+      void (async () => {
+        try {
+          const draftSaveResponse = await contractsClient.saveSigningPreparationDraft(contractId, draftPayload)
+          if (!draftSaveResponse.ok) {
+            throw new Error(draftSaveResponse.error?.message ?? 'Failed to save draft before sending')
+          }
+
+          const sendResponse = await contractsClient.sendSigningPreparationDraft(contractId)
+          if (!sendResponse.ok || !sendResponse.data?.contractView) {
+            throw new Error(sendResponse.error?.message ?? 'Failed to send for signing')
+          }
+
+          const contractView = sendResponse.data.contractView
+          upsertContractInSidebarList(contractView.contract)
+          if (selectedContractIdRef.current === contractId) {
+            applyContractView(contractView)
+          }
+        } catch (error) {
+          clearSigningSendPolling(contractId)
+          updateSigningSendProcessing(contractId, false)
+          const errorMessage = error instanceof Error ? error.message : 'Failed to send for signing'
+          toast.error(errorMessage)
+
+          if (selectedContractIdRef.current === contractId) {
+            await loadContractContext(contractId)
+          }
+          await loadContracts()
+        }
+      })()
+    },
+    [
+      applyContractView,
+      clearSigningSendPolling,
+      isSigningSendProcessingByContractId,
+      loadContractContext,
+      loadContracts,
+      startSigningSendPolling,
+      updateSigningSendProcessing,
+      upsertContractInSidebarList,
+    ]
+  )
+
+  const isSigningSendProcessing = Boolean(selectedContractId && isSigningSendProcessingByContractId[selectedContractId])
 
   return (
     <div className={`${styles.layout} ${!isSidebarOpen ? styles.layoutCollapsed : ''}`}>
@@ -2061,10 +2220,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 <button
                                   type="button"
                                   className={styles.button}
-                                  disabled={!selectedContractId || !signingPreviewDocument}
+                                  disabled={!selectedContractId || !signingPreviewDocument || isSigningSendProcessing}
                                   onClick={() => setIsPrepareForSigningOpen(true)}
                                 >
-                                  Prepare for Signing
+                                  {isSigningSendProcessing ? 'Processing…' : 'Prepare for Signing'}
                                 </button>
                               </div>
                             ) : (
@@ -2072,6 +2231,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 Sign is available only in UNDER REVIEW or COMPLETED.
                               </div>
                             )}
+                            {isSigningSendProcessing ? (
+                              <div className={styles.eventMeta}>
+                                Signing request is processing in background. This section updates automatically.
+                              </div>
+                            ) : null}
                             {([contractStatuses.underReview, contractStatuses.completed] as string[]).includes(
                               selectedContract.status
                             ) && !signingPreviewDocument ? (
@@ -2562,7 +2726,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           pdfUrl={signingPreviewUrl}
           initialRecipients={defaultPrepareForSigningRecipients}
           onClose={() => setIsPrepareForSigningOpen(false)}
-          onSent={(contractView) => void handleSigningPrepared(contractView)}
+          onReviewSendRequested={(draftPayload) => {
+            handleSigningReviewSendRequested(selectedContractId, draftPayload)
+          }}
         />
       ) : null}
     </div>
