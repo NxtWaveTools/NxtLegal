@@ -1308,6 +1308,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       counterpartyName: string
       backgroundOfRequest: string
       budgetApproved: boolean | null
+      supportingCount: number
+      supportingFileNames: string[]
       signatories: Array<{
         name: string
         designation: string
@@ -1341,6 +1343,26 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         name: counterparty.counterpartyName?.trim() ?? '',
       }))
       .filter((counterparty) => counterparty.name.length > 0)
+    const supportingDocsByCounterpartyId = new Map<string, string[]>()
+    const supportingDocsByCounterpartyName = new Map<string, string[]>()
+    for (const document of documents) {
+      if (document.documentKind !== contractDocumentKinds.counterpartySupporting) {
+        continue
+      }
+      const counterpartyId = document.counterpartyId?.trim() ?? ''
+      const counterpartyName = document.counterpartyName?.trim() ?? ''
+      if (counterpartyId) {
+        const existing = supportingDocsByCounterpartyId.get(counterpartyId) ?? []
+        existing.push(document.fileName)
+        supportingDocsByCounterpartyId.set(counterpartyId, existing)
+      }
+      const normalizedCounterpartyName = normalizeCounterpartyKey(counterpartyName)
+      if (normalizedCounterpartyName) {
+        const existing = supportingDocsByCounterpartyName.get(normalizedCounterpartyName) ?? []
+        existing.push(document.fileName)
+        supportingDocsByCounterpartyName.set(normalizedCounterpartyName, existing)
+      }
+    }
 
     if (normalizedCounterparties.length === 0) {
       return [] as IntakeCounterparty[]
@@ -1454,6 +1476,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         counterpartyName: counterparty.name,
         backgroundOfRequest: normalizedMappedSignatories[0]?.backgroundOfRequest ?? '',
         budgetApproved: normalizedMappedSignatories[0]?.budgetApproved ?? null,
+        supportingFileNames: counterparty.id
+          ? (supportingDocsByCounterpartyId.get(counterparty.id) ?? [])
+          : (supportingDocsByCounterpartyName.get(normalizeCounterpartyKey(counterparty.name)) ?? []),
+        supportingCount: counterparty.id
+          ? (supportingDocsByCounterpartyId.get(counterparty.id) ?? []).length
+          : (supportingDocsByCounterpartyName.get(normalizeCounterpartyKey(counterparty.name)) ?? []).length,
         signatories: normalizedMappedSignatories.map((signatory) => ({
           name: signatory.name,
           designation: signatory.designation,
@@ -1461,7 +1489,17 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         })),
       }
     })
-  }, [counterparties, selectedContract, signingDraftRecipients])
+  }, [counterparties, selectedContract, signingDraftRecipients, documents])
+  const budgetSupportingDocumentNames = useMemo(() => {
+    return documents
+      .filter(
+        (document) =>
+          document.documentKind === contractDocumentKinds.counterpartySupporting &&
+          !document.counterpartyId?.trim() &&
+          !document.counterpartyName?.trim()
+      )
+      .map((document) => document.fileName)
+  }, [documents])
   const allSignatoriesSigned = useMemo(
     () => orderedSignatories.length > 0 && orderedSignatories.every((signatory) => signatory.status === 'SIGNED'),
     [orderedSignatories]
@@ -2150,62 +2188,80 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 <span>—</span>
                               </div>
                             ) : (
-                              intakeCounterparties.map((counterparty, counterpartyIndex) => (
-                                <div key={`${counterparty.counterpartyName}-${counterpartyIndex}`}>
-                                  <div className={styles.row}>
-                                    <span>Counterparty {counterpartyIndex + 1}</span>
-                                    <span>{counterparty.counterpartyName}</span>
-                                  </div>
-                                  {counterparty.signatories.length === 0 ? (
-                                    <div className={styles.row}>
-                                      <span>Signatories</span>
-                                      <span>—</span>
-                                    </div>
-                                  ) : (
-                                    counterparty.signatories.map((signatory, signatoryIndex) => (
-                                      <div
-                                        key={`${counterparty.counterpartyName}-${counterpartyIndex}-signatory-${signatoryIndex}`}
-                                      >
-                                        <div className={styles.row}>
-                                          <span>
-                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Name
-                                          </span>
-                                          <span>{signatory.name || '—'}</span>
-                                        </div>
-                                        <div className={styles.row}>
-                                          <span>
-                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1}{' '}
-                                            Designation
-                                          </span>
-                                          <span>{signatory.designation || '—'}</span>
-                                        </div>
-                                        <div className={styles.row}>
-                                          <span>
-                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Email
-                                          </span>
-                                          <span>{signatory.email || '—'}</span>
-                                        </div>
-                                      </div>
-                                    ))
-                                  )}
-                                  <div className={styles.row}>
-                                    <span>Counterparty {counterpartyIndex + 1} Background</span>
-                                    <span className={styles.multilineValue}>
-                                      {counterparty.backgroundOfRequest || '—'}
-                                    </span>
-                                  </div>
-                                  <div className={styles.row}>
-                                    <span>Counterparty {counterpartyIndex + 1} Budget Approved</span>
-                                    <span>
-                                      {counterparty.budgetApproved === null
-                                        ? '—'
-                                        : counterparty.budgetApproved
-                                          ? 'Yes'
-                                          : 'No'}
-                                    </span>
-                                  </div>
+                              <>
+                                <div className={styles.row}>
+                                  <span>Background of Request</span>
+                                  <span className={styles.multilineValue}>
+                                    {intakeCounterparties[0]?.backgroundOfRequest || '—'}
+                                  </span>
                                 </div>
-                              ))
+                                <div className={styles.row}>
+                                  <span>Budget Approved</span>
+                                  <span>
+                                    {intakeCounterparties[0]?.budgetApproved === null
+                                      ? '—'
+                                      : intakeCounterparties[0]?.budgetApproved
+                                        ? 'Yes'
+                                        : 'No'}
+                                  </span>
+                                </div>
+                                <div className={styles.row}>
+                                  <span>Budget Approval Supporting Docs</span>
+                                  <span>
+                                    {budgetSupportingDocumentNames.length > 0
+                                      ? budgetSupportingDocumentNames.join(', ')
+                                      : 'Not provided'}
+                                  </span>
+                                </div>
+                                {intakeCounterparties.map((counterparty, counterpartyIndex) => (
+                                  <div key={`${counterparty.counterpartyName}-${counterpartyIndex}`}>
+                                    <div className={styles.row}>
+                                      <span>Counterparty {counterpartyIndex + 1}</span>
+                                      <span>{counterparty.counterpartyName}</span>
+                                    </div>
+                                    <div className={styles.row}>
+                                      <span>Counterparty {counterpartyIndex + 1} Supporting Docs</span>
+                                      <span>
+                                        {counterparty.supportingCount > 0
+                                          ? counterparty.supportingFileNames.join(', ')
+                                          : 'Not provided'}
+                                      </span>
+                                    </div>
+                                    {counterparty.signatories.length === 0 ? (
+                                      <div className={styles.row}>
+                                        <span>Signatories</span>
+                                        <span>—</span>
+                                      </div>
+                                    ) : (
+                                      counterparty.signatories.map((signatory, signatoryIndex) => (
+                                        <div
+                                          key={`${counterparty.counterpartyName}-${counterpartyIndex}-signatory-${signatoryIndex}`}
+                                        >
+                                          <div className={styles.row}>
+                                            <span>
+                                              Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Name
+                                            </span>
+                                            <span>{signatory.name || '—'}</span>
+                                          </div>
+                                          <div className={styles.row}>
+                                            <span>
+                                              Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1}{' '}
+                                              Designation
+                                            </span>
+                                            <span>{signatory.designation || '—'}</span>
+                                          </div>
+                                          <div className={styles.row}>
+                                            <span>
+                                              Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Email
+                                            </span>
+                                            <span>{signatory.email || '—'}</span>
+                                          </div>
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                ))}
+                              </>
                             )}
                           </div>
                         ) : null}

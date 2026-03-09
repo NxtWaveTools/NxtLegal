@@ -163,8 +163,8 @@ export class ContractUploadService {
       fileName: string
       fileSizeBytes: number
       fileMimeType: string
-      counterpartySequenceOrder: number
-      counterpartyName: string
+      counterpartySequenceOrder: number | null
+      counterpartyName: string | null
     }> = []
 
     await this.contractStorageRepository.upload({
@@ -193,6 +193,26 @@ export class ContractUploadService {
           counterpartyName: counterparty.counterpartyName,
         })
       }
+    }
+
+    for (const [supportingIndex, supportingFile] of (input.supportingFiles ?? []).entries()) {
+      const safeSupportingFileName = this.sanitizeFileName(supportingFile.fileName)
+      const supportingFilePath = `${input.tenantId}/${contractId}/supporting/common/${String(supportingIndex + 1).padStart(3, '0')}-${safeSupportingFileName}`
+
+      await this.contractStorageRepository.upload({
+        path: supportingFilePath,
+        fileBody: supportingFile.fileBody,
+        contentType: supportingFile.fileMimeType,
+      })
+
+      uploadedSupportingFiles.push({
+        filePath: supportingFilePath,
+        fileName: safeSupportingFileName,
+        fileSizeBytes: supportingFile.fileSizeBytes,
+        fileMimeType: supportingFile.fileMimeType,
+        counterpartySequenceOrder: null,
+        counterpartyName: null,
+      })
     }
 
     let contract: ContractRecord
@@ -283,13 +303,16 @@ export class ContractUploadService {
       for (const [index, supportingFile] of uploadedSupportingFiles.entries()) {
         const displayNameBase = supportingFile.counterpartyName
           ? `Counterparty Docs - ${supportingFile.counterpartyName}`
-          : 'Counterparty Docs'
+          : 'Budget Approval Supporting Docs'
 
         await this.contractRepository.createDocument({
           tenantId: input.tenantId,
           contractId,
           documentKind: 'COUNTERPARTY_SUPPORTING',
-          counterpartyId: counterpartyIdBySequenceOrder.get(supportingFile.counterpartySequenceOrder),
+          counterpartyId:
+            supportingFile.counterpartySequenceOrder === null
+              ? undefined
+              : counterpartyIdBySequenceOrder.get(supportingFile.counterpartySequenceOrder),
           displayName: `${displayNameBase} (${index + 1})`,
           fileName: supportingFile.fileName,
           filePath: supportingFile.filePath,
@@ -345,9 +368,10 @@ export class ContractUploadService {
         }
       }
 
-      const seededDraftRecipients = Array.from(draftRecipientsByEmail.values()).map((recipient, index) => ({
+      const seededDraftRecipients = Array.from(draftRecipientsByEmail.values()).map((recipient) => ({
         ...recipient,
-        routingOrder: index + 1,
+        // Default all auto-seeded recipients to parallel signing priority.
+        routingOrder: 1,
       }))
 
       if (seededDraftRecipients.length > 0) {
@@ -606,22 +630,30 @@ export class ContractUploadService {
       throw new BusinessRuleError('SIGNATORY_NAME_REQUIRED', 'Signatory name is required')
     }
 
-    if (!isLegalSendForSigning) {
-      if (!input.signatoryDesignation.trim()) {
-        throw new BusinessRuleError('SIGNATORY_DESIGNATION_REQUIRED', 'Signatory designation is required')
-      }
+    if (!input.signatoryDesignation.trim()) {
+      throw new BusinessRuleError('SIGNATORY_DESIGNATION_REQUIRED', 'Signatory designation is required')
+    }
 
-      if (!input.signatoryEmail.trim()) {
-        throw new BusinessRuleError('SIGNATORY_EMAIL_REQUIRED', 'Signatory email is required')
-      }
+    if (!input.signatoryEmail.trim()) {
+      throw new BusinessRuleError('SIGNATORY_EMAIL_REQUIRED', 'Signatory email is required')
+    }
 
-      if (!this.isValidSignatoryEmail(input.signatoryEmail)) {
-        throw new BusinessRuleError('SIGNATORY_EMAIL_INVALID', 'Signatory email format is invalid')
-      }
+    if (!this.isValidSignatoryEmail(input.signatoryEmail)) {
+      throw new BusinessRuleError('SIGNATORY_EMAIL_INVALID', 'Signatory email format is invalid')
+    }
 
-      if (!input.backgroundOfRequest.trim()) {
-        throw new BusinessRuleError('BACKGROUND_OF_REQUEST_REQUIRED', 'Background of request is required')
-      }
+    if (!input.backgroundOfRequest.trim()) {
+      throw new BusinessRuleError('BACKGROUND_OF_REQUEST_REQUIRED', 'Background of request is required')
+    }
+
+    const totalSupportingFileCount =
+      (input.supportingFiles?.length ?? 0) +
+      (input.counterparties?.reduce((count, counterparty) => count + counterparty.supportingFiles.length, 0) ?? 0)
+    if (input.budgetApproved && totalSupportingFileCount === 0) {
+      throw new BusinessRuleError(
+        'BUDGET_APPROVAL_SUPPORTING_REQUIRED',
+        'Supporting document is required when budget approved is set to yes'
+      )
     }
 
     if (!input.departmentId.trim()) {
@@ -645,21 +677,14 @@ export class ContractUploadService {
         throw new BusinessRuleError('COUNTERPARTY_NAME_TOO_LONG', 'Counterparty name exceeds maximum length')
       }
 
-      if (!isLegalSendForSigning && !isNotApplicableCounterparty && !counterparty.backgroundOfRequest.trim()) {
-        throw new BusinessRuleError(
-          'BACKGROUND_OF_REQUEST_REQUIRED',
-          `Background of request is required for counterparty ${counterparty.counterpartyName}`
-        )
-      }
-
-      if (!isLegalSendForSigning && !isNotApplicableCounterparty && counterparty.signatories.length === 0) {
+      if (!isNotApplicableCounterparty && counterparty.signatories.length === 0) {
         throw new BusinessRuleError(
           'SIGNATORY_NAME_REQUIRED',
           `At least one signatory is required for counterparty ${counterparty.counterpartyName}`
         )
       }
 
-      if (!isLegalSendForSigning && isNotApplicableCounterparty && counterparty.signatories.length > 0) {
+      if (isNotApplicableCounterparty && counterparty.signatories.length > 0) {
         throw new BusinessRuleError(
           'SIGNATORY_NAME_REQUIRED',
           `Signatories are not allowed for counterparty ${counterparty.counterpartyName}`
@@ -668,28 +693,28 @@ export class ContractUploadService {
 
       const seenSignatoryEmails = new Set<string>()
       for (const signatory of counterparty.signatories) {
-        if (!isLegalSendForSigning && !isNotApplicableCounterparty && !signatory.name.trim()) {
+        if (!isNotApplicableCounterparty && !signatory.name.trim()) {
           throw new BusinessRuleError(
             'SIGNATORY_NAME_REQUIRED',
             `Signatory name is required for counterparty ${counterparty.counterpartyName}`
           )
         }
 
-        if (!isLegalSendForSigning && !isNotApplicableCounterparty && !signatory.designation.trim()) {
+        if (!isNotApplicableCounterparty && !signatory.designation.trim()) {
           throw new BusinessRuleError(
             'SIGNATORY_DESIGNATION_REQUIRED',
             `Signatory designation is required for counterparty ${counterparty.counterpartyName}`
           )
         }
 
-        if (!isLegalSendForSigning && !isNotApplicableCounterparty && !signatory.email.trim()) {
+        if (!isNotApplicableCounterparty && !signatory.email.trim()) {
           throw new BusinessRuleError(
             'SIGNATORY_EMAIL_REQUIRED',
             `Signatory email is required for counterparty ${counterparty.counterpartyName}`
           )
         }
 
-        if (!isLegalSendForSigning && !isNotApplicableCounterparty && !this.isValidSignatoryEmail(signatory.email)) {
+        if (!isNotApplicableCounterparty && !this.isValidSignatoryEmail(signatory.email)) {
           throw new BusinessRuleError(
             'SIGNATORY_EMAIL_INVALID',
             `Signatory email format is invalid for counterparty ${counterparty.counterpartyName}`
@@ -709,7 +734,6 @@ export class ContractUploadService {
       }
 
       const requiresSupportingDocs =
-        !isLegalSendForSigning &&
         !isNotApplicableCounterparty &&
         counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable
       if (requiresSupportingDocs && counterparty.supportingFiles.length === 0) {

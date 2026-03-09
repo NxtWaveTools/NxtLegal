@@ -256,4 +256,56 @@ describe('Contracts upload route', () => {
       })
     )
   })
+
+  it('requires supporting document when budget approved is yes', async () => {
+    const mainFile = new File([new Uint8Array([1, 2, 3])], 'contract.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+    const counterpartySupportingFile = new File([new Uint8Array([4, 5, 6])], 'counterparty-supporting.pdf', {
+      type: 'application/pdf',
+    })
+
+    const formData: FormDataLike = {
+      get: (key: string) => {
+        const values: Record<string, unknown> = {
+          title: 'Master Service Agreement',
+          contractTypeId: '11111111-1111-1111-1111-111111111111',
+          departmentId: '22222222-2222-2222-2222-222222222222',
+          backgroundOfRequest: 'Need legal review',
+          budgetApproved: 'true',
+          counterparties: JSON.stringify([
+            {
+              counterpartyName: 'Acme Inc',
+              signatories: [{ name: 'Vendor Signatory', designation: 'Director', email: 'vendor@example.com' }],
+              supportingFileIndices: [0],
+            },
+          ]),
+          file: mainFile,
+        }
+
+        return values[key] ?? null
+      },
+      getAll: (key: string) => {
+        if (key === 'supportingFiles') {
+          return [counterpartySupportingFile]
+        }
+        return []
+      },
+    }
+
+    const response = await POST({
+      headers: {
+        get: (name: string) => (name === 'Idempotency-Key' ? 'idem-123' : null),
+      },
+      formData: async () => formData,
+    } as unknown as PostRequestArg)
+
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body.ok).toBe(false)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.message).toContain('Budget approval supporting document is required')
+    expect(mockContractUploadService.uploadContract).not.toHaveBeenCalled()
+  })
 })

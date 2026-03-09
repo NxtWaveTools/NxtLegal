@@ -289,7 +289,7 @@ describe('Contract action dialogs', () => {
     await userEvent.click(screen.getByRole('button', { name: /Intake Details/i }))
     await waitFor(() => expect(screen.getByText('john@example.com')).toBeTruthy())
     expect(screen.getByText('Background details')).toBeTruthy()
-    expect(screen.getByText('Counterparty 1 Budget Approved')).toBeTruthy()
+    expect(screen.getAllByText('Budget Approved').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Yes').length).toBeGreaterThan(0)
 
     const statusActionsSelect = screen.getByLabelText('Legal status actions')
@@ -301,7 +301,7 @@ describe('Contract action dialogs', () => {
     await waitFor(() => expect(screen.queryByText('Processing…')).toBeNull())
     expect(screen.getByText('john@example.com')).toBeTruthy()
     expect(screen.getByText('Background details')).toBeTruthy()
-    expect(screen.getByText('Counterparty 1 Budget Approved')).toBeTruthy()
+    expect(screen.getAllByText('Budget Approved').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Yes').length).toBeGreaterThan(0)
   })
 
@@ -398,6 +398,6 @@ describe('Contract action dialogs', () => {
 
     expect(screen.getByText('Counterparty 2 Signatory 1 Email')).toBeTruthy()
     expect(screen.getByText('cp2-a@example.com')).toBeTruthy()
-    expect(screen.getByText('Counterparty 2 Budget Approved')).toBeTruthy()
+    expect(screen.getAllByText('Budget Approved').length).toBeGreaterThan(0)
   })
 })

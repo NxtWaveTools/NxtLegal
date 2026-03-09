@@ -445,7 +445,7 @@ describe('ContractUploadService legal send-for-signing validations', () => {
     signatoryEmail: 'vendor@example.com',
     backgroundOfRequest: 'Need contract execution',
     departmentId: 'department-1',
-    budgetApproved: true,
+    budgetApproved: false,
     counterpartyName: 'NA',
     fileName: 'agreement.pdf',
     fileSizeBytes: 1024,
@@ -568,7 +568,7 @@ describe('ContractUploadService legal send-for-signing validations', () => {
     )
   })
 
-  it('allows blank designation, email, and background in legal send-for-signing mode', async () => {
+  it('requires designation, email, and background in legal send-for-signing mode', async () => {
     const contractRepository = {
       createWithAudit: jest.fn().mockResolvedValue({
         id: 'contract-1',
@@ -622,12 +622,14 @@ describe('ContractUploadService legal send-for-signing validations', () => {
           budgetApproved: false,
         }) as never
       )
-    ).resolves.toBeTruthy()
+    ).rejects.toMatchObject<Partial<BusinessRuleError>>({
+      code: 'SIGNATORY_DESIGNATION_REQUIRED',
+    })
 
-    expect(contractRepository.createWithAudit).toHaveBeenCalled()
+    expect(contractRepository.createWithAudit).not.toHaveBeenCalled()
   })
 
-  it('allows send-for-signing without supporting documents for non-NA counterparty', async () => {
+  it('requires supporting documents for non-NA counterparty in send-for-signing mode', async () => {
     const contractRepository = {
       createWithAudit: jest.fn().mockResolvedValue({
         id: 'contract-1',
@@ -679,9 +681,11 @@ describe('ContractUploadService legal send-for-signing validations', () => {
           supportingFiles: [],
         }) as never
       )
-    ).resolves.toBeTruthy()
+    ).rejects.toMatchObject<Partial<BusinessRuleError>>({
+      code: 'COUNTERPARTY_SUPPORTING_REQUIRED',
+    })
 
-    expect(contractRepository.createWithAudit).toHaveBeenCalled()
+    expect(contractRepository.createWithAudit).not.toHaveBeenCalled()
   })
 })
 
