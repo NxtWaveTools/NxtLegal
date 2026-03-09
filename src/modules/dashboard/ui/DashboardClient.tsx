@@ -275,6 +275,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [isLoadingContracts, setIsLoadingContracts] = useState(true)
   const [isLoadingPageChange, setIsLoadingPageChange] = useState(false)
   const [contractsCursor, setContractsCursor] = useState<string | null>(null)
+  const [contractsPageLimit, setContractsPageLimit] = useState<number>(limits.dashboardContractsPageSize)
   const [pageIndex, setPageIndex] = useState(0)
   const [pageCursors, setPageCursors] = useState<Array<string | undefined>>([undefined])
   const [mutatingContractId, setMutatingContractId] = useState<string | null>(null)
@@ -318,27 +319,35 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     [session.role]
   )
 
-  const loadDashboardCounts = useCallback(async () => {
-    const response = await contractsClient.dashboardCounts({
-      filters: roleConfig.filters.map((f) => f.value),
-    })
+  const loadDashboardCounts = useCallback(async (): Promise<boolean> => {
+    try {
+      const response = await contractsClient.dashboardCounts({
+        filters: roleConfig.filters.map((f) => f.value),
+      })
 
-    if (!response.ok || !response.data) {
-      return
+      if (!response.ok || !response.data) {
+        return false
+      }
+
+      const counts = response.data.counts
+      setFilterCounts(counts)
+      setPendingApprovalsCount(roleConfig.showApproveCard ? (counts[roleConfig.approveFilter] ?? 0) : 0)
+      return true
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load dashboard counts'
+      toast.error(errorMessage)
+      return false
     }
-
-    const counts = response.data.counts
-    setFilterCounts(counts)
-    setPendingApprovalsCount(roleConfig.showApproveCard ? (counts[roleConfig.approveFilter] ?? 0) : 0)
   }, [roleConfig.filters, roleConfig.approveFilter, roleConfig.showApproveCard])
 
   const loadContractsForFilter = useCallback(
     async (
       filter: DashboardContractsFilter,
-      options?: { cursor?: string; pageIndex?: number; isPageChange?: boolean }
+      options?: { cursor?: string; pageIndex?: number; isPageChange?: boolean; limit?: number }
     ) => {
       const requestId = latestContractsRequestIdRef.current + 1
       latestContractsRequestIdRef.current = requestId
+      const requestedLimit = options?.limit ?? contractsPageLimit
 
       if (options?.isPageChange) {
         setIsLoadingPageChange(true)
@@ -351,7 +360,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
           filter,
           scope: resolveFilterScope(filter),
           cursor: options?.cursor,
-          limit: limits.dashboardContractsPageSize,
+          limit: requestedLimit,
           includeExtras: true,
         })
 
@@ -392,6 +401,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         setContracts(responseData.contracts)
         setActionableAdditionalApprovals(responseData.additionalApproverSections?.actionableContracts ?? [])
         setContractsCursor(responseData.pagination.cursor)
+        setContractsPageLimit(responseData.pagination.limit)
         setActiveFilterTotal(responseData.pagination.total)
         if (typeof options?.pageIndex === 'number') {
           const nextPageIndex = options.pageIndex
@@ -421,7 +431,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         setIsLoadingPageChange(false)
       }
     },
-    [resolveFilterScope]
+    [contractsPageLimit, resolveFilterScope]
   )
 
   const applyFilter = useCallback(
@@ -452,18 +462,25 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   }, [activeFilter, requestedFilterFromUrl, roleConfig.filters])
 
   useEffect(() => {
-    void loadDashboardCounts()
-  }, [loadDashboardCounts])
-
-  useEffect(() => {
-    void loadContractsForFilter(activeFilter, { cursor: undefined, pageIndex: 0 })
-  }, [activeFilter, loadContractsForFilter])
+    void Promise.all([
+      loadDashboardCounts(),
+      loadContractsForFilter(activeFilter, {
+        cursor: undefined,
+        pageIndex: 0,
+        limit: contractsPageLimit,
+      }),
+    ])
+  }, [activeFilter, contractsPageLimit, loadContractsForFilter, loadDashboardCounts])
 
   useEffect(() => {
     const reloadContracts = () => {
       void Promise.all([
         loadDashboardCounts(),
-        loadContractsForFilter(activeFilter, { cursor: undefined, pageIndex: 0 }),
+        loadContractsForFilter(activeFilter, {
+          cursor: undefined,
+          pageIndex: 0,
+          limit: contractsPageLimit,
+        }),
       ])
     }
 
@@ -486,7 +503,25 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [activeFilter, loadContractsForFilter, loadDashboardCounts])
+  }, [activeFilter, contractsPageLimit, loadContractsForFilter, loadDashboardCounts])
+
+  const totalPages = useMemo(() => {
+    if (optimisticActiveFilterTotal <= 0) {
+      return 1
+    }
+
+    return Math.max(Math.ceil(optimisticActiveFilterTotal / contractsPageLimit), 1)
+  }, [contractsPageLimit, optimisticActiveFilterTotal])
+
+  const pageSizeOptions = useMemo(
+    () =>
+      Array.from(new Set([limits.dashboardContractsPageSize, limits.paginationPageSize, contractsPageLimit])).sort(
+        (a, b) => a - b
+      ),
+    [contractsPageLimit]
+  )
+
+  const canGoToNextPage = Boolean(contractsCursor) && !isLoadingPageChange
 
   const uploadIcon = (
     <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -545,7 +580,12 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
         await Promise.all([
           loadDashboardCounts(),
-          loadContractsForFilter(activeFilter, { cursor: pageCursors[pageIndex], pageIndex, isPageChange: true }),
+          loadContractsForFilter(activeFilter, {
+            cursor: pageCursors[pageIndex],
+            pageIndex,
+            isPageChange: true,
+            limit: contractsPageLimit,
+          }),
         ])
         toast.success(action === 'hod.approve' ? 'Contract approved successfully' : 'Contract rejected successfully')
         return true
@@ -635,21 +675,25 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     void submitRejectDialog()
   }
 
-  const rejectingContractTitle = useMemo(() => {
+  const rejectingContract = useMemo(() => {
     if (!rejectingContractId) {
       return null
     }
 
-    return optimisticContracts.find((contract) => contract.id === rejectingContractId)?.title ?? null
+    return optimisticContracts.find((contract) => contract.id === rejectingContractId) ?? null
   }, [optimisticContracts, rejectingContractId])
 
-  const approvingContractTitle = useMemo(() => {
+  const approvingContract = useMemo(() => {
     if (!approvingContractId) {
       return null
     }
 
-    return optimisticContracts.find((contract) => contract.id === approvingContractId)?.title ?? null
+    return optimisticContracts.find((contract) => contract.id === approvingContractId) ?? null
   }, [approvingContractId, optimisticContracts])
+
+  const rejectingBackgroundText = rejectingContract?.backgroundOfRequest?.trim() ?? null
+  const approvingBackgroundText = approvingContract?.backgroundOfRequest?.trim() ?? null
+  const shouldShowActionBackgroundContext = session.role === contractWorkflowRoles.hod
 
   return (
     <ProtectedAppShell
@@ -841,13 +885,38 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                         cursor: pageCursors[previousPageIndex],
                         pageIndex: previousPageIndex,
                         isPageChange: true,
+                        limit: contractsPageLimit,
                       })
                     }}
                     disabled={pageIndex === 0 || isLoadingPageChange}
                   >
                     ← Previous
                   </button>
-                  <span className={styles.pageIndicator}>Page {pageIndex + 1}</span>
+                  <span className={styles.pageIndicator}>
+                    Page {pageIndex + 1} of {totalPages} · {optimisticActiveFilterTotal} total
+                  </span>
+                  <label className={styles.pageSizeLabel}>
+                    Rows
+                    <select
+                      className={styles.pageSizeSelect}
+                      value={contractsPageLimit}
+                      onChange={(event) => {
+                        const nextLimit = Number.parseInt(event.target.value, 10)
+                        if (!Number.isFinite(nextLimit) || nextLimit <= 0) {
+                          return
+                        }
+
+                        setContractsPageLimit(nextLimit)
+                      }}
+                      disabled={isLoadingPageChange || isLoadingContracts}
+                    >
+                      {pageSizeOptions.map((limitOption) => (
+                        <option key={limitOption} value={limitOption}>
+                          {limitOption}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <button
                     type="button"
                     className={styles.paginationButton}
@@ -861,9 +930,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                         cursor: contractsCursor,
                         pageIndex: nextPageIndex,
                         isPageChange: true,
+                        limit: contractsPageLimit,
                       })
                     }}
-                    disabled={!contractsCursor || isLoadingPageChange}
+                    disabled={!canGoToNextPage}
                   >
                     Next →
                   </button>
@@ -1022,7 +1092,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         >
           <form className={styles.actionDialogModal} onSubmit={handleRejectDialogSubmit}>
             <div className={styles.actionDialogTitle}>Reject Contract</div>
-            <div className={styles.actionDialogSubtitle}>{rejectingContractTitle ?? 'Selected contract'}</div>
+            <div className={styles.actionDialogSubtitle}>{rejectingContract?.title ?? 'Selected contract'}</div>
+            {shouldShowActionBackgroundContext ? (
+              <div className={styles.actionDialogContext}>
+                <div className={styles.actionDialogContextLabel}>Background of request</div>
+                <div>{rejectingBackgroundText || 'Not provided'}</div>
+              </div>
+            ) : null}
             <textarea
               className={styles.actionDialogTextarea}
               value={rejectReasonDraft}
@@ -1064,7 +1140,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         >
           <div className={styles.actionDialogModal}>
             <div className={styles.actionDialogTitle}>Approve Contract</div>
-            <div className={styles.actionDialogSubtitle}>{approvingContractTitle ?? 'Selected contract'}</div>
+            <div className={styles.actionDialogSubtitle}>{approvingContract?.title ?? 'Selected contract'}</div>
+            {shouldShowActionBackgroundContext ? (
+              <div className={styles.actionDialogContext}>
+                <div className={styles.actionDialogContextLabel}>Background of request</div>
+                <div>{approvingBackgroundText || 'Not provided'}</div>
+              </div>
+            ) : null}
             <div className={styles.actionDialogSubtitle}>Are you sure you want to approve this contract?</div>
             <div className={styles.actionDialogActions}>
               <button
@@ -1102,7 +1184,14 @@ export default function DashboardClient({ session }: DashboardClientProps) {
           setUploadMode(contractUploadModes.default)
         }}
         onUploaded={async () => {
-          await Promise.all([loadContractsForFilter(activeFilter), loadDashboardCounts()])
+          await Promise.all([
+            loadContractsForFilter(activeFilter, {
+              cursor: undefined,
+              pageIndex: 0,
+              limit: contractsPageLimit,
+            }),
+            loadDashboardCounts(),
+          ])
           router.refresh()
         }}
       />

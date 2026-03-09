@@ -616,7 +616,7 @@ describe('supabaseContractQueryRepository action permissions', () => {
     totalBuilder.in.mockReturnValue(totalBuilder)
     const totalSelect = jest.fn().mockReturnValue(totalBuilder)
 
-    const from = jest.fn().mockReturnValueOnce({ select: listSelect }).mockReturnValueOnce({ select: totalSelect })
+    const from = jest.fn().mockReturnValueOnce({ select: totalSelect }).mockReturnValueOnce({ select: listSelect })
 
     ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
 
@@ -630,7 +630,11 @@ describe('supabaseContractQueryRepository action permissions', () => {
 
     const getVisibilityFilterSpy = jest.spyOn(
       supabaseContractQueryRepository as unknown as {
-        getVisibilityFilter: (tenantId: string, role: string | undefined, employeeId: string) => Promise<string | null>
+        getVisibilityFilter: (
+          tenantId: string,
+          role: string | undefined,
+          employeeId: string
+        ) => Promise<{ filter: string | null; actionableContractIds: string[]; hodDepartmentIds?: string[] }>
       },
       'getVisibilityFilter'
     )
@@ -696,5 +700,88 @@ describe('supabaseContractQueryRepository action permissions', () => {
     )
     expect(listBuilder.eq).toHaveBeenCalledWith('status', 'HOD_PENDING')
     expect(totalBuilder.eq).toHaveBeenCalledWith('status', 'HOD_PENDING')
+  })
+
+  it('adds department fence metadata for HOD visibility filter', async () => {
+    const getVisibilityFilter = (
+      supabaseContractQueryRepository as unknown as {
+        getVisibilityFilter: (
+          tenantId: string,
+          role: string | undefined,
+          employeeId: string,
+          employeeEmail?: string | null
+        ) => Promise<{ filter: string | null; actionableContractIds: string[]; hodDepartmentIds?: string[] }>
+      }
+    ).getVisibilityFilter
+
+    const actionableSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getActionableAdditionalApproverContractIds: (tenantId: string, employeeId: string) => Promise<string[]>
+      },
+      'getActionableAdditionalApproverContractIds'
+    )
+    actionableSpy.mockResolvedValue(['contract-1'])
+
+    const hodDepartmentSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getHodDepartmentIds: (tenantId: string, employeeId: string, employeeEmail?: string | null) => Promise<string[]>
+      },
+      'getHodDepartmentIds'
+    )
+    hodDepartmentSpy.mockResolvedValue(['dept-finance'])
+
+    const visibility = await getVisibilityFilter.call(
+      supabaseContractQueryRepository,
+      'tenant-1',
+      'HOD',
+      'hod-1',
+      'hod@nxtwave.co.in'
+    )
+
+    expect(visibility.filter).toContain('department_id.in.(dept-finance)')
+    expect(visibility.filter).toContain('current_assignee_employee_id.eq.hod-1')
+    expect(visibility.filter).toContain('uploaded_by_employee_id.eq.hod-1')
+    expect(visibility.filter).toContain('id.in.(contract-1)')
+    expect(visibility.hodDepartmentIds).toEqual(['dept-finance'])
+  })
+
+  it('keeps uploader and assignee fallback when HOD has no mapped departments', async () => {
+    const getVisibilityFilter = (
+      supabaseContractQueryRepository as unknown as {
+        getVisibilityFilter: (
+          tenantId: string,
+          role: string | undefined,
+          employeeId: string,
+          employeeEmail?: string | null
+        ) => Promise<{ filter: string | null; actionableContractIds: string[]; hodDepartmentIds?: string[] }>
+      }
+    ).getVisibilityFilter
+
+    const actionableSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getActionableAdditionalApproverContractIds: (tenantId: string, employeeId: string) => Promise<string[]>
+      },
+      'getActionableAdditionalApproverContractIds'
+    )
+    actionableSpy.mockResolvedValue([])
+
+    const hodDepartmentSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getHodDepartmentIds: (tenantId: string, employeeId: string, employeeEmail?: string | null) => Promise<string[]>
+      },
+      'getHodDepartmentIds'
+    )
+    hodDepartmentSpy.mockResolvedValue([])
+
+    const visibility = await getVisibilityFilter.call(
+      supabaseContractQueryRepository,
+      'tenant-1',
+      'HOD',
+      'hod-1',
+      'hod@nxtwave.co.in'
+    )
+
+    expect(visibility.filter).toBe('current_assignee_employee_id.eq.hod-1,uploaded_by_employee_id.eq.hod-1')
+    expect(visibility.hodDepartmentIds).toEqual([])
   })
 })
