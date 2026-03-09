@@ -21,7 +21,8 @@ BEGIN
     ('pranjal.sharma@nxtwave.co.in', 'Pranjal', 'Sharma', NULL),
     ('vidushi.jha@nxtwave.co.in', 'Vidushi', 'Jha', NULL),
     ('akash.garg@nxtwave.co.in', 'Akash', 'Garg', NULL),
-    ('madhur.goyal@nxtwave.co.in', 'Madhav', 'Goyal', NULL);
+    ('yadav.deepika@nxtwave.co.in', 'Deepika', 'Yadav', NULL),
+    ('madhur.goyal@nxtwave.co.in', 'Madhur', 'Goyal', NULL);
 
   INSERT INTO public.users (
     tenant_id,

@@ -47,6 +47,7 @@ export type ContractListItem = {
   legalTerminationDate?: string | null
   legalNoticePeriod?: string | null
   legalAutoRenewal?: boolean | null
+  backgroundOfRequest: string | null
   createdAt: string
   updatedAt: string
 }

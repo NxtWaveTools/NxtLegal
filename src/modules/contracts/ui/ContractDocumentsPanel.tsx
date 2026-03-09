@@ -244,7 +244,8 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     const groupedDocuments = new Map<string, { key: string; label: string; documents: ExtendedDocument[] }>()
 
     for (const document of supportingDocuments) {
-      const label = document.counterpartyName?.trim() || 'Counterparty'
+      const normalizedCounterpartyName = document.counterpartyName?.trim() || ''
+      const label = normalizedCounterpartyName || 'Budget Approval Supporting Documents'
       const key = document.counterpartyId?.trim() || label
 
       const existingGroup = groupedDocuments.get(key)

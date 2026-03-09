@@ -38,6 +38,17 @@ export const contractTransitionActions = {
   approverApprove: 'approver.approve',
 } as const
 
+export const contractActionHodBypass = contractTransitionActions.hodBypass
+export const contractActionLegalSetUnderReview = contractTransitionActions.legalSetUnderReview
+export const contractActionLegalSetPendingInternal = contractTransitionActions.legalSetPendingInternal
+export const contractActionLegalSetPendingExternal = contractTransitionActions.legalSetPendingExternal
+export const contractActionLegalSetOfflineExecution = contractTransitionActions.legalSetOfflineExecution
+export const contractActionLegalSetOnHold = contractTransitionActions.legalSetOnHold
+export const contractActionLegalSetCompleted = contractTransitionActions.legalSetCompleted
+export const contractActionLegalReject = contractTransitionActions.legalReject
+export const contractActionLegalReroute = contractTransitionActions.legalReroute
+export const contractActionLegalVoid = contractTransitionActions.legalVoid
+
 export type ContractTransitionAction = (typeof contractTransitionActions)[keyof typeof contractTransitionActions]
 
 export const contractWorkflowRoles = {
@@ -98,6 +109,9 @@ export const contractDocumentKinds = {
   executedContract: 'EXECUTED_CONTRACT',
   auditCertificate: 'AUDIT_CERTIFICATE',
 } as const
+
+export const contractDocumentKindExecutedContract = contractDocumentKinds.executedContract
+export const contractDocumentKindAuditCertificate = contractDocumentKinds.auditCertificate
 
 export const contractDocumentMimeTypes = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

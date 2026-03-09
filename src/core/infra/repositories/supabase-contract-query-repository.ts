@@ -109,7 +109,7 @@ const contractsListSelectFromContractsTable =
   'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, request_created_at, department_id, legal_effective_date, legal_termination_date, legal_notice_period, legal_auto_renewal, void_reason, created_at, updated_at'
 
 const dashboardContractsSelectMinimal =
-  'id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, request_created_at, aging_business_days, is_tat_breached, created_at, updated_at'
+  'id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, background_of_request, request_created_at, aging_business_days, is_tat_breached, created_at, updated_at'
 
 const repositoryContractsSelectMinimal =
   'id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, request_created_at, department_id, legal_effective_date, legal_termination_date, legal_notice_period, legal_auto_renewal, void_reason, aging_business_days, is_tat_breached, created_at, updated_at'
@@ -291,6 +291,7 @@ type RepositoryJoinedContractRow = {
 type VisibilityFilterContext = {
   filter: string | null
   actionableContractIds: string[]
+  hodDepartmentIds?: string[]
 }
 
 class SupabaseContractQueryRepository implements ContractQueryRepository {
@@ -339,6 +340,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         query = query.or(visibilityFilter.filter)
       }
 
+      if (visibilityFilter.hodDepartmentIds && visibilityFilter.hodDepartmentIds.length > 0) {
+        query = query.in('department_id', visibilityFilter.hodDepartmentIds)
+      }
+
       return query
     }
 
@@ -350,6 +355,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
       if (visibilityFilter.filter) {
         totalQuery = totalQuery.or(visibilityFilter.filter)
+      }
+
+      if (visibilityFilter.hodDepartmentIds && visibilityFilter.hodDepartmentIds.length > 0) {
+        totalQuery = totalQuery.in('department_id', visibilityFilter.hodDepartmentIds)
       }
 
       return totalQuery
@@ -664,36 +673,40 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         actorEmailPromise,
       ])
 
-      let query = supabase
-        .from('contracts_repository_view')
-        .select(dashboardContractsSelectMinimal)
-        .eq('tenant_id', params.tenantId)
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .limit(params.limit + 1)
+      const buildDashboardListQuery = (selectColumns: string) => {
+        let query = supabase
+          .from('contracts_repository_view')
+          .select(selectColumns)
+          .eq('tenant_id', params.tenantId)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .limit(params.limit + 1)
 
-      if (statusFilter) {
-        query = query.eq('status', statusFilter)
-      }
-
-      if (decodedCursor) {
-        query = query.lt('created_at', decodedCursor.createdAt)
-      }
-
-      if (assignedContractIds) {
-        query = query.in('id', assignedContractIds)
-      }
-
-      if (shouldUsePersonalScope) {
-        if (actorEmail) {
-          query = query.or(
-            `current_assignee_employee_id.eq.${params.employeeId},current_assignee_email.eq.${actorEmail}`
-          )
-        } else {
-          query = query.eq('current_assignee_employee_id', params.employeeId)
+        if (statusFilter) {
+          query = query.eq('status', statusFilter)
         }
-      } else if (visibilityFilterContext?.filter) {
-        query = query.or(visibilityFilterContext.filter)
+
+        if (decodedCursor) {
+          query = query.lt('created_at', decodedCursor.createdAt)
+        }
+
+        if (assignedContractIds) {
+          query = query.in('id', assignedContractIds)
+        }
+
+        if (shouldUsePersonalScope) {
+          if (actorEmail) {
+            query = query.or(
+              `current_assignee_employee_id.eq.${params.employeeId},current_assignee_email.eq.${actorEmail}`
+            )
+          } else {
+            query = query.eq('current_assignee_employee_id', params.employeeId)
+          }
+        } else if (visibilityFilterContext?.filter) {
+          query = query.or(visibilityFilterContext.filter)
+        }
+
+        return query
       }
 
       const totalQueryPromise = !params.cursor
@@ -727,7 +740,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           })()
         : Promise.resolve<{ count: number | null; error: null }>({ count: 0, error: null })
 
-      const [totalResult, listResult] = await Promise.all([totalQueryPromise, query])
+      const [totalResult, listResult] = await Promise.all([
+        totalQueryPromise,
+        buildDashboardListQuery(dashboardContractsSelectMinimal),
+      ])
 
       if (totalResult.error) {
         throw new DatabaseError('Failed to count dashboard contracts', new Error(totalResult.error.message), {
@@ -737,7 +753,6 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
       const totalCount = params.cursor ? 0 : (totalResult.count ?? 0)
       const { data, error } = listResult
-
       if (error) {
         throw new DatabaseError('Failed to fetch dashboard contracts', new Error(error.message), {
           code: error.code,
@@ -752,6 +767,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         uploaded_by_email: string
         current_assignee_employee_id: string
         current_assignee_email: string
+        background_of_request: string | null
         request_created_at: string | null
         aging_business_days: number | null
         is_tat_breached: boolean
@@ -1039,6 +1055,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           query = query.or(visibilityFilter.filter)
         }
 
+        if (visibilityFilter?.hodDepartmentIds && visibilityFilter.hodDepartmentIds.length > 0) {
+          query = query.in('department_id', visibilityFilter.hodDepartmentIds)
+        }
+
         return query
       }
 
@@ -1078,6 +1098,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
         if (visibilityFilter?.filter) {
           totalQuery = totalQuery.or(visibilityFilter.filter)
+        }
+
+        if (visibilityFilter?.hodDepartmentIds && visibilityFilter.hodDepartmentIds.length > 0) {
+          totalQuery = totalQuery.in('department_id', visibilityFilter.hodDepartmentIds)
         }
 
         return totalQuery
@@ -1596,13 +1620,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     const supabase = createServiceSupabase()
-    const { data, error } = await supabase
+    const primaryResult = await supabase
       .from('contracts_repository_view')
       .select(dashboardContractsSelectMinimal)
       .eq('tenant_id', params.tenantId)
       .in('id', actionableContractIds)
       .order('created_at', { ascending: false })
       .limit(params.limit)
+
+    const { data, error } = primaryResult
 
     if (error) {
       throw new DatabaseError('Failed to fetch actionable additional approver contracts', new Error(error.message), {
@@ -1618,6 +1644,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       uploaded_by_email: string
       current_assignee_employee_id: string
       current_assignee_email: string
+      background_of_request: string | null
       request_created_at: string | null
       aging_business_days: number | null
       is_tat_breached: boolean
@@ -4855,6 +4882,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return {
         filter: null,
         actionableContractIds: actionableAdditionalApproverContractIds,
+        hodDepartmentIds: [],
       }
     }
 
@@ -4871,6 +4899,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return {
         filter: conditions.join(','),
         actionableContractIds: actionableAdditionalApproverContractIds,
+        hodDepartmentIds: [],
       }
     }
 
@@ -4884,17 +4913,22 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         : null
 
     if (hodDepartmentIds.length === 0) {
-      const conditions = [`uploaded_by_employee_id.eq.${employeeId}`]
+      const conditions = [`current_assignee_employee_id.eq.${employeeId}`, `uploaded_by_employee_id.eq.${employeeId}`]
       if (actionableApproverFilter) {
         conditions.push(actionableApproverFilter)
       }
       return {
         filter: conditions.join(','),
         actionableContractIds: actionableAdditionalApproverContractIds,
+        hodDepartmentIds: [],
       }
     }
 
-    const conditions = [`current_assignee_employee_id.eq.${employeeId}`, `uploaded_by_employee_id.eq.${employeeId}`]
+    const conditions = [
+      `department_id.in.(${hodDepartmentIds.join(',')})`,
+      `current_assignee_employee_id.eq.${employeeId}`,
+      `uploaded_by_employee_id.eq.${employeeId}`,
+    ]
     if (actionableApproverFilter) {
       conditions.push(actionableApproverFilter)
     }
@@ -4902,6 +4936,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return {
       filter: conditions.join(','),
       actionableContractIds: actionableAdditionalApproverContractIds,
+      hodDepartmentIds,
     }
   }
 
@@ -5865,6 +5900,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       uploaded_by_email: string
       current_assignee_employee_id: string
       current_assignee_email: string
+      background_of_request?: string | null
       hod_approved_at?: string | null
       tat_deadline_at?: string | null
       tat_breached_at?: string | null
@@ -5929,6 +5965,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       legalTerminationDate: row.legal_termination_date ?? null,
       legalNoticePeriod: row.legal_notice_period ?? null,
       legalAutoRenewal: row.legal_auto_renewal ?? null,
+      backgroundOfRequest: row.background_of_request ?? null,
       departmentId: row.department_id ?? null,
       departmentName: metadata?.departmentName ?? null,
       assignedToUsers: metadata?.assignedToUsers ?? [row.current_assignee_email],
@@ -6350,6 +6387,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (visibilityFilter?.filter) {
       query = query.or(visibilityFilter.filter)
+    }
+
+    if (visibilityFilter?.hodDepartmentIds && visibilityFilter.hodDepartmentIds.length > 0) {
+      query = query.in('department_id', visibilityFilter.hodDepartmentIds)
     }
 
     const { data, error } = await query

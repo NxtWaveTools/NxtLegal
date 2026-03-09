@@ -22,7 +22,9 @@
   top: 0;
   right: 0;
   height: 100vh;
-  width: min(560px, 100%);
+  width: min(50vw, 960px);
+  min-width: 720px;
+  max-width: 100%;
   background: var(--color-surface);
   border-left: 1px solid var(--color-border);
   box-shadow: var(--color-shadow-lg);
@@ -390,7 +392,25 @@
   justify-content: flex-end;
 }
 
+@media (max-width: 1200px) {
+  .sidebar {
+    width: min(64vw, 860px);
+    min-width: 640px;
+  }
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    width: min(86vw, 100%);
+    min-width: 0;
+  }
+}
+
 @media (max-width: 720px) {
+  .sidebar {
+    width: 100%;
+  }
+
   .columns {
     grid-template-columns: 1fr;
   }

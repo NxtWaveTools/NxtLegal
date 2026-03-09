@@ -965,10 +965,10 @@ export const contractsClient = {
       for (const supportingFile of flattenedSupportingFiles) {
         formData.append('supportingFiles', supportingFile)
       }
-    } else {
-      for (const supportingFile of params.supportingFiles ?? []) {
-        formData.append('supportingFiles', supportingFile)
-      }
+    }
+
+    for (const supportingFile of params.supportingFiles ?? []) {
+      formData.append('supportingFiles', supportingFile)
     }
 
     return xhrUpload<{ contract: ContractRecord }>(routeRegistry.api.contracts.upload, formData, {

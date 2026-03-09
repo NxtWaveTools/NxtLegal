@@ -100,6 +100,39 @@
   color: var(--color-text);
 }
 
+.recipientGroup {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recipientGroupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.recipientGroupTitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.recipientGroupEmpty {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  padding: 10px;
+  text-align: center;
+}
+
 .recipientList {
   display: flex;
   flex-direction: column;

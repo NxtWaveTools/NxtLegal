@@ -40,8 +40,6 @@ function isValidSignatoryEmail(value: string): boolean {
 type CounterpartyEntry = {
   counterpartyName: string
   supportingFiles: File[]
-  backgroundOfRequest: string
-  budgetApproved: boolean
   signatories: Array<{
     name: string
     designation: string
@@ -61,8 +59,6 @@ function createEmptyCounterpartyEntry(): CounterpartyEntry {
   return {
     counterpartyName: '',
     supportingFiles: [],
-    backgroundOfRequest: '',
-    budgetApproved: false,
     signatories: [createEmptySignatory()],
   }
 }
@@ -83,6 +79,9 @@ export default function ThirdPartyUploadSidebar({
   const [mainFile, setMainFile] = useState<File | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [contractType, setContractType] = useState('')
+  const [backgroundOfRequest, setBackgroundOfRequest] = useState('')
+  const [budgetApproved, setBudgetApproved] = useState(false)
+  const [budgetSupportingFiles, setBudgetSupportingFiles] = useState<File[]>([])
   const [counterpartyEntries, setCounterpartyEntries] = useState<CounterpartyEntry[]>([createEmptyCounterpartyEntry()])
   const [departmentId, setDepartmentId] = useState('')
   const [contractTypes, setContractTypes] = useState<ContractTypeOption[]>([])
@@ -141,6 +140,9 @@ export default function ThirdPartyUploadSidebar({
     setActiveStep(0)
     setMainFile(null)
     setContractType('')
+    setBackgroundOfRequest('')
+    setBudgetApproved(false)
+    setBudgetSupportingFiles([])
     setCounterpartyEntries([createEmptyCounterpartyEntry()])
     setDepartmentId('')
     setUploadSuccess(null)
@@ -185,15 +187,18 @@ export default function ThirdPartyUploadSidebar({
       const normalizedCounterparties = counterpartyEntries
         .map((entry) => ({
           counterpartyName: entry.counterpartyName.trim(),
-          supportingFiles: entry.supportingFiles,
           backgroundOfRequest:
             entry.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
               ? contractCounterpartyValues.notApplicable
-              : entry.backgroundOfRequest.trim(),
+              : backgroundOfRequest.trim(),
           budgetApproved:
             entry.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
               ? false
-              : entry.budgetApproved,
+              : budgetApproved,
+          supportingFiles:
+            entry.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
+              ? []
+              : entry.supportingFiles,
           signatories:
             entry.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
               ? []
@@ -210,6 +215,16 @@ export default function ThirdPartyUploadSidebar({
         return
       }
 
+      if (!backgroundOfRequest.trim()) {
+        toast.error('Please provide background of request before continuing.')
+        return
+      }
+
+      if (budgetApproved && budgetSupportingFiles.length === 0) {
+        toast.error('Please upload a supporting document when budget approved is Yes.')
+        return
+      }
+
       for (const counterparty of normalizedCounterparties) {
         const isNotApplicableCounterparty =
           counterparty.counterpartyName.toUpperCase() === contractCounterpartyValues.notApplicable
@@ -217,13 +232,13 @@ export default function ThirdPartyUploadSidebar({
           continue
         }
 
-        if (!counterparty.backgroundOfRequest) {
-          toast.error(`Please provide background of request for ${counterparty.counterpartyName}.`)
+        if (counterparty.signatories.length === 0) {
+          toast.error(`Please add at least one signatory for ${counterparty.counterpartyName}.`)
           return
         }
 
-        if (counterparty.signatories.length === 0) {
-          toast.error(`Please add at least one signatory for ${counterparty.counterpartyName}.`)
+        if (counterparty.supportingFiles.length === 0) {
+          toast.error(`Supporting documents are required for counterparty ${counterparty.counterpartyName}.`)
           return
         }
 
@@ -259,18 +274,6 @@ export default function ThirdPartyUploadSidebar({
           return
         }
       }
-
-      if (!isLegalSendForSigningMode) {
-        for (const counterparty of normalizedCounterparties) {
-          if (
-            counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable &&
-            counterparty.supportingFiles.length === 0
-          ) {
-            toast.error(`Supporting documents are required for counterparty ${counterparty.counterpartyName}.`)
-            return
-          }
-        }
-      }
     }
 
     setActiveStep((current) => Math.min(current + 1, steps.length - 1))
@@ -300,11 +303,11 @@ export default function ThirdPartyUploadSidebar({
         backgroundOfRequest:
           entry.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
             ? contractCounterpartyValues.notApplicable
-            : entry.backgroundOfRequest.trim(),
+            : backgroundOfRequest.trim(),
         budgetApproved:
           entry.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
             ? false
-            : entry.budgetApproved,
+            : budgetApproved,
         signatories:
           entry.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
             ? []
@@ -352,7 +355,10 @@ export default function ThirdPartyUploadSidebar({
         uploadMode: mode,
         bypassHodApproval: false,
         bypassReason: undefined,
+        backgroundOfRequest: backgroundOfRequest.trim(),
+        budgetApproved,
         file: mainFile,
+        supportingFiles: budgetApproved ? budgetSupportingFiles : [],
         idempotencyKey,
         onProgress: (percent) => setUploadProgress(percent),
         signal: abortController.signal,
@@ -440,11 +446,23 @@ export default function ThirdPartyUploadSidebar({
           mainFileName={mainFile?.name || null}
           contractType={contractType}
           contractTypes={contractTypes}
+          backgroundOfRequest={backgroundOfRequest}
+          budgetApproved={budgetApproved}
+          budgetSupportingFiles={budgetSupportingFiles}
           counterparties={counterpartyEntries}
           counterpartyOptions={[contractCounterpartyValues.notApplicable]}
           showCounterpartyModal={showCounterpartyModal}
           onContractTypeChange={(value) => {
             setContractType(value)
+          }}
+          onBackgroundOfRequestChange={(value) => {
+            setBackgroundOfRequest(value)
+          }}
+          onBudgetApprovedChange={(value) => {
+            setBudgetApproved(value)
+            if (!value) {
+              setBudgetSupportingFiles([])
+            }
           }}
           onCounterpartyNameChange={(index, value) => {
             setCounterpartyEntries((current) =>
@@ -455,38 +473,13 @@ export default function ThirdPartyUploadSidebar({
                       counterpartyName: value,
                       ...(value.trim().toUpperCase() === contractCounterpartyValues.notApplicable
                         ? {
-                            backgroundOfRequest: contractCounterpartyValues.notApplicable,
-                            budgetApproved: false,
                             signatories: [],
                             supportingFiles: [],
                           }
                         : {
                             signatories: entry.signatories.length > 0 ? entry.signatories : [createEmptySignatory()],
+                            supportingFiles: entry.supportingFiles,
                           }),
-                    }
-                  : entry
-              )
-            )
-          }}
-          onCounterpartyBackgroundOfRequestChange={(index, value) => {
-            setCounterpartyEntries((current) =>
-              current.map((entry, currentIndex) =>
-                currentIndex === index
-                  ? {
-                      ...entry,
-                      backgroundOfRequest: value,
-                    }
-                  : entry
-              )
-            )
-          }}
-          onCounterpartyBudgetApprovedChange={(index, value) => {
-            setCounterpartyEntries((current) =>
-              current.map((entry, currentIndex) =>
-                currentIndex === index
-                  ? {
-                      ...entry,
-                      budgetApproved: value,
                     }
                   : entry
               )
@@ -546,8 +539,6 @@ export default function ThirdPartyUploadSidebar({
                 entryIndex === counterpartyIndex
                   ? {
                       ...entry,
-                      backgroundOfRequest: value.backgroundOfRequest,
-                      budgetApproved: value.budgetApproved,
                       signatories: value.signatories.length > 0 ? value.signatories : [createEmptySignatory()],
                     }
                   : entry
@@ -614,6 +605,12 @@ export default function ThirdPartyUploadSidebar({
               )
             )
           }
+          onBudgetSupportingFilesSelected={(files) => {
+            setBudgetSupportingFiles((current) => [...current, ...files])
+          }}
+          onBudgetSupportingFileRemoved={(fileIndex) =>
+            setBudgetSupportingFiles((current) => current.filter((_, index) => index !== fileIndex))
+          }
         />
       )
     }
@@ -627,10 +624,8 @@ export default function ThirdPartyUploadSidebar({
           counterparties={counterpartyEntries
             .map((entry) => ({
               counterpartyName: entry.counterpartyName.trim(),
-              supportingCount: isLegalSendForSigningMode ? 0 : entry.supportingFiles.length,
-              supportingFileNames: isLegalSendForSigningMode ? [] : entry.supportingFiles.map((file) => file.name),
-              backgroundOfRequest: entry.backgroundOfRequest.trim(),
-              budgetApproved: entry.budgetApproved,
+              supportingCount: entry.supportingFiles.length,
+              supportingFileNames: entry.supportingFiles.map((file) => file.name),
               signatories: entry.signatories.map((signatory) => ({
                 name: signatory.name.trim(),
                 designation: signatory.designation.trim(),
@@ -638,6 +633,9 @@ export default function ThirdPartyUploadSidebar({
               })),
             }))
             .filter((entry) => entry.counterpartyName.length > 0)}
+          backgroundOfRequest={backgroundOfRequest.trim()}
+          budgetApproved={budgetApproved}
+          budgetSupportingFileNames={budgetSupportingFiles.map((file) => file.name)}
           departmentName={selectedDepartmentName}
           bypassHodApproval={false}
           bypassReason={undefined}
