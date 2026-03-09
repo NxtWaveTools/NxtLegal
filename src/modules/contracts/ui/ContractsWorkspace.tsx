@@ -16,11 +16,23 @@ import {
 } from '@/core/client/contracts-client'
 import { publicConfig } from '@/core/config/public-config'
 import {
-  getContractSignatoryRecipientTypeLabel,
   contractDocumentKinds,
+  contractActionHodBypass,
+  contractActionLegalReject,
+  contractActionLegalReroute,
+  contractActionLegalSetCompleted,
+  contractActionLegalSetOfflineExecution,
+  contractActionLegalSetOnHold,
+  contractActionLegalSetPendingExternal,
+  contractActionLegalSetPendingInternal,
+  contractActionLegalSetUnderReview,
+  contractActionLegalVoid,
+  contractDocumentKindAuditCertificate,
+  contractDocumentKindExecutedContract,
+  getContractSignatoryRecipientTypeLabel,
   contractLegalAssignmentEditableStatuses,
   contractStatuses,
-  contractTransitionActions,
+  contractWorkflowRoles,
 } from '@/core/constants/contracts'
 import Spinner from '@/components/ui/Spinner'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
@@ -33,6 +45,7 @@ import styles from './contracts-workspace.module.css'
 
 const PrepareForSigningModal = dynamic(() => import('@/modules/contracts/ui/PrepareForSigningModal'), {
   ssr: false,
+  loading: () => <div className="animate-pulse">Loading modal...</div>,
 })
 
 const htmlPreviewExtensions = new Set(['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'tsv', 'txt'])
@@ -59,6 +72,16 @@ const defaultPrepareForSigningRecipients = [
   },
 ]
 
+const baseWorkspaceTabs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'activity', label: 'Activity' },
+  { id: 'notes', label: 'Notes' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'approvals', label: 'Approvals' },
+] as const
+
+const signedDocsWorkspaceTab = { id: 'signed-docs', label: 'Signed Docs' } as const
+
 const resolveFileExtension = (fileName: string): string => {
   const normalizedName = fileName.trim().toLowerCase()
   const lastDotIndex = normalizedName.lastIndexOf('.')
@@ -68,6 +91,12 @@ const resolveFileExtension = (fileName: string): string => {
   }
 
   return normalizedName.slice(lastDotIndex + 1)
+}
+
+const isPdfPreviewableDocument = (document: ContractDocument): boolean => {
+  const normalizedMimeType = document.fileMimeType.toLowerCase()
+  const normalizedFileName = document.fileName.toLowerCase()
+  return normalizedMimeType.includes('pdf') || normalizedFileName.endsWith('.pdf')
 }
 
 const copyTextToClipboard = async (value: string): Promise<boolean> => {
@@ -213,16 +242,21 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const signingSendPollingDeadlineByContractIdRef = useRef<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
   const canViewSignedDocsTab = session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'
+  const isHodSession = session.role === contractWorkflowRoles.hod
+  const shouldShowRemarkBackgroundContext =
+    Boolean(remarkActionItem) &&
+    (isHodSession ||
+      (remarkActionItem?.action.toLowerCase().includes(contractWorkflowRoles.hod.toLowerCase()) ?? false))
+  const shouldShowConfirmBackgroundContext =
+    Boolean(confirmActionItem) &&
+    (isHodSession ||
+      (confirmActionItem?.action.toLowerCase().includes(contractWorkflowRoles.hod.toLowerCase()) ?? false))
   const tabs = useMemo(
     () =>
-      [
-        { id: 'overview', label: 'Overview' },
-        { id: 'activity', label: 'Activity' },
-        { id: 'notes', label: 'Notes' },
-        { id: 'documents', label: 'Documents' },
-        { id: 'approvals', label: 'Approvals' },
-        ...(canViewSignedDocsTab ? [{ id: 'signed-docs', label: 'Signed Docs' }] : []),
-      ] as Array<{ id: TabId; label: string }>,
+      (canViewSignedDocsTab ? [...baseWorkspaceTabs, signedDocsWorkspaceTab] : [...baseWorkspaceTabs]) as Array<{
+        id: TabId
+        label: string
+      }>,
     [canViewSignedDocsTab]
   )
 
@@ -333,26 +367,29 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setLegalAutoRenewal('unknown')
   }
 
-  const applyContractView = (contractView: ContractDetailResponse) => {
-    maybeCelebrateExecutedTransition(contractView.contract)
-    setSelectedContract(contractView.contract)
-    setLegalEffectiveDate(contractView.contract.legalEffectiveDate ?? '')
-    setLegalTerminationDate(contractView.contract.legalTerminationDate ?? '')
-    setLegalNoticePeriod(contractView.contract.legalNoticePeriod ?? '')
-    setLegalAutoRenewal(
-      contractView.contract.legalAutoRenewal === true
-        ? 'yes'
-        : contractView.contract.legalAutoRenewal === false
-          ? 'no'
-          : 'unknown'
-    )
-    setCounterparties(contractView.counterparties ?? [])
-    setDocuments(contractView.documents ?? [])
-    setAvailableActions(contractView.availableActions)
-    setApprovers(contractView.additionalApprovers)
-    setLegalCollaborators(contractView.legalCollaborators)
-    setSignatories(contractView.signatories ?? [])
-  }
+  const applyContractView = useCallback(
+    (contractView: ContractDetailResponse) => {
+      maybeCelebrateExecutedTransition(contractView.contract)
+      setSelectedContract(contractView.contract)
+      setLegalEffectiveDate(contractView.contract.legalEffectiveDate ?? '')
+      setLegalTerminationDate(contractView.contract.legalTerminationDate ?? '')
+      setLegalNoticePeriod(contractView.contract.legalNoticePeriod ?? '')
+      setLegalAutoRenewal(
+        contractView.contract.legalAutoRenewal === true
+          ? 'yes'
+          : contractView.contract.legalAutoRenewal === false
+            ? 'no'
+            : 'unknown'
+      )
+      setCounterparties(contractView.counterparties ?? [])
+      setDocuments(contractView.documents ?? [])
+      setAvailableActions(contractView.availableActions)
+      setApprovers(contractView.additionalApprovers)
+      setLegalCollaborators(contractView.legalCollaborators)
+      setSignatories(contractView.signatories ?? [])
+    },
+    [maybeCelebrateExecutedTransition]
+  )
 
   const syncContractReadState = useCallback((contractId: string, hasUnreadActivity: boolean) => {
     setContracts((current) =>
@@ -661,15 +698,15 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const legalStatusActionSet = useMemo(
     () =>
       new Set<ContractAllowedAction['action']>([
-        contractTransitionActions.legalSetUnderReview,
-        contractTransitionActions.legalSetPendingInternal,
-        contractTransitionActions.legalSetPendingExternal,
-        contractTransitionActions.legalSetOfflineExecution,
-        contractTransitionActions.legalSetOnHold,
-        contractTransitionActions.legalSetCompleted,
-        contractTransitionActions.legalReroute,
-        contractTransitionActions.legalReject,
-        contractTransitionActions.legalVoid,
+        contractActionLegalSetUnderReview,
+        contractActionLegalSetPendingInternal,
+        contractActionLegalSetPendingExternal,
+        contractActionLegalSetOfflineExecution,
+        contractActionLegalSetOnHold,
+        contractActionLegalSetCompleted,
+        contractActionLegalReroute,
+        contractActionLegalReject,
+        contractActionLegalVoid,
       ]),
     []
   )
@@ -677,15 +714,15 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const legalStatusActionRank = useMemo(
     () =>
       new Map<ContractAllowedAction['action'], number>([
-        [contractTransitionActions.legalSetUnderReview, 1],
-        [contractTransitionActions.legalSetPendingInternal, 2],
-        [contractTransitionActions.legalSetPendingExternal, 3],
-        [contractTransitionActions.legalSetOfflineExecution, 4],
-        [contractTransitionActions.legalSetOnHold, 5],
-        [contractTransitionActions.legalSetCompleted, 6],
-        [contractTransitionActions.legalReroute, 7],
-        [contractTransitionActions.legalReject, 8],
-        [contractTransitionActions.legalVoid, 9],
+        [contractActionLegalSetUnderReview, 1],
+        [contractActionLegalSetPendingInternal, 2],
+        [contractActionLegalSetPendingExternal, 3],
+        [contractActionLegalSetOfflineExecution, 4],
+        [contractActionLegalSetOnHold, 5],
+        [contractActionLegalSetCompleted, 6],
+        [contractActionLegalReroute, 7],
+        [contractActionLegalReject, 8],
+        [contractActionLegalVoid, 9],
       ]),
     []
   )
@@ -710,8 +747,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const nonLegalStatusActions = useMemo(
     () =>
       availableActions.filter(
-        (actionItem) =>
-          !legalStatusActionSet.has(actionItem.action) && actionItem.action !== contractTransitionActions.hodBypass
+        (actionItem) => !legalStatusActionSet.has(actionItem.action) && actionItem.action !== contractActionHodBypass
       ),
     [availableActions, legalStatusActionSet]
   )
@@ -736,22 +772,25 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     [legalStatusActions]
   )
 
-  const handleDownload = async (document?: ContractDocument) => {
-    if (!selectedContractId) {
-      return
-    }
+  const handleDownload = useCallback(
+    async (document?: ContractDocument) => {
+      if (!selectedContractId) {
+        return
+      }
 
-    const response = await contractsClient.download(selectedContractId, {
-      documentId: document?.id,
-    })
+      const response = await contractsClient.download(selectedContractId, {
+        documentId: document?.id,
+      })
 
-    if (!response.ok || !response.data?.signedUrl) {
-      toast.error(response.error?.message ?? 'Failed to generate download link')
-      return
-    }
+      if (!response.ok || !response.data?.signedUrl) {
+        toast.error(response.error?.message ?? 'Failed to generate download link')
+        return
+      }
 
-    window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
-  }
+      window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+    },
+    [selectedContractId]
+  )
 
   const openDownloadTab = () => {
     const downloadTab = window.open('', '_blank')
@@ -879,63 +918,66 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsDownloadingMergedArtifact(false)
   }
 
-  const handleViewDocument = async (document?: ContractDocument) => {
-    if (!selectedContractId) {
-      return
-    }
+  const handleViewDocument = useCallback(
+    async (document?: ContractDocument) => {
+      if (!selectedContractId) {
+        return
+      }
 
-    const response = await contractsClient.download(selectedContractId, {
-      documentId: document?.id,
-    })
+      const response = await contractsClient.download(selectedContractId, {
+        documentId: document?.id,
+      })
 
-    if (!response.ok || !response.data?.signedUrl) {
-      toast.error(response.error?.message ?? 'Failed to generate document view link')
-      return
-    }
+      if (!response.ok || !response.data?.signedUrl) {
+        toast.error(response.error?.message ?? 'Failed to generate document view link')
+        return
+      }
 
-    const resolvedFileName =
-      response.data.fileName ?? document?.displayName ?? selectedContract?.fileName ?? 'Contract document'
-    const resolvedMimeType = (document?.fileMimeType ?? '').trim().toLowerCase()
-    const resolvedExtension = resolveFileExtension(resolvedFileName)
-    const isDocx =
-      resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      resolvedExtension === 'docx'
-    const isSpreadsheet =
-      resolvedExtension === 'xls' ||
-      resolvedExtension === 'xlsx' ||
-      resolvedMimeType.includes('spreadsheetml') ||
-      resolvedMimeType.includes('ms-excel')
-    const isTextPreview =
-      resolvedExtension === 'csv' ||
-      resolvedExtension === 'tsv' ||
-      resolvedExtension === 'txt' ||
-      resolvedMimeType.startsWith('text/') ||
-      resolvedMimeType.includes('csv')
-    const isPresentation =
-      resolvedExtension === 'ppt' ||
-      resolvedExtension === 'pptx' ||
-      resolvedMimeType.includes('ms-powerpoint') ||
-      resolvedMimeType.includes('presentationml')
-    const isLegacyDoc = resolvedExtension === 'doc' || resolvedMimeType.includes('application/msword')
-    const renderAsHtml =
-      isDocx ||
-      isLegacyDoc ||
-      isPresentation ||
-      isSpreadsheet ||
-      isTextPreview ||
-      htmlPreviewExtensions.has(resolvedExtension)
+      const resolvedFileName =
+        response.data.fileName ?? document?.displayName ?? selectedContract?.fileName ?? 'Contract document'
+      const resolvedMimeType = (document?.fileMimeType ?? '').trim().toLowerCase()
+      const resolvedExtension = resolveFileExtension(resolvedFileName)
+      const isDocx =
+        resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        resolvedExtension === 'docx'
+      const isSpreadsheet =
+        resolvedExtension === 'xls' ||
+        resolvedExtension === 'xlsx' ||
+        resolvedMimeType.includes('spreadsheetml') ||
+        resolvedMimeType.includes('ms-excel')
+      const isTextPreview =
+        resolvedExtension === 'csv' ||
+        resolvedExtension === 'tsv' ||
+        resolvedExtension === 'txt' ||
+        resolvedMimeType.startsWith('text/') ||
+        resolvedMimeType.includes('csv')
+      const isPresentation =
+        resolvedExtension === 'ppt' ||
+        resolvedExtension === 'pptx' ||
+        resolvedMimeType.includes('ms-powerpoint') ||
+        resolvedMimeType.includes('presentationml')
+      const isLegacyDoc = resolvedExtension === 'doc' || resolvedMimeType.includes('application/msword')
+      const renderAsHtml =
+        isDocx ||
+        isLegacyDoc ||
+        isPresentation ||
+        isSpreadsheet ||
+        isTextPreview ||
+        htmlPreviewExtensions.has(resolvedExtension)
 
-    const previewUrl = contractsClient.previewUrl(selectedContractId, {
-      documentId: document?.id,
-      renderAs: renderAsHtml ? 'html' : 'binary',
-    })
+      const previewUrl = contractsClient.previewUrl(selectedContractId, {
+        documentId: document?.id,
+        renderAs: renderAsHtml ? 'html' : 'binary',
+      })
 
-    setViewerUrl(previewUrl)
-    setViewerExternalUrl(response.data.signedUrl)
-    setViewerMimeType(resolvedMimeType)
-    setViewerFileName(resolvedFileName)
-    setIsViewerOpen(true)
-  }
+      setViewerUrl(previewUrl)
+      setViewerExternalUrl(response.data.signedUrl)
+      setViewerMimeType(resolvedMimeType)
+      setViewerFileName(resolvedFileName)
+      setIsViewerOpen(true)
+    },
+    [selectedContract?.fileName, selectedContractId]
+  )
 
   const closeViewer = useCallback(() => {
     setIsViewerOpen(false)
@@ -998,7 +1040,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     router.refresh()
   }
 
-  const handleAddApprover = async () => {
+  const handleAddApprover = useCallback(async () => {
     if (!selectedContractId) {
       throw new Error('No contract selected')
     }
@@ -1019,7 +1061,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     setApproverEmail('')
     applyContractView(response.data)
-  }
+  }, [approverEmail, selectedContractId])
 
   const handleGenerateSigningLink = async (recipientEmail: string, recipientType: string) => {
     if (!selectedContractId) {
@@ -1068,63 +1110,65 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
   }
 
-  const handleRemindApprover = async (approverEmailToRemind?: string) => {
-    if (!selectedContractId) {
-      throw new Error('No contract selected')
-    }
+  const handleRemindApprover = useCallback(
+    async (approverEmailToRemind?: string) => {
+      if (!selectedContractId) {
+        throw new Error('No contract selected')
+      }
 
-    setIsMutating(true)
-    const response = await contractsClient.remindApprover(selectedContractId, {
-      approverEmail: approverEmailToRemind,
-    })
-    setIsMutating(false)
+      setIsMutating(true)
+      const response = await contractsClient.remindApprover(selectedContractId, {
+        approverEmail: approverEmailToRemind,
+      })
+      setIsMutating(false)
 
-    if (!response.ok) {
-      throw new Error(response.error?.message ?? 'Failed to send reminder')
-    }
-  }
+      if (!response.ok) {
+        throw new Error(response.error?.message ?? 'Failed to send reminder')
+      }
+    },
+    [selectedContractId]
+  )
 
-  const handleSkipApprover = async (params: {
-    approverRole: 'HOD' | 'ADDITIONAL'
-    approverId?: string
-    reason: string
-  }) => {
-    if (!selectedContractId) {
-      throw new Error('No contract selected')
-    }
+  const handleSkipApprover = useCallback(
+    async (params: { approverRole: 'HOD' | 'ADDITIONAL'; approverId?: string; reason: string }) => {
+      if (!selectedContractId) {
+        throw new Error('No contract selected')
+      }
 
-    const trimmedReason = params.reason.trim()
-    if (!trimmedReason) {
-      throw new Error('Skip reason is required')
-    }
+      const trimmedReason = params.reason.trim()
+      if (!trimmedReason) {
+        throw new Error('Skip reason is required')
+      }
 
-    const payload =
-      params.approverRole === 'HOD'
-        ? ({ action: contractTransitionActions.hodBypass, noteText: trimmedReason } as const)
-        : (() => {
-            if (!params.approverId) {
-              throw new Error('Approver ID is required')
-            }
+      const payload =
+        params.approverRole === 'HOD'
+          ? ({ action: contractActionHodBypass, noteText: trimmedReason } as const)
+          : (() => {
+              if (!params.approverId) {
+                throw new Error('Approver ID is required')
+              }
 
-            return {
-              action: 'BYPASS_APPROVAL' as const,
-              approverId: params.approverId,
-              reason: trimmedReason,
-            }
-          })()
+              return {
+                action: 'BYPASS_APPROVAL' as const,
+                approverId: params.approverId,
+                reason: trimmedReason,
+              }
+            })()
 
-    setIsMutating(true)
-    const response = await contractsClient.action(selectedContractId, payload)
-    setIsMutating(false)
+      setIsMutating(true)
+      const response = await contractsClient.action(selectedContractId, payload)
+      setIsMutating(false)
 
-    if (!response.ok || !response.data) {
-      throw new Error(response.error?.message ?? 'Failed to skip approval')
-    }
+      if (!response.ok || !response.data) {
+        throw new Error(response.error?.message ?? 'Failed to skip approval')
+      }
 
-    applyContractView(response.data)
-    await loadContractContext(selectedContractId)
-    await loadContracts()
-  }
+      applyContractView(response.data)
+      await loadContractContext(selectedContractId)
+      await loadContracts()
+    },
+    [loadContractContext, loadContracts, selectedContractId]
+  )
   const handleAddCollaborator = async () => {
     if (!selectedContractId || !collaboratorEmail.trim() || isAddingCollaborator) {
       return
@@ -1244,30 +1288,42 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }
 
   const noteEvents = useMemo(() => timeline.filter((event) => isContractNoteEvent(event)), [timeline])
-  const timelineById = useMemo(() => new Map(timeline.map((event) => [event.id, event])), [timeline])
+  const timelineById = useMemo(() => {
+    const timelineMap = new Map<string, ContractTimelineEvent>()
+    for (const event of timeline) {
+      timelineMap.set(event.id, event)
+    }
+    return timelineMap
+  }, [timeline])
   const selectedCurrentDocumentId = selectedContract?.currentDocumentId
   const signingPreviewDocument = useMemo(() => {
-    const primaryDocuments = documents.filter((document) => document.documentKind === 'PRIMARY')
-    const orderedPrimaryDocuments = [...primaryDocuments].sort(
-      (first, second) => (second.versionNumber ?? 0) - (first.versionNumber ?? 0)
-    )
+    let selectedPrimaryPdf: ContractDocument | null = null
+    let latestPrimaryPdf: ContractDocument | null = null
+    let highestPrimaryVersion = Number.NEGATIVE_INFINITY
 
-    const isPdfDocument = (document: (typeof documents)[number]) =>
-      document.fileMimeType.toLowerCase().includes('pdf') || document.fileName.toLowerCase().endsWith('.pdf')
+    for (const document of documents) {
+      if (document.documentKind !== 'PRIMARY') {
+        continue
+      }
 
-    if (selectedCurrentDocumentId) {
-      const currentDocument = primaryDocuments.find((document) => document.id === selectedCurrentDocumentId)
-      if (currentDocument && isPdfDocument(currentDocument)) {
-        return currentDocument
+      const isPdfDocument = isPdfPreviewableDocument(document)
+
+      if (selectedCurrentDocumentId && document.id === selectedCurrentDocumentId && isPdfDocument) {
+        selectedPrimaryPdf = document
+      }
+
+      if (!isPdfDocument) {
+        continue
+      }
+
+      const documentVersion = document.versionNumber ?? 0
+      if (documentVersion > highestPrimaryVersion) {
+        highestPrimaryVersion = documentVersion
+        latestPrimaryPdf = document
       }
     }
 
-    const latestPrimaryPdf = orderedPrimaryDocuments.find(isPdfDocument)
-    if (latestPrimaryPdf) {
-      return latestPrimaryPdf
-    }
-
-    return null
+    return selectedPrimaryPdf ?? latestPrimaryPdf
   }, [documents, selectedCurrentDocumentId])
   const signingPreviewUrl = useMemo(() => {
     if (!selectedContractId || !signingPreviewDocument?.id) {
@@ -1293,21 +1349,63 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     return formattedLogs.slice(0, 5)
   }, [formattedLogs, showAllLogs])
-  const orderedSignatories = useMemo(
-    () =>
-      [...signatories].sort((left, right) => {
-        if (left.routingOrder !== right.routingOrder) {
-          return left.routingOrder - right.routingOrder
-        }
-        return left.signatoryEmail.localeCompare(right.signatoryEmail)
-      }),
-    [signatories]
+  const orderedSignatories = useMemo(() => {
+    if (signatories.length <= 1) {
+      return signatories
+    }
+
+    const sortedSignatories = [...signatories]
+    sortedSignatories.sort((left, right) => {
+      if (left.routingOrder !== right.routingOrder) {
+        return left.routingOrder - right.routingOrder
+      }
+      return left.signatoryEmail.localeCompare(right.signatoryEmail)
+    })
+
+    return sortedSignatories
+  }, [signatories])
+
+  const handleDocumentPanelPreview = useCallback(
+    (document: ContractDocument) => {
+      void handleViewDocument(document)
+    },
+    [handleViewDocument]
   )
+
+  const handleDocumentPanelDownload = useCallback(
+    (document: ContractDocument) => {
+      void handleDownload(document)
+    },
+    [handleDownload]
+  )
+
+  const selectedContractRecordId = selectedContract?.id
+
+  const handleDocumentPanelRefresh = useCallback(async () => {
+    if (!selectedContractRecordId) {
+      return
+    }
+
+    await loadContractContext(selectedContractRecordId)
+  }, [loadContractContext, selectedContractRecordId])
+
+  const canManageApprovals = session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'
+
+  const handleApprovalsSkipRefresh = useCallback(() => {
+    router.refresh()
+  }, [router])
+
+  const handlePrepareForSigningClose = useCallback(() => {
+    setIsPrepareForSigningOpen(false)
+  }, [])
+
   const intakeCounterparties = useMemo(() => {
     type IntakeCounterparty = {
       counterpartyName: string
       backgroundOfRequest: string
       budgetApproved: boolean | null
+      supportingCount: number
+      supportingFileNames: string[]
       signatories: Array<{
         name: string
         designation: string
@@ -1341,6 +1439,26 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         name: counterparty.counterpartyName?.trim() ?? '',
       }))
       .filter((counterparty) => counterparty.name.length > 0)
+    const supportingDocsByCounterpartyId = new Map<string, string[]>()
+    const supportingDocsByCounterpartyName = new Map<string, string[]>()
+    for (const document of documents) {
+      if (document.documentKind !== contractDocumentKinds.counterpartySupporting) {
+        continue
+      }
+      const counterpartyId = document.counterpartyId?.trim() ?? ''
+      const counterpartyName = document.counterpartyName?.trim() ?? ''
+      if (counterpartyId) {
+        const existing = supportingDocsByCounterpartyId.get(counterpartyId) ?? []
+        existing.push(document.fileName)
+        supportingDocsByCounterpartyId.set(counterpartyId, existing)
+      }
+      const normalizedCounterpartyName = normalizeCounterpartyKey(counterpartyName)
+      if (normalizedCounterpartyName) {
+        const existing = supportingDocsByCounterpartyName.get(normalizedCounterpartyName) ?? []
+        existing.push(document.fileName)
+        supportingDocsByCounterpartyName.set(normalizedCounterpartyName, existing)
+      }
+    }
 
     if (normalizedCounterparties.length === 0) {
       return [] as IntakeCounterparty[]
@@ -1370,9 +1488,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         counterpartyIndexById.set(counterparty.id, index)
       }
     })
-    const normalizedCounterpartyNameByIndex = normalizedCounterparties.map((counterparty) =>
-      normalizeCounterpartyKey(counterparty.name)
-    )
+    const counterpartyIndexByNormalizedName = new Map<string, number>()
+    normalizedCounterparties.forEach((counterparty, index) => {
+      const normalizedCounterpartyName = normalizeCounterpartyKey(counterparty.name)
+      if (normalizedCounterpartyName) {
+        counterpartyIndexByNormalizedName.set(normalizedCounterpartyName, index)
+      }
+    })
+
     for (const signatory of externalDraftRecipients) {
       const normalizedSignatoryCounterpartyId = signatory.counterpartyId.trim()
       if (normalizedSignatoryCounterpartyId) {
@@ -1384,11 +1507,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       }
       const normalizedSignatoryCounterpartyName = normalizeCounterpartyKey(signatory.counterpartyName)
       const matchedCounterpartyIndex = normalizedSignatoryCounterpartyName
-        ? normalizedCounterpartyNameByIndex.findIndex(
-            (counterpartyName) => counterpartyName === normalizedSignatoryCounterpartyName
-          )
-        : -1
-      if (matchedCounterpartyIndex === -1) {
+        ? counterpartyIndexByNormalizedName.get(normalizedSignatoryCounterpartyName)
+        : undefined
+      if (typeof matchedCounterpartyIndex !== 'number') {
         unmatchedSignatories.push(signatory)
         continue
       }
@@ -1454,6 +1575,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         counterpartyName: counterparty.name,
         backgroundOfRequest: normalizedMappedSignatories[0]?.backgroundOfRequest ?? '',
         budgetApproved: normalizedMappedSignatories[0]?.budgetApproved ?? null,
+        supportingFileNames: counterparty.id
+          ? (supportingDocsByCounterpartyId.get(counterparty.id) ?? [])
+          : (supportingDocsByCounterpartyName.get(normalizeCounterpartyKey(counterparty.name)) ?? []),
+        supportingCount: counterparty.id
+          ? (supportingDocsByCounterpartyId.get(counterparty.id) ?? []).length
+          : (supportingDocsByCounterpartyName.get(normalizeCounterpartyKey(counterparty.name)) ?? []).length,
         signatories: normalizedMappedSignatories.map((signatory) => ({
           name: signatory.name,
           designation: signatory.designation,
@@ -1461,17 +1588,27 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         })),
       }
     })
-  }, [counterparties, selectedContract, signingDraftRecipients])
+  }, [counterparties, selectedContract, signingDraftRecipients, documents])
+  const budgetSupportingDocumentNames = useMemo(() => {
+    return documents
+      .filter(
+        (document) =>
+          document.documentKind === contractDocumentKinds.counterpartySupporting &&
+          !document.counterpartyId?.trim() &&
+          !document.counterpartyName?.trim()
+      )
+      .map((document) => document.fileName)
+  }, [documents])
   const allSignatoriesSigned = useMemo(
     () => orderedSignatories.length > 0 && orderedSignatories.every((signatory) => signatory.status === 'SIGNED'),
     [orderedSignatories]
   )
   const completionArtifactsByKind = useMemo(() => {
     const executedDocuments = documents
-      .filter((document) => document.documentKind === contractDocumentKinds.executedContract)
+      .filter((document) => document.documentKind === contractDocumentKindExecutedContract)
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     const certificateDocuments = documents
-      .filter((document) => document.documentKind === contractDocumentKinds.auditCertificate)
+      .filter((document) => document.documentKind === contractDocumentKindAuditCertificate)
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
 
     return {
@@ -1775,7 +1912,19 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     ]
   )
 
+  const handlePrepareForSigningReviewSend = useCallback(
+    (draftPayload: Parameters<typeof contractsClient.saveSigningPreparationDraft>[1]) => {
+      if (!selectedContractId) {
+        return
+      }
+
+      handleSigningReviewSendRequested(selectedContractId, draftPayload)
+    },
+    [handleSigningReviewSendRequested, selectedContractId]
+  )
+
   const isSigningSendProcessing = Boolean(selectedContractId && isSigningSendProcessingByContractId[selectedContractId])
+  const backgroundOfRequest = selectedContract?.backgroundOfRequest?.trim() || 'Not provided'
 
   return (
     <div className={`${styles.layout} ${!isSidebarOpen ? styles.layoutCollapsed : ''}`}>
@@ -2150,62 +2299,80 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 <span>—</span>
                               </div>
                             ) : (
-                              intakeCounterparties.map((counterparty, counterpartyIndex) => (
-                                <div key={`${counterparty.counterpartyName}-${counterpartyIndex}`}>
-                                  <div className={styles.row}>
-                                    <span>Counterparty {counterpartyIndex + 1}</span>
-                                    <span>{counterparty.counterpartyName}</span>
-                                  </div>
-                                  {counterparty.signatories.length === 0 ? (
-                                    <div className={styles.row}>
-                                      <span>Signatories</span>
-                                      <span>—</span>
-                                    </div>
-                                  ) : (
-                                    counterparty.signatories.map((signatory, signatoryIndex) => (
-                                      <div
-                                        key={`${counterparty.counterpartyName}-${counterpartyIndex}-signatory-${signatoryIndex}`}
-                                      >
-                                        <div className={styles.row}>
-                                          <span>
-                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Name
-                                          </span>
-                                          <span>{signatory.name || '—'}</span>
-                                        </div>
-                                        <div className={styles.row}>
-                                          <span>
-                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1}{' '}
-                                            Designation
-                                          </span>
-                                          <span>{signatory.designation || '—'}</span>
-                                        </div>
-                                        <div className={styles.row}>
-                                          <span>
-                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Email
-                                          </span>
-                                          <span>{signatory.email || '—'}</span>
-                                        </div>
-                                      </div>
-                                    ))
-                                  )}
-                                  <div className={styles.row}>
-                                    <span>Counterparty {counterpartyIndex + 1} Background</span>
-                                    <span className={styles.multilineValue}>
-                                      {counterparty.backgroundOfRequest || '—'}
-                                    </span>
-                                  </div>
-                                  <div className={styles.row}>
-                                    <span>Counterparty {counterpartyIndex + 1} Budget Approved</span>
-                                    <span>
-                                      {counterparty.budgetApproved === null
-                                        ? '—'
-                                        : counterparty.budgetApproved
-                                          ? 'Yes'
-                                          : 'No'}
-                                    </span>
-                                  </div>
+                              <>
+                                <div className={styles.row}>
+                                  <span>Background of Request</span>
+                                  <span className={styles.multilineValue}>
+                                    {intakeCounterparties[0]?.backgroundOfRequest || '—'}
+                                  </span>
                                 </div>
-                              ))
+                                <div className={styles.row}>
+                                  <span>Budget Approved</span>
+                                  <span>
+                                    {intakeCounterparties[0]?.budgetApproved === null
+                                      ? '—'
+                                      : intakeCounterparties[0]?.budgetApproved
+                                        ? 'Yes'
+                                        : 'No'}
+                                  </span>
+                                </div>
+                                <div className={styles.row}>
+                                  <span>Budget Approval Supporting Docs</span>
+                                  <span>
+                                    {budgetSupportingDocumentNames.length > 0
+                                      ? budgetSupportingDocumentNames.join(', ')
+                                      : 'Not provided'}
+                                  </span>
+                                </div>
+                                {intakeCounterparties.map((counterparty, counterpartyIndex) => (
+                                  <div key={`${counterparty.counterpartyName}-${counterpartyIndex}`}>
+                                    <div className={styles.row}>
+                                      <span>Counterparty {counterpartyIndex + 1}</span>
+                                      <span>{counterparty.counterpartyName}</span>
+                                    </div>
+                                    <div className={styles.row}>
+                                      <span>Counterparty {counterpartyIndex + 1} Supporting Docs</span>
+                                      <span>
+                                        {counterparty.supportingCount > 0
+                                          ? counterparty.supportingFileNames.join(', ')
+                                          : 'Not provided'}
+                                      </span>
+                                    </div>
+                                    {counterparty.signatories.length === 0 ? (
+                                      <div className={styles.row}>
+                                        <span>Signatories</span>
+                                        <span>—</span>
+                                      </div>
+                                    ) : (
+                                      counterparty.signatories.map((signatory, signatoryIndex) => (
+                                        <div
+                                          key={`${counterparty.counterpartyName}-${counterpartyIndex}-signatory-${signatoryIndex}`}
+                                        >
+                                          <div className={styles.row}>
+                                            <span>
+                                              Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Name
+                                            </span>
+                                            <span>{signatory.name || '—'}</span>
+                                          </div>
+                                          <div className={styles.row}>
+                                            <span>
+                                              Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1}{' '}
+                                              Designation
+                                            </span>
+                                            <span>{signatory.designation || '—'}</span>
+                                          </div>
+                                          <div className={styles.row}>
+                                            <span>
+                                              Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Email
+                                            </span>
+                                            <span>{signatory.email || '—'}</span>
+                                          </div>
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                ))}
+                              </>
                             )}
                           </div>
                         ) : null}
@@ -2506,11 +2673,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       currentDocumentId={selectedContract.currentDocumentId}
                       documents={documents}
                       defaultUploaderEmail={selectedContract.uploadedByEmail}
-                      onPreviewDocument={(document) => void handleViewDocument(document)}
-                      onDownloadDocument={(document) => void handleDownload(document)}
-                      onRefreshDocuments={async () => {
-                        await loadContractContext(selectedContract.id)
-                      }}
+                      onPreviewDocument={handleDocumentPanelPreview}
+                      onDownloadDocument={handleDocumentPanelDownload}
+                      onRefreshDocuments={handleDocumentPanelRefresh}
                     />
                   )}
 
@@ -2519,16 +2684,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       contract={selectedContract}
                       approvers={approvers}
                       isMutating={isMutating}
-                      canManageApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
-                      canSkipApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
+                      canManageApprovals={canManageApprovals}
+                      canSkipApprovals={canManageApprovals}
                       approverEmail={approverEmail}
                       onApproverEmailChange={setApproverEmail}
                       onAddApprover={handleAddApprover}
                       onRemindApprover={handleRemindApprover}
                       onSkipApprover={handleSkipApprover}
-                      onSkipRefresh={() => {
-                        router.refresh()
-                      }}
+                      onSkipRefresh={handleApprovalsSkipRefresh}
                     />
                   )}
 
@@ -2692,6 +2855,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           <form className={styles.actionRemarkModal} onSubmit={handleRemarkDialogSubmit}>
             <div className={styles.sectionTitle}>Remarks Required</div>
             <div className={styles.eventMeta}>Provide remarks for: {remarkActionItem.label}</div>
+            {shouldShowRemarkBackgroundContext ? (
+              <div className={styles.actionContextBlock}>
+                <div className={styles.actionContextLabel}>Background of request</div>
+                <div>{backgroundOfRequest}</div>
+              </div>
+            ) : null}
             <textarea
               className={styles.textarea}
               value={remarkDraft}
@@ -2733,6 +2902,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           <div className={styles.actionRemarkModal}>
             <div className={styles.sectionTitle}>Confirm Action</div>
             <div className={styles.eventMeta}>Are you sure you want to proceed with: {confirmActionItem.label}?</div>
+            {shouldShowConfirmBackgroundContext ? (
+              <div className={styles.actionContextBlock}>
+                <div className={styles.actionContextLabel}>Background of request</div>
+                <div>{backgroundOfRequest}</div>
+              </div>
+            ) : null}
             <div className={styles.actionRemarkActions}>
               <button
                 type="button"
@@ -2771,10 +2946,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           contractStatus={selectedContract.status}
           pdfUrl={signingPreviewUrl}
           initialRecipients={defaultPrepareForSigningRecipients}
-          onClose={() => setIsPrepareForSigningOpen(false)}
-          onReviewSendRequested={(draftPayload) => {
-            handleSigningReviewSendRequested(selectedContractId, draftPayload)
-          }}
+          onClose={handlePrepareForSigningClose}
+          onReviewSendRequested={handlePrepareForSigningReviewSend}
         />
       ) : null}
     </div>

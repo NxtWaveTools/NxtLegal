@@ -15,8 +15,6 @@ type CounterpartySignatoryEntry = {
 type CounterpartyEntry = {
   counterpartyName: string
   supportingFiles: File[]
-  backgroundOfRequest: string
-  budgetApproved: boolean
   signatories: CounterpartySignatoryEntry[]
 }
 
@@ -29,9 +27,12 @@ type AdditionalDataStepProps = {
   counterpartyOptions: string[]
   showCounterpartyModal: boolean
   onContractTypeChange: (value: string) => void
+  backgroundOfRequest: string
+  budgetApproved: boolean
+  budgetSupportingFiles: File[]
   onCounterpartyNameChange: (index: number, value: string) => void
-  onCounterpartyBackgroundOfRequestChange: (index: number, value: string) => void
-  onCounterpartyBudgetApprovedChange: (index: number, value: boolean) => void
+  onBackgroundOfRequestChange: (value: string) => void
+  onBudgetApprovedChange: (value: boolean) => void
   onCounterpartySignatoryChange: (
     counterpartyIndex: number,
     signatoryIndex: number,
@@ -43,8 +44,6 @@ type AdditionalDataStepProps = {
   onCounterpartyAutofill: (
     counterpartyIndex: number,
     value: {
-      backgroundOfRequest: string
-      budgetApproved: boolean
       signatories: CounterpartySignatoryEntry[]
     }
   ) => void
@@ -61,6 +60,8 @@ type AdditionalDataStepProps = {
   onBypassReasonChange?: (value: string) => void
   onSupportingFilesSelected: (counterpartyIndex: number, files: File[]) => void
   onSupportingFileRemoved: (counterpartyIndex: number, fileIndex: number) => void
+  onBudgetSupportingFilesSelected: (files: File[]) => void
+  onBudgetSupportingFileRemoved: (fileIndex: number) => void
 }
 
 export default function AdditionalDataStep({
@@ -68,13 +69,16 @@ export default function AdditionalDataStep({
   mainFileName,
   contractType,
   contractTypes,
+  backgroundOfRequest,
+  budgetApproved,
+  budgetSupportingFiles,
   counterparties,
   counterpartyOptions,
   showCounterpartyModal,
   onContractTypeChange,
+  onBackgroundOfRequestChange,
+  onBudgetApprovedChange,
   onCounterpartyNameChange,
-  onCounterpartyBackgroundOfRequestChange,
-  onCounterpartyBudgetApprovedChange,
   onCounterpartySignatoryChange,
   onCounterpartySignatoryAdd,
   onCounterpartySignatoryRemove,
@@ -92,14 +96,14 @@ export default function AdditionalDataStep({
   onBypassReasonChange,
   onSupportingFilesSelected,
   onSupportingFileRemoved,
+  onBudgetSupportingFilesSelected,
+  onBudgetSupportingFileRemoved,
 }: AdditionalDataStepProps) {
   const [loadedCounterpartyOptions, setLoadedCounterpartyOptions] = useState<string[]>(counterpartyOptions)
   const [counterpartyMetadataByName, setCounterpartyMetadataByName] = useState<
     Record<
       string,
       {
-        backgroundOfRequest: string
-        budgetApproved: boolean
         signatories: CounterpartySignatoryEntry[]
       }
     >
@@ -121,8 +125,6 @@ export default function AdditionalDataStep({
       const validCounterparties = response.data.counterparties
         .map((item) => ({
           name: item.name.trim(),
-          backgroundOfRequest: item.backgroundOfRequest?.trim() ?? '',
-          budgetApproved: Boolean(item.budgetApproved),
           signatories: (item.signatories ?? [])
             .map((signatory) => ({
               name: signatory.name.trim(),
@@ -142,15 +144,11 @@ export default function AdditionalDataStep({
         Record<
           string,
           {
-            backgroundOfRequest: string
-            budgetApproved: boolean
             signatories: CounterpartySignatoryEntry[]
           }
         >
       >((accumulator, item) => {
         accumulator[item.name.toLowerCase()] = {
-          backgroundOfRequest: item.backgroundOfRequest,
-          budgetApproved: item.budgetApproved,
           signatories: item.signatories,
         }
         return accumulator
@@ -275,6 +273,78 @@ export default function AdditionalDataStep({
             )}
           </div>
 
+          <div className={styles.fieldGroup}>
+            <label className={styles.label} htmlFor="background-of-request">
+              Description*
+            </label>
+            <textarea
+              id="background-of-request"
+              className={styles.input}
+              value={backgroundOfRequest}
+              onChange={(event) => onBackgroundOfRequestChange(event.target.value)}
+              placeholder="Describe the request context"
+              rows={4}
+            />
+          </div>
+
+          <div className={styles.fieldGroup}>
+            <label className={styles.label} htmlFor="budget-approved">
+              Budget Approved*
+            </label>
+            <select
+              id="budget-approved"
+              className={styles.select}
+              value={budgetApproved ? 'true' : 'false'}
+              onChange={(event) => onBudgetApprovedChange(event.target.value === 'true')}
+            >
+              <option value="false">No</option>
+              <option value="true">Yes</option>
+            </select>
+          </div>
+
+          {budgetApproved ? (
+            <div className={styles.fieldGroup}>
+              <label className={styles.label} htmlFor="budget-supporting-docs">
+                Budget Approval Document*
+              </label>
+              <div className={styles.dropzone}>
+                <span>add budget approval documents</span>
+                <label className={styles.dropzoneButton} htmlFor="budget-supporting-docs">
+                  Add files
+                </label>
+                <input
+                  id="budget-supporting-docs"
+                  className={styles.hiddenInput}
+                  type="file"
+                  multiple
+                  onChange={(event) => {
+                    const files = Array.from(event.target.files || [])
+                    if (files.length) {
+                      onBudgetSupportingFilesSelected(files)
+                    }
+                  }}
+                />
+              </div>
+              <div className={styles.supportingList}>
+                {budgetSupportingFiles.map((file, fileIndex) => (
+                  <div key={`${file.name}-${fileIndex}`} className={styles.fileCard}>
+                    <div className={styles.fileMeta}>
+                      <span className={styles.fileName}>{file.name}</span>
+                      <span className={styles.fileSize}>{formatFileSize(file.size)}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.removeButton}
+                      onClick={() => onBudgetSupportingFileRemoved(fileIndex)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {onBypassHodApprovalChange ? (
             !isSendForSigningFlow ? (
               <>
@@ -314,8 +384,7 @@ export default function AdditionalDataStep({
 
           {counterparties.map((counterparty, counterpartyIndex) => {
             const isNotApplicableCounterparty = isCounterpartyNa(counterparty.counterpartyName)
-            const requiresSupportingDocs =
-              !isSendForSigningFlow && counterparty.counterpartyName.trim() !== '' && !isNotApplicableCounterparty
+            const requiresSupportingDocs = counterparty.counterpartyName.trim() !== '' && !isNotApplicableCounterparty
 
             return (
               <div key={`counterparty-${counterpartyIndex}`} className={styles.counterpartyCard}>
@@ -351,39 +420,6 @@ export default function AdditionalDataStep({
                   onBlur={(event) => maybeAutofillCounterparty(counterpartyIndex, event.target.value)}
                   onKeyDown={(event) => handleCounterpartyNameKeyDown(event, counterpartyIndex)}
                 />
-
-                <div className={styles.fieldGroup}>
-                  <label className={styles.label} htmlFor={`counterparty-background-of-request-${counterpartyIndex}`}>
-                    Background of Request*
-                  </label>
-                  <textarea
-                    id={`counterparty-background-of-request-${counterpartyIndex}`}
-                    className={styles.input}
-                    value={counterparty.backgroundOfRequest}
-                    disabled={isNotApplicableCounterparty}
-                    onChange={(event) => onCounterpartyBackgroundOfRequestChange(counterpartyIndex, event.target.value)}
-                    placeholder="Describe the request context"
-                    rows={4}
-                  />
-                </div>
-
-                <div className={styles.fieldGroup}>
-                  <label className={styles.label} htmlFor={`counterparty-budget-approved-${counterpartyIndex}`}>
-                    Budget Approved*
-                  </label>
-                  <select
-                    id={`counterparty-budget-approved-${counterpartyIndex}`}
-                    className={styles.select}
-                    value={counterparty.budgetApproved ? 'true' : 'false'}
-                    disabled={isNotApplicableCounterparty}
-                    onChange={(event) =>
-                      onCounterpartyBudgetApprovedChange(counterpartyIndex, event.target.value === 'true')
-                    }
-                  >
-                    <option value="false">No</option>
-                    <option value="true">Yes</option>
-                  </select>
-                </div>
 
                 {counterparty.signatories.map((signatory, signatoryIndex) => (
                   <div
@@ -490,10 +526,10 @@ export default function AdditionalDataStep({
                 {requiresSupportingDocs && (
                   <div className={styles.fieldGroup}>
                     <label className={styles.label} htmlFor={`supporting-docs-${counterpartyIndex}`}>
-                      Supporting Document*
+                      Counterparty Documents*
                     </label>
                     <div className={styles.dropzone}>
-                      <span>Add supporting documents</span>
+                      <span>add counter party documents</span>
                       <label className={styles.dropzoneButton} htmlFor={`supporting-docs-${counterpartyIndex}`}>
                         Add files
                       </label>

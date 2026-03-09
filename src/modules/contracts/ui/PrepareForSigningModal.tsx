@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { toast } from 'sonner'
 import { contractsClient } from '@/core/client/contracts-client'
-import { contractStatuses, getContractSignatoryRecipientTypeLabel } from '@/core/constants/contracts'
+import { contractStatuses } from '@/core/constants/contracts'
 import styles from './prepare-for-signing-modal.module.css'
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
@@ -532,14 +532,14 @@ export default function PrepareForSigningModal({
     return null
   }
 
-  const handleAddRecipient = () => {
+  const handleAddRecipient = (recipientType: RecipientType) => {
     setRecipients((current) => [
       ...current,
       {
         id: createDraftId(),
         name: '',
         email: '',
-        recipientType: 'EXTERNAL',
+        recipientType,
         routingOrder: 1,
       },
     ])
@@ -962,63 +962,75 @@ export default function PrepareForSigningModal({
         <div className={styles.body}>
           <aside className={styles.leftPanel}>
             <div className={styles.panelTitle}>Recipients</div>
-            <button type="button" className={styles.smallButton} onClick={handleAddRecipient} disabled={!canEdit}>
-              + Add Recipient
-            </button>
 
-            <div className={styles.recipientList}>
-              {recipients.map((recipient) => (
-                <div key={recipient.id} className={styles.recipientCard}>
-                  <input
-                    className={styles.input}
-                    placeholder="Name"
-                    value={recipient.name}
-                    disabled={!canEdit}
-                    onChange={(event) => handleRecipientChange(recipient.id, { name: event.target.value })}
-                  />
-                  <input
-                    className={styles.input}
-                    placeholder="Email"
-                    value={recipient.email}
-                    disabled={!canEdit}
-                    onChange={(event) => handleRecipientChange(recipient.id, { email: event.target.value })}
-                  />
-                  <div className={styles.row}>
-                    <select
-                      className={styles.input}
-                      value={recipient.recipientType}
+            {(['EXTERNAL', 'INTERNAL'] as const).map((recipientType) => {
+              const groupTitle = recipientType === 'EXTERNAL' ? 'Counter Party' : 'Nxtwave'
+              const groupRecipients = recipients.filter((recipient) => recipient.recipientType === recipientType)
+
+              return (
+                <section key={recipientType} className={styles.recipientGroup}>
+                  <div className={styles.recipientGroupHeader}>
+                    <div className={styles.recipientGroupTitle}>{groupTitle}</div>
+                    <button
+                      type="button"
+                      className={styles.smallButton}
+                      onClick={() => handleAddRecipient(recipientType)}
                       disabled={!canEdit}
-                      onChange={(event) =>
-                        handleRecipientChange(recipient.id, { recipientType: event.target.value as RecipientType })
-                      }
                     >
-                      <option value="INTERNAL">{getContractSignatoryRecipientTypeLabel('INTERNAL')}</option>
-                      <option value="EXTERNAL">{getContractSignatoryRecipientTypeLabel('EXTERNAL')}</option>
-                    </select>
-                    <input
-                      className={styles.input}
-                      type="number"
-                      min={1}
-                      value={recipient.routingOrder}
-                      disabled={!canEdit}
-                      onChange={(event) =>
-                        handleRecipientChange(recipient.id, {
-                          routingOrder: Math.max(1, Number(event.target.value) || 1),
-                        })
-                      }
-                    />
+                      + Add Recipient
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className={styles.linkButton}
-                    onClick={() => handleRemoveRecipient(recipient.id)}
-                    disabled={!canEdit}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
+
+                  <div className={styles.recipientList}>
+                    {groupRecipients.length === 0 ? (
+                      <div className={styles.recipientGroupEmpty}>No recipients yet</div>
+                    ) : (
+                      groupRecipients.map((recipient) => (
+                        <div key={recipient.id} className={styles.recipientCard}>
+                          <input
+                            className={styles.input}
+                            placeholder="Name"
+                            value={recipient.name}
+                            disabled={!canEdit}
+                            onChange={(event) => handleRecipientChange(recipient.id, { name: event.target.value })}
+                          />
+                          <input
+                            className={styles.input}
+                            placeholder="Email"
+                            value={recipient.email}
+                            disabled={!canEdit}
+                            onChange={(event) => handleRecipientChange(recipient.id, { email: event.target.value })}
+                          />
+                          <div className={styles.row}>
+                            <input className={styles.input} value={groupTitle} disabled aria-label="Recipient type" />
+                            <input
+                              className={styles.input}
+                              type="number"
+                              min={1}
+                              value={recipient.routingOrder}
+                              disabled={!canEdit}
+                              onChange={(event) =>
+                                handleRecipientChange(recipient.id, {
+                                  routingOrder: Math.max(1, Number(event.target.value) || 1),
+                                })
+                              }
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            className={styles.linkButton}
+                            onClick={() => handleRemoveRecipient(recipient.id)}
+                            disabled={!canEdit}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
+              )
+            })}
           </aside>
 
           <main className={styles.previewArea}>

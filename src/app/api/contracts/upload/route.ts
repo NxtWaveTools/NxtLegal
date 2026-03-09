@@ -101,17 +101,6 @@ const uploadContractFormSchema = z
       }),
   })
   .superRefine((data, context) => {
-    if (data.uploadMode === contractUploadModes.legalSendForSigning) {
-      if (!data.signatoryName?.trim()) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Counterparty name is required',
-          path: ['signatoryName'],
-        })
-      }
-      return
-    }
-
     if (!data.counterparties || data.counterparties.length === 0) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -124,14 +113,6 @@ const uploadContractFormSchema = z
     data.counterparties.forEach((counterparty, counterpartyIndex) => {
       const normalizedCounterpartyName = counterparty.counterpartyName.trim()
       const isNotApplicable = normalizedCounterpartyName.toUpperCase() === contractCounterpartyValues.notApplicable
-
-      if (!isNotApplicable && !counterparty.backgroundOfRequest?.trim()) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Background of request is required',
-          path: ['counterparties', counterpartyIndex, 'backgroundOfRequest'],
-        })
-      }
 
       if (isNotApplicable && counterparty.signatories.length > 0) {
         context.addIssue({
@@ -274,6 +255,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       .getAll('supportingFiles')
       .filter((entry): entry is File => entry instanceof File)
 
+    const referencedSupportingFileIndices = new Set<number>()
     if (parsedForm.data.counterparties && parsedForm.data.counterparties.length > 0) {
       for (const counterparty of parsedForm.data.counterparties) {
         const seen = new Set<number>()
@@ -289,6 +271,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
           }
 
           seen.add(index)
+          referencedSupportingFileIndices.add(index)
 
           if (index < 0 || index >= supportingUploadFiles.length) {
             return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Supporting file index is out of range'), {
@@ -296,6 +279,23 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
             })
           }
         }
+      }
+    }
+
+    if (parsedForm.data.budgetApproved) {
+      const hasCommonBudgetSupportingDocument = supportingUploadFiles.some(
+        (_, index) => !referencedSupportingFileIndices.has(index)
+      )
+      if (!hasCommonBudgetSupportingDocument) {
+        return NextResponse.json(
+          errorResponse(
+            'VALIDATION_ERROR',
+            'Budget approval supporting document is required when budget approved is set to yes'
+          ),
+          {
+            status: 400,
+          }
+        )
       }
     }
 
@@ -321,6 +321,8 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       fileBody: file as Blob,
     }))
 
+    const commonSupportingFiles = supportingFiles.filter((_, index) => !referencedSupportingFileIndices.has(index))
+
     const counterparties = parsedForm.data.counterparties?.map((counterparty) => ({
       counterpartyName: counterparty.counterpartyName,
       supportingFiles:
@@ -330,11 +332,11 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       backgroundOfRequest:
         counterparty.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
           ? contractCounterpartyValues.notApplicable
-          : (counterparty.backgroundOfRequest?.trim() ?? ''),
+          : (parsedForm.data.backgroundOfRequest?.trim() ?? ''),
       budgetApproved:
         counterparty.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
           ? false
-          : Boolean(counterparty.budgetApproved),
+          : Boolean(parsedForm.data.budgetApproved),
       signatories:
         counterparty.counterpartyName.trim().toUpperCase() === contractCounterpartyValues.notApplicable
           ? []
@@ -391,14 +393,11 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
           ? contractCounterpartyValues.notApplicable
           : ''))
     const resolvedBackgroundOfRequest = isLegalSendForSigningMode
-      ? fallbackBackgroundOfRequest
-      : (primaryCounterpartyForUpload?.backgroundOfRequest ??
-        (primaryCounterpartyForUpload?.counterpartyName?.toUpperCase() === contractCounterpartyValues.notApplicable
-          ? contractCounterpartyValues.notApplicable
-          : ''))
+      ? parsedForm.data.backgroundOfRequest?.trim() || fallbackBackgroundOfRequest
+      : (parsedForm.data.backgroundOfRequest?.trim() ?? '')
     const resolvedBudgetApproved = isLegalSendForSigningMode
       ? (parsedForm.data.budgetApproved ?? false)
-      : (primaryCounterpartyForUpload?.budgetApproved ?? false)
+      : (parsedForm.data.budgetApproved ?? false)
 
     const contractUploadService = getContractUploadService()
     const contract = await contractUploadService.uploadContract({
@@ -423,7 +422,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       fileSizeBytes: uploadedFile.size,
       fileMimeType: uploadedFile.type || 'application/octet-stream',
       fileBody: uploadedFile as Blob,
-      supportingFiles,
+      supportingFiles: commonSupportingFiles,
     })
 
     if (!parsedForm.data.bypassHodApproval) {

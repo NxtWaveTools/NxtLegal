@@ -10,14 +10,15 @@ type ReviewStepProps = {
     counterpartyName: string
     supportingCount: number
     supportingFileNames: string[]
-    backgroundOfRequest: string
-    budgetApproved: boolean
     signatories: Array<{
       name: string
       designation: string
       email: string
     }>
   }>
+  backgroundOfRequest: string
+  budgetApproved: boolean
+  budgetSupportingFileNames: string[]
   departmentName: string
   bypassHodApproval?: boolean
   bypassReason?: string
@@ -29,6 +30,9 @@ export default function ReviewStep({
   mainFileName,
   contractType,
   counterparties,
+  backgroundOfRequest,
+  budgetApproved,
+  budgetSupportingFileNames,
   departmentName,
   bypassHodApproval = false,
   bypassReason,
@@ -65,14 +69,6 @@ export default function ReviewStep({
             </span>
           </div>
           <div className={styles.summaryRow}>
-            <span>{`Counterparty ${index + 1} Background`}</span>
-            <span>{counterparty.backgroundOfRequest || 'Not set'}</span>
-          </div>
-          <div className={styles.summaryRow}>
-            <span>{`Counterparty ${index + 1} Budget Approved`}</span>
-            <span>{counterparty.budgetApproved ? 'Yes' : 'No'}</span>
-          </div>
-          <div className={styles.summaryRow}>
             <span>{`Counterparty ${index + 1} Signatories`}</span>
             <span>{counterparty.signatories.length || 0}</span>
           </div>
@@ -94,6 +90,20 @@ export default function ReviewStep({
           ))}
         </div>
       ))}
+      <div className={styles.summaryRow}>
+        <span>Background of Request</span>
+        <span>{backgroundOfRequest || 'Not set'}</span>
+      </div>
+      <div className={styles.summaryRow}>
+        <span>Budget Approved</span>
+        <span>{budgetApproved ? 'Yes' : 'No'}</span>
+      </div>
+      {!isSendForSigningFlow && budgetApproved ? (
+        <div className={styles.summaryRow}>
+          <span>Budget Approval Supporting Docs</span>
+          <span>{budgetSupportingFileNames.length > 0 ? budgetSupportingFileNames.join(', ') : 'Not provided'}</span>
+        </div>
+      ) : null}
       <div className={styles.summaryRow}>
         <span>Department</span>
         <span>{departmentName || 'Not set'}</span>
