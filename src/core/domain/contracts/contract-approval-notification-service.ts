@@ -51,35 +51,42 @@ export class ContractApprovalNotificationService {
       role: params.actorRole,
     })
 
-    const recipientEmail =
-      contractView.contract.currentAssigneeEmail?.trim().toLowerCase() ||
-      contractView.contract.departmentHodEmail?.trim().toLowerCase()
-    if (!recipientEmail) {
-      this.logger.warn('Skipping HOD notification; department HOD email is missing', {
+    const recipients = Array.from(
+      new Set(
+        [contractView.contract.currentAssigneeEmail, contractView.contract.departmentHodEmail]
+          .map((email) => email?.trim().toLowerCase() ?? '')
+          .filter((email) => email.length > 0)
+      )
+    )
+
+    if (recipients.length === 0) {
+      this.logger.warn('Skipping HOD notification; no HOD recipient email resolved', {
         tenantId: params.tenantId,
         contractId: params.contractId,
       })
       return
     }
 
-    await this.dispatchNotification({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      recipientEmail,
-      subject: `Action Required: Approve Contract for ${contractView.contract.title}`,
-      htmlContent: buildMasterTemplate({
-        title: 'Contract Approval Request',
-        greeting: 'Hello HOD,',
-        messageText: `${contractView.contract.uploadedByEmail} submitted ${contractView.contract.title} and it requires your approval.`,
-        buttonText: 'Review Contract',
-        buttonLink: this.getContractLink(params.contractId),
-        footerText: 'Please review and approve or reject this contract request.',
-      }),
-      notificationType: contractNotificationTypes.hodApprovalRequested,
-      metadata: {
-        trigger: 'CONTRACT_UPLOAD',
-      },
-    })
+    for (const recipientEmail of recipients) {
+      await this.dispatchNotification({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        recipientEmail,
+        subject: `Action Required: Approve Contract for ${contractView.contract.title}`,
+        htmlContent: buildMasterTemplate({
+          title: 'Contract Approval Request',
+          greeting: 'Hello HOD,',
+          messageText: `${contractView.contract.uploadedByEmail} submitted ${contractView.contract.title} and it requires your approval.`,
+          buttonText: 'Review Contract',
+          buttonLink: this.getContractLink(params.contractId),
+          footerText: 'Please review and approve or reject this contract request.',
+        }),
+        notificationType: contractNotificationTypes.hodApprovalRequested,
+        metadata: {
+          trigger: 'CONTRACT_UPLOAD',
+        },
+      })
+    }
   }
 
   async notifyAdditionalApproverAdded(params: {
