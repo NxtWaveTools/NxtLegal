@@ -98,17 +98,20 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
 
     const contractApprovalNotificationService = getContractApprovalNotificationService()
 
-    if (payload.action !== bypassApprovalActionName && payload.action === 'hod.approve') {
+    if (
+      payload.action !== bypassApprovalActionName &&
+      (payload.action === 'hod.approve' || payload.action === 'hod.bypass')
+    ) {
       dispatchNotificationInBackground(
-        contractApprovalNotificationService.notifyApprovalReceived({
+        contractApprovalNotificationService.notifyInternalAssignment({
           tenantId,
           contractId,
           actorEmployeeId: session.employeeId,
           actorRole: session.role,
-          event: 'HOD_APPROVED',
-          legalOwnerEmail: contractView.contract.currentAssigneeEmail,
+          assignedEmail: contractView.contract.currentAssigneeEmail,
+          contractTitle: contractView.contract.title,
         }),
-        'HOD_APPROVED',
+        payload.action === 'hod.approve' ? 'HOD_APPROVED_ASSIGNMENT' : 'HOD_BYPASS_ASSIGNMENT',
         contractId
       )
     }
@@ -122,6 +125,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
           actorRole: session.role,
           event: 'ADDITIONAL_APPROVED',
           legalOwnerEmail: contractView.contract.currentAssigneeEmail,
+          contractTitle: contractView.contract.title,
         }),
         'ADDITIONAL_APPROVED',
         contractId

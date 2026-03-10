@@ -48,6 +48,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
           actorEmployeeId: session.employeeId,
           actorRole: session.role,
           assignedEmail: payload.collaboratorEmail,
+          contractTitle: contractView.contract.title,
         }),
         contractId
       )

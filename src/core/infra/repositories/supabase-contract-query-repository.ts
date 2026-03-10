@@ -2790,7 +2790,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     let tatDeadlineAt = contract.tatDeadlineAt ?? null
 
     if (effectiveAction === 'hod.approve' || effectiveAction === 'hod.bypass') {
-      const legalAssignee = await this.getLegalAssignee(params.tenantId)
+      const legalAssignee = await this.getLegalAssignee(params.tenantId, contract.departmentId)
       assigneeEmployeeId = legalAssignee.id
       assigneeEmail = legalAssignee.email
       nextStatus = contractStatuses.underReview
@@ -3148,7 +3148,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
     }
 
-    const legalAssignee = await this.getLegalAssignee(params.tenantId)
+    const legalAssignee = await this.getLegalAssignee(params.tenantId, contract.departmentId)
 
     const { data: updatedContract, error: contractUpdateError } = await supabase
       .from('contracts')
@@ -5407,9 +5407,18 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return contextMap
   }
 
-  private async getLegalAssignee(tenantId: string): Promise<{ id: string; email: string }> {
+  private async getLegalAssignee(
+    tenantId: string,
+    departmentId?: string | null
+  ): Promise<{ id: string; email: string }> {
     const legalMembers = await this.resolveActiveTenantLegalMembers(tenantId)
-    const assignee = this.pickRandomLegalMember(legalMembers)
+    const departmentMemberIds =
+      departmentId && departmentId.trim().length > 0
+        ? await this.resolveDepartmentAssignedLegalMemberIds(tenantId, departmentId)
+        : new Set<string>()
+    const departmentMembers =
+      departmentMemberIds.size > 0 ? legalMembers.filter((member) => departmentMemberIds.has(member.id)) : []
+    const assignee = this.pickRandomLegalMember(departmentMembers.length > 0 ? departmentMembers : legalMembers)
 
     if (!assignee) {
       throw new BusinessRuleError('LEGAL_ASSIGNEE_NOT_FOUND', 'No active legal team member available for routing')
@@ -5428,6 +5437,30 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const randomIndex = Math.floor(Math.random() * members.length)
     return members[randomIndex]
+  }
+
+  private async resolveDepartmentAssignedLegalMemberIds(tenantId: string, departmentId: string): Promise<Set<string>> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('department_legal_assignments')
+      .select('user_id')
+      .eq('tenant_id', tenantId)
+      .eq('department_id', departmentId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .is('revoked_at', null)
+
+    if (error) {
+      throw new DatabaseError('Failed to resolve legal department assignments', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return new Set(
+      ((data ?? []) as Array<{ user_id: string | null }>)
+        .map((row) => row.user_id)
+        .filter((value): value is string => Boolean(value))
+    )
   }
 
   private async resolveActiveTenantLegalUserByEmail(
@@ -6112,12 +6145,14 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     for (const row of rows) {
       if (role === 'LEGAL_TEAM') {
+        const assignmentEmails = [row.current_assignee_email]
         const collaboratorEmails = (row.legal_collaborators ?? [])
           .filter((item) => !item.deleted_at)
           .map((item) => item.collaborator_email)
+        assignmentEmails.push(...collaboratorEmails)
 
-        if (collaboratorEmails.length > 0) {
-          assignmentMap.set(row.id, Array.from(new Set(collaboratorEmails)))
+        if (assignmentEmails.length > 0) {
+          assignmentMap.set(row.id, Array.from(new Set(assignmentEmails)))
         }
         continue
       }
@@ -6244,6 +6279,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         this.isMissingRelationError(error, 'contract_legal_collaborators') ||
         this.isMissingColumnError(error, 'contract_legal_collaborators')
       ) {
+        for (const row of contractRows) {
+          assignmentMap.set(row.id, [row.current_assignee_email])
+        }
         return assignmentMap
       }
 
@@ -6258,6 +6296,14 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         existing.push(assignment.collaborator_email)
       }
       assignmentMap.set(assignment.contract_id, existing)
+    }
+
+    for (const row of contractRows) {
+      const existing = assignmentMap.get(row.id) ?? []
+      if (!existing.includes(row.current_assignee_email)) {
+        existing.unshift(row.current_assignee_email)
+      }
+      assignmentMap.set(row.id, existing)
     }
 
     return assignmentMap

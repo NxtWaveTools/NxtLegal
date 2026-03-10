@@ -499,9 +499,19 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   }, [])
 
   const resolveContractAssignedEmails = useCallback((contract: ContractRecord): string[] => {
-    const assignees = (contract.assignedToUsers ?? []).map((item) => item.trim().toLowerCase()).filter(Boolean)
+    const assignees = [contract.currentAssigneeEmail, ...(contract.assignedToUsers ?? [])]
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean)
     return Array.from(new Set(assignees))
   }, [])
+
+  const resolveContractCollaboratorEmails = useCallback(
+    (contract: ContractRecord): string[] => {
+      const currentAssigneeEmail = contract.currentAssigneeEmail.trim().toLowerCase()
+      return resolveContractAssignedEmails(contract).filter((email) => email !== currentAssigneeEmail)
+    },
+    [resolveContractAssignedEmails]
+  )
 
   const resolveEmailDisplayName = useCallback(
     (email: string): string => {
@@ -530,7 +540,8 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         return
       }
 
-      const previousEmails = resolveContractAssignedEmails(targetContract)
+      const currentAssigneeEmail = targetContract.currentAssigneeEmail.trim().toLowerCase()
+      const previousEmails = resolveContractCollaboratorEmails(targetContract)
       const nextEmails = Array.from(new Set(selectedEmails.map((value) => value.trim().toLowerCase()).filter(Boolean)))
 
       if (previousEmails.length === nextEmails.length && previousEmails.every((email) => nextEmails.includes(email))) {
@@ -549,7 +560,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
       setContracts((current) =>
         current.map((contract) =>
-          contract.id === contractId ? { ...contract, assignedToUsers: nextEmails } : contract
+          contract.id === contractId
+            ? { ...contract, assignedToUsers: Array.from(new Set([currentAssigneeEmail, ...nextEmails])) }
+            : contract
         )
       )
 
@@ -580,7 +593,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       } catch (assignmentError) {
         setContracts((current) =>
           current.map((contract) =>
-            contract.id === contractId ? { ...contract, assignedToUsers: previousEmails } : contract
+            contract.id === contractId
+              ? { ...contract, assignedToUsers: Array.from(new Set([currentAssigneeEmail, ...previousEmails])) }
+              : contract
           )
         )
         setAssignmentErrorByContractId((current) => ({
@@ -591,7 +606,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         setAssignmentSavingByContractId((current) => ({ ...current, [contractId]: false }))
       }
     },
-    [assignmentSavingByContractId, contracts, isLegalTeamRole, resolveContractAssignedEmails]
+    [assignmentSavingByContractId, contracts, isLegalTeamRole, resolveContractCollaboratorEmails]
   )
 
   const columns = useMemo<ColumnDef<ContractRecord>[]>(
@@ -706,8 +721,10 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         header: 'Assigned To',
         cell: ({ row }) => {
           if (isLegalTeamRole) {
-            const selectedEmails = resolveContractAssignedEmails(row.original)
-            const selectedDisplayNames = selectedEmails.map((email) => resolveEmailDisplayName(email))
+            const selectedEmails = resolveContractCollaboratorEmails(row.original)
+            const selectedDisplayNames = resolveContractAssignedEmails(row.original).map((email) =>
+              resolveEmailDisplayName(email)
+            )
             const isSaving = Boolean(assignmentSavingByContractId[row.original.id])
             const assignmentError = assignmentErrorByContractId[row.original.id]
             const isDropdownOpen = openAssignmentDropdownContractId === row.original.id
@@ -846,8 +863,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       legalTeamMembers,
       legalTeamMembersError,
       openAssignmentDropdownContractId,
-      resolveEmailDisplayName,
       resolveContractAssignedEmails,
+      resolveContractCollaboratorEmails,
+      resolveEmailDisplayName,
     ]
   )
 

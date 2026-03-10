@@ -222,28 +222,33 @@ export class ContractApprovalNotificationService {
     actorEmployeeId: string
     actorRole?: string
     assignedEmail: string
+    contractTitle?: string
   }): Promise<void> {
     const recipientEmail = params.assignedEmail.trim().toLowerCase()
     if (!recipientEmail) {
       return
     }
 
-    const contractView = await this.contractQueryService.getContractDetail({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      employeeId: params.actorEmployeeId,
-      role: params.actorRole,
-    })
+    const contractTitle =
+      params.contractTitle?.trim() ||
+      (
+        await this.contractQueryService.getContractDetail({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          employeeId: params.actorEmployeeId,
+          role: params.actorRole,
+        })
+      ).contract.title
 
     await this.dispatchNotification({
       tenantId: params.tenantId,
       contractId: params.contractId,
       recipientEmail,
-      subject: `Legal Assignment: ${contractView.contract.title}`,
+      subject: `Legal Assignment: ${contractTitle}`,
       htmlContent: buildMasterTemplate({
         title: 'Contract Assignment',
         greeting: 'Hello Legal Team,',
-        messageText: `You were assigned legal work for ${contractView.contract.title}.`,
+        messageText: `You were assigned legal work for ${contractTitle}.`,
         buttonText: 'Open Contract',
         buttonLink: this.getContractLink(params.contractId),
         footerText: 'Please proceed with the legal review workflow.',
@@ -262,18 +267,23 @@ export class ContractApprovalNotificationService {
     actorRole?: string
     event: 'HOD_APPROVED' | 'ADDITIONAL_APPROVED'
     legalOwnerEmail?: string | null
+    contractTitle?: string
   }): Promise<void> {
     const recipientEmail = params.legalOwnerEmail?.trim().toLowerCase() ?? ''
     if (!recipientEmail) {
       return
     }
 
-    const contractView = await this.contractQueryService.getContractDetail({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      employeeId: params.actorEmployeeId,
-      role: params.actorRole,
-    })
+    const contractTitle =
+      params.contractTitle?.trim() ||
+      (
+        await this.contractQueryService.getContractDetail({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          employeeId: params.actorEmployeeId,
+          role: params.actorRole,
+        })
+      ).contract.title
 
     const notificationType =
       params.event === 'HOD_APPROVED'
@@ -286,11 +296,11 @@ export class ContractApprovalNotificationService {
       tenantId: params.tenantId,
       contractId: params.contractId,
       recipientEmail,
-      subject: `Approval Received: ${contractView.contract.title}`,
+      subject: `Approval Received: ${contractTitle}`,
       htmlContent: buildMasterTemplate({
         title: 'Approval Received',
         greeting: 'Hello Legal Team,',
-        messageText: `${approvalEventLabel} was recorded for ${contractView.contract.title}.`,
+        messageText: `${approvalEventLabel} was recorded for ${contractTitle}.`,
         buttonText: 'Review Contract',
         buttonLink: this.getContractLink(params.contractId),
         footerText: 'Continue processing this contract based on the current workflow status.',

@@ -18,6 +18,7 @@ const mockContractQueryService = {
 }
 
 const mockContractApprovalNotificationService = {
+  notifyInternalAssignment: jest.fn(),
   notifyApprovalReceived: jest.fn(),
   notifyReturnedToHod: jest.fn(),
   notifyContractRejected: jest.fn(),
