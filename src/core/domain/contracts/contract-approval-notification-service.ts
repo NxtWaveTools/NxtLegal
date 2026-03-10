@@ -67,25 +67,46 @@ export class ContractApprovalNotificationService {
       return
     }
 
+    let deliveredCount = 0
+    let firstDeliveryError: unknown = null
+
     for (const recipientEmail of recipients) {
-      await this.dispatchNotification({
-        tenantId: params.tenantId,
-        contractId: params.contractId,
-        recipientEmail,
-        subject: `Action Required: Approve Contract for ${contractView.contract.title}`,
-        htmlContent: buildMasterTemplate({
-          title: 'Contract Approval Request',
-          greeting: 'Hello HOD,',
-          messageText: `${contractView.contract.uploadedByEmail} submitted ${contractView.contract.title} and it requires your approval.`,
-          buttonText: 'Review Contract',
-          buttonLink: this.getContractLink(params.contractId),
-          footerText: 'Please review and approve or reject this contract request.',
-        }),
-        notificationType: contractNotificationTypes.hodApprovalRequested,
-        metadata: {
-          trigger: 'CONTRACT_UPLOAD',
-        },
-      })
+      try {
+        await this.dispatchNotification({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          recipientEmail,
+          subject: `Action Required: Approve Contract for ${contractView.contract.title}`,
+          htmlContent: buildMasterTemplate({
+            title: 'Contract Approval Request',
+            greeting: 'Hello HOD,',
+            messageText: `${contractView.contract.uploadedByEmail} submitted ${contractView.contract.title} and it requires your approval.`,
+            buttonText: 'Review Contract',
+            buttonLink: this.getContractLink(params.contractId),
+            footerText: 'Please review and approve or reject this contract request.',
+          }),
+          notificationType: contractNotificationTypes.hodApprovalRequested,
+          metadata: {
+            trigger: 'CONTRACT_UPLOAD',
+          },
+        })
+        deliveredCount += 1
+      } catch (error) {
+        if (!firstDeliveryError) {
+          firstDeliveryError = error
+        }
+
+        this.logger.warn('HOD upload notification failed for recipient', {
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          recipientEmail,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    if (deliveredCount === 0 && firstDeliveryError) {
+      throw firstDeliveryError
     }
   }
 
