@@ -308,4 +308,79 @@ describe('Contracts upload route', () => {
     expect(body.error.message).toContain('Budget approval supporting document is required')
     expect(mockContractUploadService.uploadContract).not.toHaveBeenCalled()
   })
+
+  it('waits for HOD notification attempt before finalizing response', async () => {
+    const mainFile = new File([new Uint8Array([1, 2, 3])], 'contract.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+    const supportingFile = new File([new Uint8Array([4, 5, 6])], 'supporting.pdf', {
+      type: 'application/pdf',
+    })
+
+    const uploadedContract = {
+      id: 'contract-1',
+      title: 'Master Service Agreement',
+      status: 'HOD_PENDING',
+      currentAssigneeEmployeeId: 'hod-1',
+      currentAssigneeEmail: 'hod@nxtwave.co.in',
+      fileName: 'contract.docx',
+      fileSizeBytes: 1024,
+    }
+
+    mockContractUploadService.uploadContract.mockResolvedValue(uploadedContract)
+
+    let resolveNotification: (() => void) | null = null
+    const notificationPromise = new Promise<void>((resolve) => {
+      resolveNotification = resolve
+    })
+    mockContractApprovalNotificationService.notifyHodOnContractUpload.mockReturnValue(notificationPromise)
+
+    const formData: FormDataLike = {
+      get: (key: string) => {
+        const values: Record<string, unknown> = {
+          title: 'Master Service Agreement',
+          contractTypeId: '11111111-1111-1111-1111-111111111111',
+          departmentId: '22222222-2222-2222-2222-222222222222',
+          counterparties: JSON.stringify([
+            {
+              counterpartyName: 'Acme Inc',
+              backgroundOfRequest: 'Need legal review',
+              budgetApproved: false,
+              signatories: [{ name: 'Vendor Signatory', designation: 'Director', email: 'vendor@example.com' }],
+              supportingFileIndices: [0],
+            },
+          ]),
+          file: mainFile,
+        }
+
+        return values[key] ?? null
+      },
+      getAll: (key: string) => {
+        if (key === 'supportingFiles') {
+          return [supportingFile]
+        }
+        return []
+      },
+    }
+
+    const pendingResponse = POST({
+      headers: {
+        get: (name: string) => (name === 'Idempotency-Key' ? 'idem-123' : null),
+      },
+      formData: async () => formData,
+    } as unknown as PostRequestArg)
+
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(mockIdempotencyService.store).not.toHaveBeenCalled()
+
+    resolveNotification?.()
+    const response = await pendingResponse
+    const body = await response.json()
+
+    expect(response.status).toBe(201)
+    expect(body.ok).toBe(true)
+    expect(mockContractApprovalNotificationService.notifyHodOnContractUpload).toHaveBeenCalledTimes(1)
+    expect(mockIdempotencyService.store).toHaveBeenCalledTimes(1)
+  })
 })
