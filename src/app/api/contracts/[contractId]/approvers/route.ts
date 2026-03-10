@@ -7,13 +7,15 @@ import { getContractApprovalNotificationService, getContractQueryService } from 
 import { contractApproverSchema } from '@/core/domain/contracts/schemas'
 import { logger } from '@/core/infra/logging/logger'
 
-const dispatchNotificationInBackground = (notification: Promise<unknown>, contractId: string): void => {
-  void notification.catch((error) => {
+const dispatchNotificationSafely = async (notification: Promise<unknown>, contractId: string): Promise<void> => {
+  try {
+    await notification
+  } catch (error) {
     logger.warn('Additional approver notification dispatch failed', {
       contractId,
       error: error instanceof Error ? error.message : String(error),
     })
-  })
+  }
 }
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
@@ -39,7 +41,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
     })
 
     const contractApprovalNotificationService = getContractApprovalNotificationService()
-    dispatchNotificationInBackground(
+    await dispatchNotificationSafely(
       contractApprovalNotificationService.notifyAdditionalApproverAdded({
         tenantId: session.tenantId,
         contractId,

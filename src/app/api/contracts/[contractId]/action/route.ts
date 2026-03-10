@@ -13,14 +13,20 @@ import { contractActionCommandSchema, bypassApprovalActionName } from '@/core/do
 import { contractWorkflowRoles } from '@/core/constants/contracts'
 import { logger } from '@/core/infra/logging/logger'
 
-const dispatchNotificationInBackground = (notification: Promise<unknown>, event: string, contractId: string): void => {
-  void notification.catch((error) => {
+const dispatchNotificationSafely = async (
+  notification: Promise<unknown>,
+  event: string,
+  contractId: string
+): Promise<void> => {
+  try {
+    await notification
+  } catch (error) {
     logger.warn('Contract action notification dispatch failed', {
       event,
       contractId,
       error: error instanceof Error ? error.message : String(error),
     })
-  })
+  }
 }
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
@@ -102,7 +108,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       payload.action !== bypassApprovalActionName &&
       (payload.action === 'hod.approve' || payload.action === 'hod.bypass')
     ) {
-      dispatchNotificationInBackground(
+      await dispatchNotificationSafely(
         contractApprovalNotificationService.notifyInternalAssignment({
           tenantId,
           contractId,
@@ -117,7 +123,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
     }
 
     if (payload.action !== bypassApprovalActionName && payload.action === 'approver.approve') {
-      dispatchNotificationInBackground(
+      await dispatchNotificationSafely(
         contractApprovalNotificationService.notifyApprovalReceived({
           tenantId,
           contractId,
@@ -133,7 +139,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
     }
 
     if (payload.action !== bypassApprovalActionName && payload.action === 'legal.query.reroute') {
-      dispatchNotificationInBackground(
+      await dispatchNotificationSafely(
         contractApprovalNotificationService.notifyReturnedToHod({
           tenantId,
           contractId,
@@ -150,7 +156,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       payload.action !== bypassApprovalActionName &&
       (payload.action === 'legal.reject' || payload.action === 'hod.reject')
     ) {
-      dispatchNotificationInBackground(
+      await dispatchNotificationSafely(
         contractApprovalNotificationService.notifyContractRejected({
           tenantId,
           contractId,
@@ -174,7 +180,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
 
       if (envelopeIds.length > 0) {
         const contractSignatoryService = getContractSignatoryService()
-        dispatchNotificationInBackground(
+        await dispatchNotificationSafely(
           contractSignatoryService.recallSigningEnvelopes({
             tenantId,
             contractId,

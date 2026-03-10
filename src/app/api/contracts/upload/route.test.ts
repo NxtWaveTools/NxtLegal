@@ -329,9 +329,11 @@ describe('Contracts upload route', () => {
 
     mockContractUploadService.uploadContract.mockResolvedValue(uploadedContract)
 
-    let resolveNotification: (() => void) | null = null
+    let releaseNotification!: () => void
     const notificationPromise = new Promise<void>((resolve) => {
-      resolveNotification = resolve
+      releaseNotification = () => {
+        resolve()
+      }
     })
     mockContractApprovalNotificationService.notifyHodOnContractUpload.mockReturnValue(notificationPromise)
 
@@ -374,7 +376,7 @@ describe('Contracts upload route', () => {
     await Promise.resolve()
     expect(mockIdempotencyService.store).not.toHaveBeenCalled()
 
-    resolveNotification?.()
+    releaseNotification()
     const response = await pendingResponse
     const body = await response.json()
 
