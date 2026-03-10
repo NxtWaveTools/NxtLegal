@@ -26,14 +26,20 @@ function isValidSignatoryEmail(value: string): boolean {
   return EMAIL_PATTERN.test(normalizedValue)
 }
 
-const dispatchNotificationInBackground = (notification: Promise<unknown>, event: string, contractId: string): void => {
-  void notification.catch((error) => {
+const dispatchNotificationSafely = async (
+  notification: Promise<unknown>,
+  event: string,
+  contractId: string
+): Promise<void> => {
+  try {
+    await notification
+  } catch (error) {
     logger.warn('Contract upload notification dispatch failed', {
       event,
       contractId,
       error: error instanceof Error ? error.message : String(error),
     })
-  })
+  }
 }
 
 const uploadContractFormSchema = z
@@ -427,7 +433,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
 
     if (!parsedForm.data.bypassHodApproval) {
       const contractApprovalNotificationService = getContractApprovalNotificationService()
-      dispatchNotificationInBackground(
+      await dispatchNotificationSafely(
         contractApprovalNotificationService.notifyHodOnContractUpload({
           tenantId: session.tenantId,
           contractId: contract.id,
