@@ -7,13 +7,15 @@ import { getContractApprovalNotificationService, getContractQueryService } from 
 import { contractLegalAssignmentSchema } from '@/core/domain/contracts/schemas'
 import { logger } from '@/core/infra/logging/logger'
 
-const dispatchNotificationInBackground = (notification: Promise<unknown>, contractId: string): void => {
-  void notification.catch((error) => {
+const dispatchNotificationSafely = async (notification: Promise<unknown>, contractId: string): Promise<void> => {
+  try {
+    await notification
+  } catch (error) {
     logger.warn('Legal assignment notification dispatch failed', {
       contractId,
       error: error instanceof Error ? error.message : String(error),
     })
-  })
+  }
 }
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
@@ -41,7 +43,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
 
     const contractApprovalNotificationService = getContractApprovalNotificationService()
     if (payload.operation === 'add_collaborator') {
-      dispatchNotificationInBackground(
+      await dispatchNotificationSafely(
         contractApprovalNotificationService.notifyInternalAssignment({
           tenantId: session.tenantId,
           contractId,
