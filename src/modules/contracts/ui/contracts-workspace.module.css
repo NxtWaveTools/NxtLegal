@@ -489,7 +489,7 @@
 }
 
 .card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--color-shadow-sm);
 }
 
 .sectionTitle {
@@ -564,10 +564,10 @@
 }
 
 .buttonPrimary:hover {
-  background: #2560d9;
-  border-color: #2560d9;
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
   color: var(--color-accent-contrast);
-  box-shadow: 0 2px 10px rgba(47, 109, 246, 0.2);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--color-accent) 28%, transparent);
 }
 
 .buttonDanger {
@@ -578,7 +578,7 @@
 
 .buttonDanger:hover {
   background: var(--color-danger);
-  color: #ffffff;
+  color: var(--color-accent-contrast);
   border-color: var(--color-danger);
 }
 
@@ -662,7 +662,7 @@
 
 .textarea:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
   outline: none;
 }
 
@@ -682,7 +682,7 @@
 
 .input:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
   outline: none;
 }
 
@@ -705,7 +705,7 @@
 }
 
 .event:hover {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--color-shadow-sm);
 }
 
 .eventActor {
@@ -804,7 +804,7 @@
 }
 
 .timelineEvent:hover {
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--color-shadow-sm);
   border-color: var(--color-border);
 }
 
@@ -1039,7 +1039,7 @@
 
 .documentRow:hover {
   border-color: var(--color-accent);
-  box-shadow: 0 1px 6px rgba(47, 109, 246, 0.06);
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--color-accent) 18%, transparent);
 }
 
 .documentMeta {

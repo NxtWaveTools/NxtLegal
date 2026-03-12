@@ -441,6 +441,7 @@ describe('ContractQueryService', () => {
     repository.getDocuments.mockResolvedValue([])
     repository.getAvailableActions.mockResolvedValue([])
     repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getLegalCollaborators.mockResolvedValue([])
     repository.getSignatories.mockResolvedValue([])
     repository.saveSigningPreparationDraft.mockResolvedValue({
       contractId: 'contract-1',
@@ -528,6 +529,7 @@ describe('ContractQueryService', () => {
     repository.getDocuments.mockResolvedValue([])
     repository.getAvailableActions.mockResolvedValue([])
     repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getLegalCollaborators.mockResolvedValue([])
     repository.getSignatories.mockResolvedValue([])
 
     await expect(

@@ -426,7 +426,7 @@ describe('supabaseContractQueryRepository action permissions', () => {
     expect(result.get('contract-1')).toEqual(['legal.team@nxtwave.co.in', 'trishanth.reddy@nxtwave.co.in'])
   })
 
-  it('returns empty collaborator assignment map when collaborator table is missing', async () => {
+  it('falls back to current assignee when collaborator table is missing', async () => {
     const is = jest.fn().mockResolvedValue({
       data: null,
       error: {
@@ -452,7 +452,7 @@ describe('supabaseContractQueryRepository action permissions', () => {
       { id: 'contract-1', current_assignee_email: 'legal.team@nxtwave.co.in' },
     ])
 
-    expect(result.size).toBe(0)
+    expect(result.get('contract-1')).toEqual(['legal.team@nxtwave.co.in'])
   })
 
   it('includes legal users from canonical role assignments in active legal members list', async () => {

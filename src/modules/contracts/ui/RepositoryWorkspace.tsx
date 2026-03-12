@@ -206,7 +206,7 @@ function toFallbackDisplayName(email: string): string {
 export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProps) {
   const router = useRouter()
   const normalizedRole = (session.role ?? '').toUpperCase()
-  const isLegalTeamRole = normalizedRole === 'LEGAL_TEAM'
+  const isLegalTeamRole = normalizedRole === 'LEGAL_TEAM' || normalizedRole === 'ADMIN'
   const canAccessRepositoryReporting =
     isLegalTeamRole ||
     normalizedRole === 'LEGAL_ADMIN' ||

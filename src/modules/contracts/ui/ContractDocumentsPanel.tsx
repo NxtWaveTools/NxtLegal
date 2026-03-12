@@ -278,7 +278,7 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
 
   const isInSignature =
     contractStatus === contractStatuses.signing || contractStatus === contractStatuses.pendingExternal
-  const canReplace = userRole === 'LEGAL_TEAM' && !isInSignature
+  const canReplace = (userRole === 'LEGAL_TEAM' || userRole === 'ADMIN') && !isInSignature
 
   const replaceDisabledMessage = isInSignature
     ? 'Replacement is unavailable while contract is in signature.'

@@ -97,7 +97,7 @@ export default function ThirdPartyUploadSidebar({
   const uploadAbortRef = useRef<AbortController | null>(null)
 
   const showCounterpartyModal = false
-  const isLegalActor = actorRole === contractWorkflowRoles.legalTeam
+  const isLegalActor = actorRole === contractWorkflowRoles.legalTeam || actorRole === contractWorkflowRoles.admin
   const effectiveDepartmentId = departmentId
   const selectedDepartmentName = departments.find((item) => item.id === departmentId)?.name ?? ''
   const selectedContractTypeName = contractTypes.find((item) => item.id === contractType)?.name ?? ''
@@ -270,7 +270,7 @@ export default function ThirdPartyUploadSidebar({
 
       if (isLegalSendForSigningMode) {
         if (!isLegalActor) {
-          toast.error('Only Legal Team can use Send for Signing mode.')
+          toast.error('Only Legal Team or Admin can use Send for Signing mode.')
           return
         }
       }

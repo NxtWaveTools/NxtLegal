@@ -73,7 +73,10 @@ export const contractWorkflowIdentities = {
 
 export type ContractWorkflowRole = (typeof contractWorkflowRoles)[keyof typeof contractWorkflowRoles]
 
-export const contractLegalAssignmentAllowedRoles = [contractWorkflowRoles.legalTeam] as const
+export const contractLegalAssignmentAllowedRoles = [
+  contractWorkflowRoles.legalTeam,
+  contractWorkflowRoles.admin,
+] as const
 
 export const contractLegalAssignmentEditableStatuses: ContractStatus[] = [
   contractStatuses.underReview,
@@ -124,8 +127,13 @@ export const contractDocumentVersioning = {
 } as const
 
 export const contractDocumentUploadRules = {
-  initialAllowedRoles: [contractWorkflowRoles.poc, contractWorkflowRoles.legalTeam, contractWorkflowRoles.hod] as const,
-  replacementAllowedRoles: [contractWorkflowRoles.legalTeam] as const,
+  initialAllowedRoles: [
+    contractWorkflowRoles.poc,
+    contractWorkflowRoles.legalTeam,
+    contractWorkflowRoles.hod,
+    contractWorkflowRoles.admin,
+  ] as const,
+  replacementAllowedRoles: [contractWorkflowRoles.legalTeam, contractWorkflowRoles.admin] as const,
   initialAllowedMimeTypes: [contractDocumentMimeTypes.docx] as const,
   replacementAllowedMimeTypes: [contractDocumentMimeTypes.docx, contractDocumentMimeTypes.pdf] as const,
 } as const

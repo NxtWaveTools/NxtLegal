@@ -100,12 +100,12 @@ export class ContractUploadService {
     ) {
       throw new AuthorizationError(
         'CONTRACT_UPLOAD_FORBIDDEN',
-        'Only POC, HOD, or LEGAL_TEAM can upload initial contracts'
+        'Only POC, HOD, LEGAL_TEAM, or ADMIN can upload initial contracts'
       )
     }
 
     const isLegalSendForSigning = input.uploadMode === contractUploadModes.legalSendForSigning
-    const isLegalTeamUpload = input.uploadedByRole === 'LEGAL_TEAM'
+    const isLegalOrAdminUpload = input.uploadedByRole === 'LEGAL_TEAM' || input.uploadedByRole === 'ADMIN'
 
     if (input.uploadedByRole === 'POC') {
       const isPocAssignedToDepartment = await this.contractRepository.isPocAssignedToDepartment({
@@ -137,8 +137,11 @@ export class ContractUploadService {
       }
     }
 
-    if (isLegalSendForSigning && !isLegalTeamUpload) {
-      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only LEGAL_TEAM can use send-for-signing upload mode')
+    if (isLegalSendForSigning && !isLegalOrAdminUpload) {
+      throw new AuthorizationError(
+        'CONTRACT_UPLOAD_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can use send-for-signing upload mode'
+      )
     }
 
     if (isLegalSendForSigning && input.bypassHodApproval && !input.bypassReason?.trim()) {
@@ -419,7 +422,7 @@ export class ContractUploadService {
     ) {
       throw new AuthorizationError(
         'CONTRACT_REPLACEMENT_FORBIDDEN',
-        'Only LEGAL_TEAM can replace main contract documents'
+        'Only LEGAL_TEAM or ADMIN can replace main contract documents'
       )
     }
 

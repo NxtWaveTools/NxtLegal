@@ -354,10 +354,17 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     }))
 
     const isLegalSendForSigningMode = parsedForm.data.uploadMode === contractUploadModes.legalSendForSigning
-    if (isLegalSendForSigningMode && session.role !== contractWorkflowRoles.legalTeam) {
-      return NextResponse.json(errorResponse('CONTRACT_UPLOAD_FORBIDDEN', 'Only LEGAL_TEAM can use send for signing'), {
-        status: 403,
-      })
+    if (
+      isLegalSendForSigningMode &&
+      session.role !== contractWorkflowRoles.legalTeam &&
+      session.role !== contractWorkflowRoles.admin
+    ) {
+      return NextResponse.json(
+        errorResponse('CONTRACT_UPLOAD_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can use send for signing'),
+        {
+          status: 403,
+        }
+      )
     }
 
     if (isLegalSendForSigningMode && parsedForm.data.bypassHodApproval && !parsedForm.data.bypassReason?.trim()) {

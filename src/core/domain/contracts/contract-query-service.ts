@@ -589,8 +589,11 @@ export class ContractQueryService {
       throw new AuthorizationError('CONTRACT_LEGAL_METADATA_FORBIDDEN', 'User role is required for legal metadata')
     }
 
-    if (params.actorRole !== contractWorkflowRoles.legalTeam) {
-      throw new AuthorizationError('CONTRACT_LEGAL_METADATA_FORBIDDEN', 'Only LEGAL_TEAM can update legal metadata')
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError(
+        'CONTRACT_LEGAL_METADATA_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can update legal metadata'
+      )
     }
 
     if (!params.actorEmail) {

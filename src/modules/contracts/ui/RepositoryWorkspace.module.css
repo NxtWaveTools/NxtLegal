@@ -49,7 +49,7 @@
 .searchInput:focus,
 .statusSelect:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 24%, transparent);
   outline: none;
 }
 
@@ -423,7 +423,7 @@
 
 .assignedToTrigger:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 24%, transparent);
   outline: none;
 }
 
@@ -580,7 +580,7 @@
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(47, 109, 246, 0.1);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 22%, transparent);
 }
 
 .pageButton:disabled {
@@ -591,13 +591,13 @@
 .primaryButton {
   border-color: var(--color-accent);
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-accent-contrast);
 }
 
 .primaryButton:hover:not(:disabled) {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  box-shadow: 0 4px 12px rgba(47, 109, 246, 0.25);
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
 .empty {

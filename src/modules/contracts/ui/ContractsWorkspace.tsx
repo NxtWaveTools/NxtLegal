@@ -1238,7 +1238,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }
 
   const handleSaveLegalMetadata = async () => {
-    if (!selectedContractId || session.role !== 'LEGAL_TEAM' || isSavingLegalMetadata) {
+    if (
+      !selectedContractId ||
+      (session.role !== contractWorkflowRoles.legalTeam && session.role !== contractWorkflowRoles.admin) ||
+      isSavingLegalMetadata
+    ) {
       return
     }
 
@@ -1657,7 +1661,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     return selectedContract.currentAssigneeEmail?.trim() || '—'
   }, [selectedContract])
   const canManageLegalWorkSharing = useMemo(() => {
-    if (session.role !== 'LEGAL_TEAM') {
+    if (session.role !== contractWorkflowRoles.legalTeam && session.role !== contractWorkflowRoles.admin) {
       return false
     }
 
@@ -1669,7 +1673,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       selectedContract.status as (typeof contractLegalAssignmentEditableStatuses)[number]
     )
   }, [selectedContract, session.role])
-  const canManageLegalMetadata = session.role === 'LEGAL_TEAM'
+  const canManageLegalMetadata =
+    session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.admin
   const selectedContractListRow = useMemo(
     () => contracts.find((contract) => contract.id === selectedContractId) ?? null,
     [contracts, selectedContractId]

@@ -739,7 +739,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   }}
                 />
               ) : null}
-              {session.role === contractWorkflowRoles.legalTeam ? (
+              {session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.admin ? (
                 <DashboardActionCard
                   title="Send for Signing"
                   count={optimisticActiveFilterTotal}

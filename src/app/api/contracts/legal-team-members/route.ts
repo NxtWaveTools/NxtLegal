@@ -11,10 +11,13 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
     }
 
     const normalizedRole = (session.role ?? '').toUpperCase()
-    if (normalizedRole !== 'LEGAL_TEAM') {
-      return NextResponse.json(errorResponse('CONTRACT_ASSIGNMENT_FORBIDDEN', 'Only legal team can access members'), {
-        status: 403,
-      })
+    if (normalizedRole !== 'LEGAL_TEAM' && normalizedRole !== 'ADMIN') {
+      return NextResponse.json(
+        errorResponse('CONTRACT_ASSIGNMENT_FORBIDDEN', 'Only legal team or admin can access members'),
+        {
+          status: 403,
+        }
+      )
     }
 
     const contractQueryService = getContractQueryService()

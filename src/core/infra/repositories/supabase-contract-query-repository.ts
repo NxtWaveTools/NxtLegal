@@ -478,7 +478,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .order('id', { ascending: false })
       .limit(params.limit)
 
-    if (params.role === 'LEGAL_TEAM') {
+    if (params.role === 'LEGAL_TEAM' || params.role === 'ADMIN') {
       query = query.eq('current_assignee_employee_id', params.employeeId)
     }
 
@@ -1195,7 +1195,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
                 .in('id', departmentIds)
                 .is('deleted_at', null)
             : Promise.resolve({ data: [] as Array<{ id: string; name: string }>, error: null }),
-          params.role === 'LEGAL_TEAM'
+          params.role === 'LEGAL_TEAM' || params.role === 'ADMIN'
             ? this.getContractLegalCollaboratorEmailMap(params.tenantId, legacyRowsForPage)
             : this.getContractAssignmentEmailMap(params.tenantId, pageContractIds, legacyRowsForPage),
           legacyRowsHaveLegalMetadata
@@ -1252,7 +1252,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           executedAt: enrichment.executedAtByContractId.get(row.id) ?? null,
           departmentName: row.department_id ? (departmentNameById.get(row.department_id) ?? null) : null,
           assignedToUsers:
-            params.role === 'LEGAL_TEAM'
+            params.role === 'LEGAL_TEAM' || params.role === 'ADMIN'
               ? (assignmentMap.get(row.id) ?? [])
               : (assignmentMap.get(row.id) ?? [row.current_assignee_email]),
         })
@@ -2470,7 +2470,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     })
 
     if (params.actorRole !== 'LEGAL_TEAM' && params.actorRole !== 'ADMIN') {
-      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team can send for signing')
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team or admin can send for signing')
     }
 
     const supabase = createServiceSupabase()
@@ -2956,7 +2956,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     })
 
     if (params.actorRole !== 'LEGAL_TEAM' && params.actorRole !== 'ADMIN') {
-      throw new AuthorizationError('CONTRACT_APPROVER_FORBIDDEN', 'Only legal team can assign additional approvers')
+      throw new AuthorizationError(
+        'CONTRACT_APPROVER_FORBIDDEN',
+        'Only legal team or admin can assign additional approvers'
+      )
     }
 
     const contract = await this.getById(params.tenantId, params.contractId)
@@ -2964,7 +2967,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    if (params.actorRole !== contractWorkflowRoles.legalTeam && contract.status !== contractStatuses.underReview) {
+    if (
+      params.actorRole !== contractWorkflowRoles.legalTeam &&
+      params.actorRole !== contractWorkflowRoles.admin &&
+      contract.status !== contractStatuses.underReview
+    ) {
       throw new BusinessRuleError(
         'APPROVER_ASSIGN_INVALID_STATUS',
         'Additional approvers can only be assigned in UNDER_REVIEW for non-legal-team roles'
@@ -3290,8 +3297,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       actorRole: params.actorRole,
     })
 
-    if (params.actorRole !== contractWorkflowRoles.legalTeam) {
-      throw new AuthorizationError('CONTRACT_LEGAL_METADATA_FORBIDDEN', 'Only LEGAL_TEAM can update legal metadata')
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError(
+        'CONTRACT_LEGAL_METADATA_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can update legal metadata'
+      )
     }
 
     const contract = await this.getById(params.tenantId, params.contractId)
@@ -3567,7 +3577,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     })
 
     if (params.actorRole !== 'LEGAL_TEAM' && params.actorRole !== 'ADMIN') {
-      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team can assign signatories')
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team or admin can assign signatories')
     }
 
     const contract = await this.getById(params.tenantId, params.contractId)
@@ -5580,7 +5590,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     if (
       !contractLegalAssignmentAllowedRoles.includes(actorRole as (typeof contractLegalAssignmentAllowedRoles)[number])
     ) {
-      throw new AuthorizationError('CONTRACT_ASSIGNMENT_FORBIDDEN', 'Only legal team can manage legal assignments')
+      throw new AuthorizationError(
+        'CONTRACT_ASSIGNMENT_FORBIDDEN',
+        'Only legal team or admin can manage legal assignments'
+      )
     }
   }
 
@@ -6144,7 +6157,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const assignmentMap = new Map<string, string[]>()
 
     for (const row of rows) {
-      if (role === 'LEGAL_TEAM') {
+      if (role === 'LEGAL_TEAM' || role === 'ADMIN') {
         const assignmentEmails = [row.current_assignee_email]
         const collaboratorEmails = (row.legal_collaborators ?? [])
           .filter((item) => !item.deleted_at)

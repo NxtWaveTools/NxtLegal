@@ -91,6 +91,22 @@ describe('DashboardClient legal upload action cards', () => {
     expect(screen.getByRole('button', { name: /Send for Signing/i })).toBeTruthy()
   })
 
+  it('shows Send for Signing card for ADMIN users', () => {
+    render(
+      <DashboardClient
+        session={{
+          employeeId: 'admin-1',
+          fullName: 'Admin User',
+          email: 'admin@nxtwave.co.in',
+          role: contractWorkflowRoles.admin,
+        }}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: /Upload Third-Party Contract/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Send for Signing/i })).toBeTruthy()
+  })
+
   it('hides Send for Signing card for non-legal users', () => {
     render(
       <DashboardClient
