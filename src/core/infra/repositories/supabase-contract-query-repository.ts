@@ -577,21 +577,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         const assignedIds = new Set<string>()
 
         const [assigneeResult, collaboratorResult] = await Promise.all([
-          params.role !== 'LEGAL_TEAM'
-            ? (async () => {
-                let assigneeQuery = supabase
-                  .from('contracts_repository_view')
-                  .select('id')
-                  .eq('tenant_id', params.tenantId)
-                  .eq('current_assignee_employee_id', params.employeeId)
+          (async () => {
+            let assigneeQuery = supabase
+              .from('contracts_repository_view')
+              .select('id')
+              .eq('tenant_id', params.tenantId)
+              .eq('current_assignee_employee_id', params.employeeId)
 
-                if (statusFilter) {
-                  assigneeQuery = assigneeQuery.eq('status', statusFilter)
-                }
+            if (statusFilter) {
+              assigneeQuery = assigneeQuery.eq('status', statusFilter)
+            }
 
-                return assigneeQuery
-              })()
-            : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
+            return assigneeQuery
+          })(),
           supabase
             .from('contract_legal_collaborators')
             .select('contract_id')
@@ -866,17 +864,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       // Resolve directly-assigned contracts and legal-collaborator contracts
       // in parallel to avoid sequential round-trips.
       const [assigneeResult, collaboratorResult] = await Promise.all([
-        params.role !== 'LEGAL_TEAM'
-          ? (async () => {
-              let q = supabase
-                .from('contracts_repository_view')
-                .select('id')
-                .eq('tenant_id', params.tenantId)
-                .eq('current_assignee_employee_id', params.employeeId)
-              if (statusFilter) q = q.eq('status', statusFilter)
-              return q
-            })()
-          : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
+        (async () => {
+          let q = supabase
+            .from('contracts_repository_view')
+            .select('id')
+            .eq('tenant_id', params.tenantId)
+            .eq('current_assignee_employee_id', params.employeeId)
+          if (statusFilter) q = q.eq('status', statusFilter)
+          return q
+        })(),
         supabase
           .from('contract_legal_collaborators')
           .select('contract_id')
@@ -5882,26 +5878,22 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const supabase = createServiceSupabase()
     const assignedIds = new Set<string>()
 
-    const shouldIncludeAssignee = role !== 'LEGAL_TEAM'
+    const { data: assigneeRows, error: assigneeError } = await supabase
+      .from('contracts')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .in('id', contractIds)
+      .eq('current_assignee_employee_id', employeeId)
+      .is('deleted_at', null)
 
-    if (shouldIncludeAssignee) {
-      const { data: assigneeRows, error: assigneeError } = await supabase
-        .from('contracts')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .in('id', contractIds)
-        .eq('current_assignee_employee_id', employeeId)
-        .is('deleted_at', null)
+    if (assigneeError) {
+      throw new DatabaseError('Failed to resolve assignee contract set', new Error(assigneeError.message), {
+        code: assigneeError.code,
+      })
+    }
 
-      if (assigneeError) {
-        throw new DatabaseError('Failed to resolve assignee contract set', new Error(assigneeError.message), {
-          code: assigneeError.code,
-        })
-      }
-
-      for (const row of (assigneeRows ?? []) as Array<{ id: string }>) {
-        assignedIds.add(row.id)
-      }
+    for (const row of (assigneeRows ?? []) as Array<{ id: string }>) {
+      assignedIds.add(row.id)
     }
 
     const { data: collaboratorRows, error: collaboratorError } = await supabase

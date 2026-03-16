@@ -22,6 +22,7 @@ const mockContractApprovalNotificationService = {
   notifyApprovalReceived: jest.fn(),
   notifyReturnedToHod: jest.fn(),
   notifyContractRejected: jest.fn(),
+  notifyPocOnHodDecision: jest.fn(),
 }
 
 const mockContractSignatoryService = {
@@ -174,6 +175,88 @@ describe('Contract action route idempotency', () => {
       actorRole: mockSession.role,
       actorEmail: mockSession.email,
       reason: 'Incorrect recipient',
+    })
+  })
+
+  it('notifies POC when HOD approves a contract', async () => {
+    mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
+    mockContractQueryService.applyContractAction.mockResolvedValue({
+      contract: {
+        id: '33333333-3333-3333-3333-333333333333',
+        title: 'MSA',
+        status: 'UNDER_REVIEW',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+        departmentHodEmail: 'hod@nxtwave.co.in',
+      },
+      counterparties: [],
+      documents: [],
+      availableActions: [],
+      additionalApprovers: [],
+      legalCollaborators: [],
+      signatories: [],
+    })
+
+    const response = await POST(
+      {
+        headers: {
+          get: (name: string) => (name === 'Idempotency-Key' ? 'idem-action-4' : null),
+        },
+        json: async () => ({ action: 'hod.approve' }),
+      } as unknown as PostRequestArg,
+      { params: { contractId: '33333333-3333-3333-3333-333333333333' } } as PostContextArg
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockContractApprovalNotificationService.notifyPocOnHodDecision).toHaveBeenCalledWith({
+      tenantId: mockSession.tenantId,
+      contractId: '33333333-3333-3333-3333-333333333333',
+      actorEmployeeId: mockSession.employeeId,
+      actorRole: mockSession.role,
+      pocEmail: 'poc@nxtwave.co.in',
+      decision: 'APPROVED',
+      contractTitle: 'MSA',
+    })
+  })
+
+  it('notifies POC when HOD rejects a contract', async () => {
+    mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
+    mockContractQueryService.applyContractAction.mockResolvedValue({
+      contract: {
+        id: '33333333-3333-3333-3333-333333333333',
+        title: 'MSA',
+        status: 'REJECTED',
+        currentAssigneeEmail: 'hod@nxtwave.co.in',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+        departmentHodEmail: 'hod@nxtwave.co.in',
+      },
+      counterparties: [],
+      documents: [],
+      availableActions: [],
+      additionalApprovers: [],
+      legalCollaborators: [],
+      signatories: [],
+    })
+
+    const response = await POST(
+      {
+        headers: {
+          get: (name: string) => (name === 'Idempotency-Key' ? 'idem-action-5' : null),
+        },
+        json: async () => ({ action: 'hod.reject', noteText: 'Incorrect details' }),
+      } as unknown as PostRequestArg,
+      { params: { contractId: '33333333-3333-3333-3333-333333333333' } } as PostContextArg
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockContractApprovalNotificationService.notifyPocOnHodDecision).toHaveBeenCalledWith({
+      tenantId: mockSession.tenantId,
+      contractId: '33333333-3333-3333-3333-333333333333',
+      actorEmployeeId: mockSession.employeeId,
+      actorRole: mockSession.role,
+      pocEmail: 'poc@nxtwave.co.in',
+      decision: 'REJECTED',
+      contractTitle: 'MSA',
     })
   })
 })

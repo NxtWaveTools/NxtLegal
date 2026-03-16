@@ -420,6 +420,57 @@ export class ContractApprovalNotificationService {
     }
   }
 
+  async notifyPocOnHodDecision(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    pocEmail?: string | null
+    decision: 'APPROVED' | 'REJECTED'
+    contractTitle?: string
+  }): Promise<void> {
+    const recipientEmail = params.pocEmail?.trim().toLowerCase() ?? ''
+    if (!recipientEmail) {
+      return
+    }
+
+    const contractTitle =
+      params.contractTitle?.trim() ||
+      (
+        await this.contractQueryService.getContractDetail({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          employeeId: params.actorEmployeeId,
+          role: params.actorRole,
+        })
+      ).contract.title
+
+    const isApproved = params.decision === 'APPROVED'
+
+    await this.dispatchNotification({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      recipientEmail,
+      subject: `HOD ${isApproved ? 'Approved' : 'Rejected'}: ${contractTitle}`,
+      htmlContent: buildMasterTemplate({
+        title: `HOD ${isApproved ? 'Approved' : 'Rejected'} Your Contract`,
+        greeting: 'Hello Requester,',
+        messageText: `Your contract request "${contractTitle}" was ${isApproved ? 'approved' : 'rejected'} by the HOD.`,
+        buttonText: 'View Contract',
+        buttonLink: this.getContractLink(params.contractId),
+        footerText: isApproved
+          ? 'Legal team will continue processing this contract.'
+          : 'Open the contract to review remarks and next steps.',
+      }),
+      notificationType: isApproved
+        ? contractNotificationTypes.legalApprovalReceivedHod
+        : contractNotificationTypes.legalContractRejected,
+      metadata: {
+        trigger: isApproved ? 'HOD_APPROVED_POC' : 'HOD_REJECTED_POC',
+      },
+    })
+  }
+
   private async dispatchNotification(params: {
     tenantId: string
     contractId: string

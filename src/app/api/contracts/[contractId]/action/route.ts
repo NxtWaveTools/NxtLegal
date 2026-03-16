@@ -120,6 +120,22 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
         payload.action === 'hod.approve' ? 'HOD_APPROVED_ASSIGNMENT' : 'HOD_BYPASS_ASSIGNMENT',
         contractId
       )
+
+      if (payload.action === 'hod.approve') {
+        await dispatchNotificationSafely(
+          contractApprovalNotificationService.notifyPocOnHodDecision({
+            tenantId,
+            contractId,
+            actorEmployeeId: session.employeeId,
+            actorRole: session.role,
+            pocEmail: contractView.contract.uploadedByEmail,
+            decision: 'APPROVED',
+            contractTitle: contractView.contract.title,
+          }),
+          'HOD_APPROVED_POC',
+          contractId
+        )
+      }
     }
 
     if (payload.action !== bypassApprovalActionName && payload.action === 'approver.approve') {
@@ -152,10 +168,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       )
     }
 
-    if (
-      payload.action !== bypassApprovalActionName &&
-      (payload.action === 'legal.reject' || payload.action === 'hod.reject')
-    ) {
+    if (payload.action !== bypassApprovalActionName && payload.action === 'legal.reject') {
       await dispatchNotificationSafely(
         contractApprovalNotificationService.notifyContractRejected({
           tenantId,
@@ -166,9 +179,25 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
             contractView.contract.uploadedByEmail,
             contractView.contract.currentAssigneeEmail || contractView.contract.departmentHodEmail || '',
           ],
-          trigger: payload.action === 'legal.reject' ? 'LEGAL_REJECTION' : 'HOD_REJECTED',
+          trigger: 'LEGAL_REJECTION',
         }),
-        payload.action === 'legal.reject' ? 'LEGAL_REJECTION' : 'HOD_REJECTED',
+        'LEGAL_REJECTION',
+        contractId
+      )
+    }
+
+    if (payload.action !== bypassApprovalActionName && payload.action === 'hod.reject') {
+      await dispatchNotificationSafely(
+        contractApprovalNotificationService.notifyPocOnHodDecision({
+          tenantId,
+          contractId,
+          actorEmployeeId: session.employeeId,
+          actorRole: session.role,
+          pocEmail: contractView.contract.uploadedByEmail,
+          decision: 'REJECTED',
+          contractTitle: contractView.contract.title,
+        }),
+        'HOD_REJECTED_POC',
         contractId
       )
     }
