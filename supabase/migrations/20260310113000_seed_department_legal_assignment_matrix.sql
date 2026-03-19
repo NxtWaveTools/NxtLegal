@@ -5,6 +5,7 @@ WITH mapping_input AS (
     VALUES
       ('PRE- Program Registration Expert', 'Akash Garg'),
       ('Business Operations', 'Vidushi Jha'),
+      ('Sales', 'Akash Garg'),
       ('Finance Operations', 'Pranjal Sharma'),
       ('Product Design', 'Madhur Goyal'),
       ('TA - Operations', 'Madhur Goyal'),

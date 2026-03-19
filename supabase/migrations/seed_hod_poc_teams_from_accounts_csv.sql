@@ -28,7 +28,8 @@ BEGIN
   INSERT INTO tmp_hod_poc_seed (team_name, hod_name, hod_email, poc_name, poc_email)
   VALUES
     ('PRE- Program Registration Expert', 'Anil Kuman Ganguri', 'anil@nxtwave.tech', 'Romya Agarwal', 'romya.agarwal@nxtwave.co.in'),
-    ('Business Operations', 'Shivam Singh', 'shivam.singh@nxtwave.tech', 'Hemanth Pidugu', 'hemanth.pidugu@nxtwave.tech'),
+    ('Business Operations', 'Shivam Singh', 'shivam.singh@nxtwave.tech', 'Vineel Kumar Erninti', 'vineelkumar.erninti@nxtwave.co.in'),
+    ('Sales', 'Sumanth Reddy', 'sumanth@nxtwave.tech', 'Hemanth Pidugu', 'hemanth.pidugu@nxtwave.tech'),
     ('Finance Operations', 'Akhilesh Jhawar', 'akhilesh.jhawar@nxtwave.in', 'Hemanth Kothuru', 'hemanth.kothuru@nxtwave.co.in'),
     ('Product Design', 'Aman Maheshwari', 'aman.maheshwari@nxtwave.co.in', 'Nandigam Sivani Sanjana', 'nandigam.sivanisanjana@nxtwave.co.in'),
     ('TA - Operations', 'Hari Haran Gorijavola', 'hari@nxtwave.tech', 'Mohammad Arifulla Gori', 'arifulla.mohammad@nxtwave.co.in'),
